@@ -3,6 +3,7 @@
 #include "NL/nlConfig.h"
 #include "NL/glx/glxMemory.h"
 #include "port/overlay.h"   // PORT: PortGfxArenaStats
+#include <stdlib.h>
 #include <string.h>
 #include <stdint.h>
 
@@ -92,6 +93,15 @@ void glx_FreeMemory0()
  */
 void glx_FreeMemory1(const char* filename)
 {
+#if defined(STRIKERS_VITA)
+    const u32 freeNow = ResourceMemSize > n_phys ? ResourceMemSize - n_phys : 0;
+    const u32 consumed = glx_mem0 > freeNow ? glx_mem0 - freeNow : 0;
+    OSReport("[gfxmem] bundle %s: +%u KB, used=%u/%u KB, free=%u KB\n",
+             filename != NULL ? filename : "?", consumed >> 10, n_phys >> 10,
+             ResourceMemSize >> 10, freeNow >> 10);
+#else
+    (void)filename;
+#endif
 }
 
 static u32 GetFromConfig(const char* szConfigString, u32 uDefault)
@@ -113,8 +123,33 @@ bool glxInitMemory()
     const char* szResourceKey = bDeveloper ? "e3 resource total memory" : "resource total memory";
 
     ResourceMemSize = GetFromConfig(szResourceKey, ResourceMemSize);
+    // PORT: the desktop port needs a large multiplier for widened host-side
+    // structures. Vita is 32-bit again, but the PAL global texture bundle plus
+    // the permanent GL targets already exceed the retail 12 MiB arena. Keep a
+    // dedicated 24 MiB resource pool while leaving the per-frame pools at their
+    // native 32-bit sizes. strikers.ini can override this as
+    // `gfx_resource_mb=<n>` for hardware profiling without another build.
+#if defined(STRIKERS_VITA)
+    {
+        u32 vitaResourceSize = MB(24);
+        const char* overrideMb = getenv("STRIKERS_GFX_RESOURCE_MB");
+        if (overrideMb != NULL && *overrideMb != '\0')
+        {
+            const unsigned long mb = strtoul(overrideMb, NULL, 10);
+            if (mb >= 14 && mb <= 32)
+                vitaResourceSize = (u32)mb * MB(1);
+            else
+                OSReport("[gfxmem] ignoring STRIKERS_GFX_RESOURCE_MB=%s (expected 14..32)\n",
+                         overrideMb);
+        }
+        if (ResourceMemSize < vitaResourceSize)
+            ResourceMemSize = vitaResourceSize;
+        OSReport("[gfxmem] Vita resource arena: %u KB\n", ResourceMemSize >> 10);
+    }
+#else
     // PORT: see the note on, host structures are wider.
     ResourceMemSize *= PORT_GFX_ARENA_SCALE;
+#endif
 
     uintptr_t pMem = (uintptr_t)nlMalloc(ResourceMemSize, 32, false);
     if (pMem == 0)
@@ -309,16 +344,18 @@ void* glplatResourceAlloc(unsigned long size, eGLMemory memType)
     uintptr_t base = p_phys;
     // PORT: mask in pointer width, ~0x1FU would clear the top half.
     uintptr_t aligned = (base + n_phys + 0x1F) & ~(uintptr_t)0x1F;
-    n_phys = size + (aligned - base);
-    if (n_phys > ResourceMemSize)
+    const u32 newUsed = (u32)(size + (aligned - base));
+    if (newUsed > ResourceMemSize)
     {
         OSReport("out of resource memory (%s)\n", szMemoryNames[memType]);
         // PORT: the arena is one bump pointer, so the type that trips it is not the type that filled it.
-        OSReport("[gfxmem] failing request: %u bytes (%u KB) of %s\n",
-                 (u32)size, (u32)(size >> 10), szMemoryNames[memType]);
+        OSReport("[gfxmem] failing request: %u bytes (%u KB) of %s; used=%u KB required=%u KB budget=%u KB\n",
+                 (u32)size, (u32)(size >> 10), szMemoryNames[memType], n_phys >> 10,
+                 newUsed >> 10, ResourceMemSize >> 10);
         port_ReportResourceArena("exhausted");
         nlBreak();
     }
+    n_phys = newUsed;
     g_uResourceAlloc[g_uResourceMarker].m_uBytes[memType] += size;
     return (void*)aligned;
 }
