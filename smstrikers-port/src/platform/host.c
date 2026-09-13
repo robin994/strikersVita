@@ -2,7 +2,117 @@
 
 #include "port/host.h"
 
-#if defined(_WIN32)
+#if defined(STRIKERS_VITA)
+
+#include <malloc.h>
+#include <stdlib.h>
+#include <string.h>
+#include <psp2/io/dirent.h>
+#include <psp2/io/fcntl.h>
+#include <psp2/io/stat.h>
+#include <psp2/kernel/processmgr.h>
+#include <psp2/kernel/threadmgr.h>
+
+unsigned long long port_monotonic_ns(void)
+{
+    return (unsigned long long)sceKernelGetProcessTimeWide() * 1000ull;
+}
+
+void port_sleep_ns(unsigned long long ns)
+{
+    unsigned long long us = (ns + 999ull) / 1000ull;
+    if (us > 0xFFFFFFFFull)
+        us = 0xFFFFFFFFull;
+    sceKernelDelayThread((unsigned int)us);
+}
+
+void port_yield(void)
+{
+    sceKernelDelayThread(0);
+}
+
+void* port_aligned_alloc(size_t alignment, size_t size)
+{
+    if (alignment < sizeof(void*))
+        alignment = sizeof(void*);
+    if ((alignment & (alignment - 1)) != 0)
+        return NULL;
+
+    const size_t payload = size ? size : 1;
+    if (payload > SIZE_MAX - alignment - sizeof(void*))
+        return NULL;
+
+    void* base = malloc(payload + alignment - 1 + sizeof(void*));
+    if (base == NULL)
+        return NULL;
+
+    uintptr_t raw = (uintptr_t)base + sizeof(void*);
+    uintptr_t aligned = (raw + alignment - 1) & ~(uintptr_t)(alignment - 1);
+    ((void**)aligned)[-1] = base;
+    return (void*)aligned;
+}
+
+void port_aligned_free(void* ptr)
+{
+    if (ptr != NULL)
+        free(((void**)ptr)[-1]);
+}
+
+int port_localtime(time_t when, struct tm* out)
+{
+    struct tm* value = localtime(&when);
+    if (value == NULL || out == NULL)
+        return -1;
+    *out = *value;
+    return 0;
+}
+
+int port_executable_dir(char* buf, size_t size)
+{
+    static const char path[] = "ux0:data/strikersVita";
+    if (size < sizeof path)
+        return -1;
+    sceIoMkdir("ux0:data/strikersVita", 0777);
+    memcpy(buf, path, sizeof path);
+    return 0;
+}
+
+int port_scan_dir(const char* path,
+                  void (*visit)(void* user, const char* name),
+                  void* user)
+{
+    SceUID dir = sceIoDopen(path);
+    if (dir < 0)
+        return -1;
+    SceIoDirent entry;
+    memset(&entry, 0, sizeof entry);
+    while (sceIoDread(dir, &entry) > 0)
+    {
+        if (entry.d_name[0] != '\0' && strcmp(entry.d_name, ".") != 0 && strcmp(entry.d_name, "..") != 0)
+            visit(user, entry.d_name);
+        memset(&entry, 0, sizeof entry);
+    }
+    sceIoDclose(dir);
+    return 0;
+}
+
+int port_setenv_default(const char* name, const char* value)
+{
+    if (getenv(name) != NULL)
+        return 1;
+    return setenv(name, value, 0) == 0 ? 0 : -1;
+}
+
+int port_run_wait(const char* exe, const char* const* args, int* exitCode)
+{
+    (void)exe;
+    (void)args;
+    if (exitCode != NULL)
+        *exitCode = -1;
+    return -1;
+}
+
+#elif defined(_WIN32)
 
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX

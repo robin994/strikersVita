@@ -5,19 +5,28 @@
 #include "Game/main.h"
 
 #if defined(PORT_USE_AURORA)
+#if defined(PORT_VITA)
+#include <aurora_vita_backend.hpp>
+#include <psp2/ctrl.h>
+#include <psp2/kernel/processmgr.h>
+#include <SDL3/SDL_events.h>
+#else
 #include <aurora/aurora.h>
+#endif
 #include <dolphin/gx/GXAurora.h>   // AuroraSetViewportPolicy
 #include <dolphin/vi.h>                // VILockAspectRatio
 #include "port/aspect.h"
 #include "port/framerate.h"
-#if defined(PORT_USE_AURORA)
+#if !defined(PORT_VITA)
 #include <SDL3/SDL_video.h>
 #endif
 #include "port/overlay.h"
 extern "C" void PortDebugFrame(void);   // PORT: defined in Game.cpp
 #include "port/launch.h"
+#if !defined(PORT_VITA)
 #include <aurora/main.h>   // #define main aurora_main
 #include <aurora/event.h>
+#endif
 #include <stdio.h>   // PORT: snprintf
 #endif
 #include "port/benchmark.h"
@@ -562,6 +571,11 @@ static float PortEnvFloat(const char* name, float fallback)
 // STRIKERS_CAPTURE writes a frame as a binary PPM; Aurora records the readback on the frame's own command encoder.
 static void PortMaybeRequestCapture()
 {
+#if defined(PORT_VITA)
+    // Vita capture is intentionally disabled during bring-up. The renderer has
+    // its own frame tracing/telemetry and no desktop readback path is present.
+    return;
+#else
     const char* capturePath = getenv("STRIKERS_CAPTURE");
     if (capturePath == NULL)
         return;
@@ -573,10 +587,14 @@ static void PortMaybeRequestCapture()
 
     OSReport("requesting capture of frame %lu to %s\n", which, capturePath);
     aurora_capture_frame(capturePath);
+#endif
 }
 
 static void PortRequestManualShot()
 {
+#if defined(PORT_VITA)
+    return;
+#else
     static unsigned long s_shotIndex;
     static char s_shotPath[1024];
 
@@ -596,11 +614,19 @@ static void PortRequestManualShot()
              dir, s_shotIndex++);
     OSReport("[shot] frame %lu -> %s\n", s_portFrame, s_shotPath);
     aurora_capture_frame(s_shotPath);
+#endif
 }
 
 // PORT: keep the picture the shape of the window; idempotent, because everything below the generation test is skipped unless the shape actually moved.
 static void PortFollowWindowShape()
 {
+#if defined(PORT_VITA)
+    const unsigned int gen = PortAspectGeneration();
+    PortFollowRenderScale(544);
+    PortSetWindowAspect(960, 544);
+    if (PortAspectGeneration() != gen)
+        PortApplyAspectChange();
+#else
     const AuroraWindowSize ws = aurora_window_size();
     const unsigned int gen = PortAspectGeneration();
 
@@ -612,12 +638,18 @@ static void PortFollowWindowShape()
 
     PortApplyAspectChange();
     aurora_apply_frame_buffer_resize();
+#endif
 }
 
+#if !defined(PORT_VITA)
 static SDL_Window* s_portWindow;
+#endif
 
 static void PortFollowDisplayRefresh()
 {
+#if defined(PORT_VITA)
+    PortSetDisplayRefresh(60.0, 1);
+#else
     if (s_portWindow == NULL)
         return;
     const SDL_DisplayMode* mode =
@@ -625,10 +657,22 @@ static void PortFollowDisplayRefresh()
     int vsync = 0;
     PortFrameLimitInfo(NULL, NULL, &vsync, NULL);
     PortSetDisplayRefresh(mode != NULL ? (double)mode->refresh_rate : 0.0, vsync);
+#endif
 }
 
 static void PortPumpAuroraEvents()
 {
+#if defined(PORT_VITA)
+    SDL_PumpEvents();
+    PortFollowWindowShape();
+    SceCtrlData pad = {};
+    if (sceCtrlPeekBufferPositive(0, &pad, 1) > 0
+        && (pad.buttons & (SCE_CTRL_START | SCE_CTRL_SELECT))
+            == (SCE_CTRL_START | SCE_CTRL_SELECT))
+    {
+        s_portRunning = false;
+    }
+#else
     // PORT: polled rather than waited for; the event below is only the fast path.
     PortFollowWindowShape();
 
@@ -670,6 +714,7 @@ static void PortPumpAuroraEvents()
             PortFollowDisplayRefresh();
         }
     }
+#endif
 }
 #endif
 
@@ -684,6 +729,32 @@ int main(int argc, char* argv[])
     }
 
 #if defined(PORT_USE_AURORA)
+#if defined(PORT_VITA)
+    {
+        sceCtrlSetSamplingMode(SCE_CTRL_MODE_ANALOG);
+        aurora::vita::BackendConfig cfg = {};
+        cfg.vgl_legacy_pool_size = 0;
+        cfg.vgl_ram_threshold = 16 * 1024 * 1024;
+        cfg.texture_cache_budget = 24 * 1024 * 1024;
+        cfg.wait_vblank = true;
+        cfg.diagnostics = true;
+        cfg.strict_unsupported = false;
+        cfg.diagnostics_period_frames = 300;
+        cfg.telemetry_log_path = "ux0:data/strikersVita/aurora_telemetry.log";
+        cfg.coverage_log_path = "ux0:data/strikersVita/aurora_coverage.log";
+        cfg.trace_log_path = "ux0:data/strikersVita/aurora_trace.log";
+        if (!aurora::vita::initialize(cfg))
+        {
+            OSReport("[vita] Aurora backend init failed: %u %s\n",
+                     (unsigned int)aurora::vita::last_init_failure(),
+                     aurora::vita::last_init_failure_detail());
+            return 1;
+        }
+        PortSetWindowAspect(960, 544);
+        PortSetDisplayRefresh(60.0, 1);
+        VILockAspectRatio((int)(PortTargetAspect() * 10000.0f), 10000);
+    }
+#else
     {
         AuroraConfig cfg = {};
         cfg.appName = "Super Mario Strikers";
@@ -802,6 +873,7 @@ int main(int argc, char* argv[])
         // Aurora's PAD reads SDL gamepads and reports PAD_ERR_NO_CONTROLLER when there is neither a gamepad nor a keyboard binding.
         PortInstallKeyboardBindings();
     }
+#endif
 #else
     (void)argc;
     (void)argv;
@@ -835,7 +907,11 @@ int main(int argc, char* argv[])
         PortUpdateSyntheticInput(s_portFrame);
         PortDebugFrame();
 
+#if defined(PORT_VITA)
+        if (!aurora::vita::begin_frame())
+#else
         if (!aurora_begin_frame())
+#endif
             continue;              // minimised or surface lost; nothing to draw
 
         PortBenchFrameBegin();
@@ -870,7 +946,11 @@ int main(int argc, char* argv[])
                 PortRequestManualShot();
             }
         }
+#if defined(PORT_VITA)
+        aurora::vita::end_frame();
+#else
         aurora_end_frame();
+#endif
         PortBenchFrameEnd();
         s_portFrame++;
 
@@ -891,7 +971,12 @@ int main(int argc, char* argv[])
         }
     }
     PortBenchReport();
+#if defined(PORT_VITA)
+    aurora::vita::shutdown();
+    sceKernelExitProcess(0);
+#else
     aurora_shutdown();
+#endif
     return 0;
 #else
     for (;;)

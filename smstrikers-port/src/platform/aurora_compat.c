@@ -98,7 +98,7 @@ void SISetSamplingRate(u32 samplingRate)
     s_sampling_rate = samplingRate;
 }
 
-
+#if !defined(PORT_VITA)
 static PADSamplingCallback s_pad_sampling_cb;
 
 PADSamplingCallback PADSetSamplingCallback(PADSamplingCallback callback)
@@ -113,6 +113,7 @@ void PortInvokePadSamplingCallback(void)
     if (s_pad_sampling_cb)
         s_pad_sampling_cb();
 }
+#endif
 
 
 #endif // PORT_USE_AURORA

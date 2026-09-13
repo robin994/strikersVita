@@ -12,17 +12,26 @@
 
 // A synthetic range: the game compares against the arena bounds and never dereferences them.
 
+#if defined(STRIKERS_VITA)
+#define PORT_ARENA_SIZE (48u * 1024u * 1024u)
+#else
 #define PORT_ARENA_SIZE (192u * 1024u * 1024u)
+#endif
 
 #if defined(PORT_USE_AURORA)
 // Aurora's SDK headers reach the console's low-memory globals as offsets from OSBaseAddress.
 #define PORT_MEM1_SIZE (24u * 1024u * 1024u)   // retail MEM1
+#if defined(STRIKERS_VITA)
+#define PORT_MEM1_HOST_ALLOC (64u * 1024u)
+#else
+#define PORT_MEM1_HOST_ALLOC PORT_MEM1_SIZE
+#endif
 
 uintptr_t OSBaseAddress = 0;
 
 __attribute__((constructor)) static void port_init_mem1(void)
 {
-    void* mem1 = calloc(1, PORT_MEM1_SIZE);
+    void* mem1 = calloc(1, PORT_MEM1_HOST_ALLOC);
     if (mem1 == NULL)
         return;
     OSBaseAddress = (uintptr_t)mem1;

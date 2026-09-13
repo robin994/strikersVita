@@ -7,8 +7,11 @@
 #include <new>
 
 #include "NL/MemAlloc.h"
+#include "port/host.h"
 
-#if defined(_WIN32)
+#if defined(STRIKERS_VITA)
+#include <malloc.h>
+#elif defined(_WIN32)
 #include <windows.h>
 #else
 #include <sys/mman.h>
@@ -18,7 +21,11 @@ namespace
 {
 
 // Address space, committed by the OS on first touch; nothing here is returned to the OS.
+#if defined(STRIKERS_VITA)
+const std::size_t kRegionSize = 112u * 1024u * 1024u;
+#else
 const std::size_t kRegionSize = 768u * 1024u * 1024u;
+#endif
 
 // At least the largest alignment any caller asks for, so the payload never runs over the header.
 const std::size_t kHeaderSize = 32;
@@ -39,7 +46,9 @@ bool region_init()
 {
     if (s_region != nullptr)
         return true;
-#if defined(_WIN32)
+#if defined(STRIKERS_VITA)
+    void* p = port_aligned_alloc(4096, kRegionSize);
+#elif defined(_WIN32)
     void* p = VirtualAlloc(nullptr, kRegionSize, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
 #else
     void* p =

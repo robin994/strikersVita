@@ -1,7 +1,7 @@
 // What the keyboard and a gamepad are bound to, and where a person changes it.
 
 // Everything below needs Aurora.
-#if !defined(PORT_USE_AURORA)
+#if !defined(PORT_USE_AURORA) || defined(PORT_VITA)
 
 extern "C" void PortInstallKeyboardBindings(void) {}
 extern "C" void PortNoteSceneEntered(int scene) { (void)scene; }

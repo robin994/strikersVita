@@ -20,7 +20,11 @@ static VMLogStatsCallback s_log_cb;
 // nlMemory.cpp asks for 9 MB, what the console reserved at 0x7E000000; but there the window was
 // demand-paged, the MMU evicting to ARAM and re-reading from disc as the match moved. Nothing here
 // does.
+#if defined(STRIKERS_VITA)
+#define PORT_VM_MIN_SIZE (48u * 1024u * 1024u)
+#else
 #define PORT_VM_MIN_SIZE (128u * 1024u * 1024u)
+#endif
 
 void VMInit(uintptr_t baseAddr, size_t initialCommitSize, uintptr_t limitAddr)
 {

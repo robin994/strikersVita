@@ -1,33 +1,20 @@
-// Controller input placeholder: port 0 reports a pad at neutral, ports 1-3 report none.
+// Native pad for Vita; neutral placeholder on other non-Aurora hosts.
 
 #include <string.h>
 
-#include "dolphin/types.h"
+#include "dolphin/pad.h"
 
-#define PAD_CHANMAX 4
-#define PAD_ERR_NONE 0
-#define PAD_ERR_NO_CONTROLLER (-1)
-
-typedef struct PADStatus
-{
-    u16 button;
-    s8 stickX;
-    s8 stickY;
-    s8 substickX;
-    s8 substickY;
-    u8 triggerLeft;
-    u8 triggerRight;
-    u8 analogA;
-    u8 analogB;
-    s8 err;
-} PADStatus;
-
-typedef void (*PADSamplingCallback)(void);
+#if defined(STRIKERS_VITA)
+#include <psp2/ctrl.h>
+#endif
 
 static PADSamplingCallback s_sampling_cb;
 
 BOOL PADInit(void)
 {
+#if defined(STRIKERS_VITA)
+    sceCtrlSetSamplingMode(SCE_CTRL_MODE_ANALOG);
+#endif
     return TRUE;
 }
 
@@ -41,11 +28,42 @@ u32 PADRead(PADStatus* status)
 {
     if (status == NULL)
         return 0;
-    memset(status, 0, sizeof(PADStatus) * PAD_CHANMAX);
+    memset(status, 0, sizeof(PADStatus) * PAD_MAX_CONTROLLERS);
 
     status[0].err = PAD_ERR_NONE;
-    for (int i = 1; i < PAD_CHANMAX; i++)
+    for (int i = 1; i < PAD_MAX_CONTROLLERS; i++)
         status[i].err = PAD_ERR_NO_CONTROLLER;
+
+#if defined(STRIKERS_VITA)
+    SceCtrlData pad;
+    memset(&pad, 0, sizeof pad);
+    if (sceCtrlPeekBufferPositive(0, &pad, 1) > 0)
+    {
+        u16 b = 0;
+        if (pad.buttons & SCE_CTRL_LEFT) b |= PAD_BUTTON_LEFT;
+        if (pad.buttons & SCE_CTRL_RIGHT) b |= PAD_BUTTON_RIGHT;
+        if (pad.buttons & SCE_CTRL_DOWN) b |= PAD_BUTTON_DOWN;
+        if (pad.buttons & SCE_CTRL_UP) b |= PAD_BUTTON_UP;
+        if (pad.buttons & SCE_CTRL_CROSS) b |= PAD_BUTTON_A;
+        if (pad.buttons & SCE_CTRL_CIRCLE) b |= PAD_BUTTON_B;
+        if (pad.buttons & SCE_CTRL_SQUARE) b |= PAD_BUTTON_X;
+        if (pad.buttons & SCE_CTRL_TRIANGLE) b |= PAD_BUTTON_Y;
+        if (pad.buttons & SCE_CTRL_LTRIGGER) b |= PAD_TRIGGER_L;
+        if (pad.buttons & SCE_CTRL_RTRIGGER) b |= PAD_TRIGGER_R;
+        if (pad.buttons & SCE_CTRL_SELECT) b |= PAD_TRIGGER_Z;
+        if (pad.buttons & SCE_CTRL_START) b |= PAD_BUTTON_START;
+
+        status[0].button = b;
+        status[0].stickX = (s8)((int)pad.lx - 128);
+        status[0].stickY = (s8)(127 - (int)pad.ly);
+        status[0].substickX = (s8)((int)pad.rx - 128);
+        status[0].substickY = (s8)(127 - (int)pad.ry);
+        status[0].triggerLeft = (pad.buttons & SCE_CTRL_LTRIGGER) ? 255 : 0;
+        status[0].triggerRight = (pad.buttons & SCE_CTRL_RTRIGGER) ? 255 : 0;
+        status[0].analogA = (pad.buttons & SCE_CTRL_CROSS) ? 255 : 0;
+        status[0].analogB = (pad.buttons & SCE_CTRL_CIRCLE) ? 255 : 0;
+    }
+#endif
 
     // Bitmask of ports whose read failed.
     return 0;
@@ -53,11 +71,11 @@ u32 PADRead(PADStatus* status)
 
 void PADClampCircle(PADStatus* status)
 {
-    // Nothing to clamp while every stick reads neutral.
+    // The Vita analog range already fits the signed GameCube range.
     (void)status;
 }
 
-void PADControlMotor(s32 chan, u32 command)
+void PADControlMotor(u32 chan, u32 command)
 {
     (void)chan;
     (void)command;
@@ -68,4 +86,10 @@ PADSamplingCallback PADSetSamplingCallback(PADSamplingCallback callback)
     PADSamplingCallback prev = s_sampling_cb;
     s_sampling_cb = callback;
     return prev;
+}
+
+void PortInvokePadSamplingCallback(void)
+{
+    if (s_sampling_cb)
+        s_sampling_cb();
 }
