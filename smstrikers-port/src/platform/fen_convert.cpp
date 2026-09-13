@@ -238,6 +238,34 @@ void edge(Ctx* c, u32 base, u32 fieldOff, int kind)
     discover(c, slot, rd32(c, slot), kind);
 }
 
+// FEPackage's three root pointers are required to enter the graph.  Retail
+// packages seen on hardware do not consistently list these root slots in the
+// relocation table even though their values are ordinary blob-relative
+// offsets.  Treat only these known schema fields as authoritative; all nested
+// edges remain relocation-driven so random payload words cannot become
+// pointers merely because they look like an in-range offset.
+void edgePackageRoot(Ctx* c, u32 base, u32 fieldOff, int kind)
+{
+    const u32 slot = base + fieldOff;
+    if (!rangeValid(c, slot, sizeof(u32)) || (slot & 3u) != 0)
+    {
+        fail(c, "package root slot outside/alignment-invalid", slot, kNullOffset, kind);
+        return;
+    }
+
+    const u32 target = rd32(c, slot);
+    if (target == kNullOffset)
+        return;
+    if (target >= c->blobLen || (target & 3u) != 0)
+    {
+        fail(c, target >= c->blobLen ? "package root target outside blob"
+                                     : "package root target is not word aligned",
+             slot, target, kind);
+        return;
+    }
+    discover(c, slot, target, kind);
+}
+
 void edgeInstance(Ctx* c, u32 base, u32 fieldOff)
 {
     u32 slot = base + fieldOff;
@@ -294,9 +322,23 @@ void expand(Ctx* c, u32 index)
     {
     case K_PACKAGE:
         // +0x00 m_pComponentList is always literal 0 and never relocated.
-        edge(c, b, 0x04, K_PRESENTATION);
-        edgeResource(c, b, 0x08);
-        edgeLibObj(c, b, 0x0C);
+        edgePackageRoot(c, b, 0x04, K_PRESENTATION);
+        {
+            const u32 slot = b + 0x08;
+            const u32 target = rd32(c, slot);
+            if (target != kNullOffset && rangeValid(c, target, 0x08 + sizeof(u32)))
+                edgePackageRoot(c, b, 0x08, kindOfResource(c, target));
+            else if (target != kNullOffset)
+                fail(c, "package resource root target truncated", slot, target, K_TEXRES);
+        }
+        {
+            const u32 slot = b + 0x0C;
+            const u32 target = rd32(c, slot);
+            if (target != kNullOffset && rangeValid(c, target, 0x64 + sizeof(u32)))
+                edgePackageRoot(c, b, 0x0C, kindOfLibObj(c, target));
+            else if (target != kNullOffset)
+                fail(c, "package library root target truncated", slot, target, K_LIBOBJ);
+        }
         break;
 
     case K_PRESENTATION:
@@ -374,7 +416,7 @@ void expand(Ctx* c, u32 index)
 
 void* resolve(Ctx* c, u32 slotOff)
 {
-    if (!isRelocSlot(c, slotOff))
+    if (!rangeValid(c, slotOff, sizeof(u32)) || (slotOff & 3u) != 0)
         return nullptr;
     u32 target = rd32(c, slotOff);
     if (target == kNullOffset)
