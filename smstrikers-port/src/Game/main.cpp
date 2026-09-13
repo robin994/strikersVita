@@ -142,7 +142,10 @@ extern "C" {
 // Reserve a large newlib heap now that ATTRIBUTE2 grants the title the
 // extended Vita user-memory budget. This is consumed by newlib malloc/free;
 // the game's own 96 MiB memblock allocator remains independently bounded.
-unsigned int _newlib_heap_size_user = 256u * 1024u * 1024u;
+// Keep this at VitaSDK's normal 128 MiB: the application also reserves a
+// separate 96 MiB USER_RW memblock for the GameCube VM/standard allocators.
+// A 256 MiB newlib heap starves that memblock before main() even starts.
+unsigned int _newlib_heap_size_user = 128u * 1024u * 1024u;
 }
 #endif
 
