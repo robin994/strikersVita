@@ -107,7 +107,7 @@ bool IsSFXPlaying(unsigned long uVoiceID)
 /**
  * Offset/Address/Size: 0x38 | 0x801C4834 | size: 0xC0
  */
-void PlatAudio::InitEmitter(unsigned long index)
+void InitEmitter(unsigned long index)
 {
     gEmitters[index].bKeepTrack = true;
     gEmitters[index].soundType = (unsigned long)-1;
