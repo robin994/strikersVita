@@ -1,17 +1,27 @@
 cmake_minimum_required(VERSION 3.24)
 project(smstrikers-port CXX C)
 
+if(VITA)
+    set(STRIKERS_VITA ON)
+else()
+    set(STRIKERS_VITA OFF)
+endif()
+
 # Super Mario Strikers, native port Targets macOS (arm64 and x86_64) first, but nothing here is
 # Darwin-specific: the platform surface is confined to src/platform/ and to Aurora, both of which
 # already cover Windows and Linux.
 
-set(CMAKE_CXX_STANDARD 11)
+if(STRIKERS_VITA)
+    set(CMAKE_CXX_STANDARD 20)
+else()
+    set(CMAKE_CXX_STANDARD 11)
+endif()
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_C_STANDARD 99)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 # Toolchain contract: clang, on every platform.
-if(NOT CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+if(NOT STRIKERS_VITA AND NOT CMAKE_CXX_COMPILER_ID MATCHES "Clang")
     message(FATAL_ERROR
         "This port requires clang (found ${CMAKE_CXX_COMPILER_ID}). "
         "See the toolchain contract in CMakeLists.txt.")
@@ -36,15 +46,25 @@ option(STRIKERS_AURORA "Build against Aurora (real GX/PAD/CARD/DVD)" ON)
 # include/msl links only the Metrowerks headers whose names do not collide with host ones, so
 # <stdio.h>, <math.h> and the rest resolve to the host.
 set(PORT_INCLUDES
-    # Ahead of Aurora: forwards only dolphin/mtx.h back to the decomp's, which has the paired-single
-    # entry points Aurora lacks.
-    $<$<BOOL:${STRIKERS_AURORA}>:${CMAKE_CURRENT_SOURCE_DIR}/include/port/aurora-overlay>
-    $<$<BOOL:${STRIKERS_AURORA}>:${CMAKE_CURRENT_SOURCE_DIR}/extern/aurora/include>
     "${CMAKE_CURRENT_SOURCE_DIR}/include"
     "${CMAKE_CURRENT_SOURCE_DIR}/include/msl"
     "${CMAKE_CURRENT_SOURCE_DIR}/src"
     "${CMAKE_CURRENT_SOURCE_DIR}/extern/musyx/include"
 )
+if(STRIKERS_AURORA AND NOT STRIKERS_VITA)
+    list(PREPEND PORT_INCLUDES
+        "${CMAKE_CURRENT_SOURCE_DIR}/include/port/aurora-overlay"
+        "${CMAKE_CURRENT_SOURCE_DIR}/extern/aurora/include")
+endif()
+if(STRIKERS_VITA)
+    list(PREPEND PORT_INCLUDES
+        "${CMAKE_CURRENT_SOURCE_DIR}/include/port/aurora-overlay"
+        "${CMAKE_CURRENT_SOURCE_DIR}/extern/aurora-vita/include")
+    list(APPEND PORT_INCLUDES
+        "${CMAKE_CURRENT_SOURCE_DIR}/extern/aurora-vita/platforms/vita"
+        "${CMAKE_CURRENT_SOURCE_DIR}/extern/aurora-vita/platforms/vita/gfx"
+        "${CMAKE_CURRENT_SOURCE_DIR}/extern/aurora-vita/platforms/vita/integration")
+endif()
 
 # The build type, as a string, so a measurement can say which build produced it.
 if(CMAKE_BUILD_TYPE)
@@ -73,8 +93,13 @@ set(PORT_DEFINES
     MUSY_VERSION_MAJOR=2
     MUSY_VERSION_MINOR=0
     MUSY_VERSION_PATCH=3
-    $<$<BOOL:${STRIKERS_AURORA}>:PORT_USE_AURORA=1>
 )
+if(STRIKERS_AURORA)
+    list(APPEND PORT_DEFINES PORT_USE_AURORA=1)
+endif()
+if(STRIKERS_VITA)
+    list(APPEND PORT_DEFINES STRIKERS_VITA=1 PORT_VITA=1)
+endif()
 
 if(MSVC AND STRIKERS_AURORA)
     # Aurora's Windows Dawn package contains only a Release archive, so its C++ ABI is /MT with
@@ -82,7 +107,7 @@ if(MSVC AND STRIKERS_AURORA)
     add_compile_definitions(_ITERATOR_DEBUG_LEVEL=0)
 endif()
 
-if(STRIKERS_AURORA)
+if(STRIKERS_AURORA AND NOT STRIKERS_VITA)
     # OFF: src/platform/dvd.c provides DVD, reading an extracted disc directory rather than a disc
     # image.
     set(AURORA_ENABLE_DVD   OFF CACHE BOOL "" FORCE)
@@ -149,11 +174,67 @@ int main() { std::jthread t([](std::stop_token) {}); }
     add_subdirectory(extern/aurora EXCLUDE_FROM_ALL)
 endif()
 
+if(STRIKERS_AURORA AND STRIKERS_VITA)
+    set(AURORA_VITA_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/extern/aurora-vita")
+    set(AURORA_VITA_BACKEND_SOURCES
+        "${AURORA_VITA_ROOT}/platforms/vita/aurora_vita_backend.cpp"
+        "${AURORA_VITA_ROOT}/platforms/vita/gx/aurora_vita_draw_sink.cpp"
+        "${AURORA_VITA_ROOT}/platforms/vita/integration/vita_feature_coverage.cpp"
+        "${AURORA_VITA_ROOT}/platforms/vita/integration/vita_frame_trace.cpp"
+        "${AURORA_VITA_ROOT}/platforms/vita/integration/vita_fifo_packet_queue.cpp"
+        "${AURORA_VITA_ROOT}/platforms/vita/integration/vita_gx_capture.cpp"
+        "${AURORA_VITA_ROOT}/platforms/vita/integration/vita_gx_replay.cpp"
+        "${AURORA_VITA_ROOT}/platforms/vita/integration/wiicompiled_aurora_adapter.cpp"
+        "${AURORA_VITA_ROOT}/platforms/vita/integration/vita_gx_backend.cpp"
+        "${AURORA_VITA_ROOT}/platforms/vita/gfx/vita_telemetry.cpp"
+        "${AURORA_VITA_ROOT}/platforms/vita/gfx/vita_memory_budget.cpp"
+        "${AURORA_VITA_ROOT}/platforms/vita/gfx/vita_gl_util.cpp"
+        "${AURORA_VITA_ROOT}/platforms/vita/gfx/vita_texture_decode.cpp"
+        "${AURORA_VITA_ROOT}/platforms/vita/gfx/vita_vertex_decode.cpp"
+        "${AURORA_VITA_ROOT}/platforms/vita/gfx/vita_vertex_pipeline.cpp"
+        "${AURORA_VITA_ROOT}/platforms/vita/gfx/vita_streaming_arena.cpp"
+        "${AURORA_VITA_ROOT}/platforms/vita/gfx/vita_draw_adapter.cpp"
+        "${AURORA_VITA_ROOT}/platforms/vita/gfx/vita_shader_gen.cpp"
+        "${AURORA_VITA_ROOT}/platforms/vita/gfx/vita_pipeline_key.cpp"
+        "${AURORA_VITA_ROOT}/platforms/vita/gfx/vita_buffer_pool.cpp"
+        "${AURORA_VITA_ROOT}/platforms/vita/gfx/vita_texture_cache.cpp"
+        "${AURORA_VITA_ROOT}/platforms/vita/gfx/vita_pipeline_cache.cpp"
+        "${AURORA_VITA_ROOT}/platforms/vita/gfx/vita_efb.cpp"
+        "${AURORA_VITA_ROOT}/platforms/vita/gfx/vita_renderer.cpp")
+    add_library(aurora_vita_backend STATIC ${AURORA_VITA_BACKEND_SOURCES})
+    add_library(aurora::vita_backend ALIAS aurora_vita_backend)
+    target_compile_features(aurora_vita_backend PUBLIC cxx_std_20)
+    target_include_directories(aurora_vita_backend PUBLIC
+        "${AURORA_VITA_ROOT}/platforms/vita"
+        "${AURORA_VITA_ROOT}/platforms/vita/gfx"
+        "${AURORA_VITA_ROOT}/platforms/vita/integration")
+    target_compile_definitions(aurora_vita_backend PUBLIC
+        AURORA_PLATFORM_VITA=1 AURORA_GFX_VITA=1 __vita__=1)
+    target_compile_options(aurora_vita_backend PRIVATE
+        -O3 -ffunction-sections -fdata-sections -fno-exceptions -fno-rtti
+        -mtune=cortex-a9 -mfpu=neon -ffast-math -fsigned-char)
+    target_link_libraries(aurora_vita_backend PUBLIC
+        vitaGL vitashark SceShaccCgExt SceShaccCg_stub taihen_stub
+        SceGxm_stub SceDisplay_stub SceCtrl_stub SceAppMgr_stub
+        SceCommonDialog_stub SceKernelDmacMgr_stub SceSysmodule_stub SceLibKernel_stub
+        mathneon pthread m)
+endif()
+
 add_library(port_flags INTERFACE)
 target_include_directories(port_flags INTERFACE ${PORT_INCLUDES})
 target_compile_definitions(port_flags INTERFACE ${PORT_DEFINES})
 # The compile contract, in both of clang's command-line dialects.
-if(MSVC)
+if(STRIKERS_VITA)
+    target_compile_options(port_flags INTERFACE
+        -fshort-wchar
+        -include "${CMAKE_CURRENT_SOURCE_DIR}/include/port/prelude.h"
+        -fno-strict-aliasing
+        -fsigned-char
+        $<$<COMPILE_LANGUAGE:CXX>:-fpermissive>
+        -ffunction-sections
+        -fdata-sections
+        -Wno-invalid-offsetof)
+elseif(MSVC)
     target_compile_options(port_flags INTERFACE
         /clang:-fdeclspec
         /clang:-fshort-wchar
@@ -183,7 +264,7 @@ if(STRIKERS_ASAN)
     target_link_options(port_flags INTERFACE -fsanitize=address)
 endif()
 
-if(STRIKERS_AURORA)
+if(STRIKERS_AURORA AND NOT STRIKERS_VITA)
     # aurora/event.h exposes SDL_Event, so the game needs SDL3 on its include path.
     target_include_directories(port_flags INTERFACE
         $<TARGET_PROPERTY:aurora::core,INTERFACE_INCLUDE_DIRECTORIES>)
@@ -242,16 +323,23 @@ set_target_properties(strikers_operators PROPERTIES
 # The debug overlay is ImGui, and ImGui arrives with Aurora and only with Aurora: with
 # STRIKERS_AURORA=OFF none of overlay.cpp's includes are on the path, so it leaves the source set
 # rather than becoming an empty translation unit.
-if(NOT STRIKERS_AURORA)
+if(NOT STRIKERS_AURORA OR STRIKERS_VITA)
     list(REMOVE_ITEM PLATFORM_SOURCES
         "${CMAKE_CURRENT_SOURCE_DIR}/src/platform/overlay.cpp")
 endif()
 
-if(STRIKERS_AURORA)
+if(STRIKERS_AURORA AND NOT STRIKERS_VITA)
     # Aurora implements PAD (SDL_Gamepad, GC adapters, rumble, remapping) far better than the
     # placeholder here, so pad.c goes.
     list(REMOVE_ITEM PLATFORM_SOURCES
         "${CMAKE_CURRENT_SOURCE_DIR}/src/platform/pad.c")
+endif()
+
+if(STRIKERS_VITA)
+    list(REMOVE_ITEM PLATFORM_SOURCES
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/platform/launch.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/platform/morphwatch.c"
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/platform/crashlog.c")
 endif()
 
 # Portable slices of the Dolphin SDK: MTX, QUAT and VEC are pure computation Aurora does not
@@ -316,7 +404,11 @@ target_compile_definitions(strikers_musyx PRIVATE
     # MusyX does not link port_flags and so does not get PORT_DEFINES, which is where
     # _USE_MATH_DEFINES lives; and hardware.c's DPL2 coefficient uses M_PI.
     _USE_MATH_DEFINES)
-target_compile_options(strikers_musyx PRIVATE -fdeclspec -w -std=gnu11)
+if(STRIKERS_VITA)
+    target_compile_options(strikers_musyx PRIVATE -w -std=gnu11)
+else()
+    target_compile_options(strikers_musyx PRIVATE -fdeclspec -w -std=gnu11)
+endif()
 
 add_library(strikers_ode      OBJECT ${ODE_SOURCES})
 add_library(strikers_game     OBJECT ${GAME_SOURCES})
@@ -372,7 +464,11 @@ endif()
 
 # ffmpeg, for THP video: libavcodec and libavutil only, since THPSimple walks the container. Without
 # it the movies are skipped and their sound with them. Found by pkg-config or STRIKERS_FFMPEG_ROOT.
-option(STRIKERS_FFMPEG "Decode THP movies with libavcodec" ON)
+if(STRIKERS_VITA)
+    option(STRIKERS_FFMPEG "Decode THP movies with libavcodec" OFF)
+else()
+    option(STRIKERS_FFMPEG "Decode THP movies with libavcodec" ON)
+endif()
 set(STRIKERS_FFMPEG_ROOT "" CACHE PATH
     "An unpacked ffmpeg (include/, lib/, and bin/ on Windows), for hosts with no pkg-config")
 
@@ -500,7 +596,10 @@ endif()
 
 # Dead-strip the debug classes (StatsGatherer, cFuzzyDebugger) whose vtables reference methods
 # defined only in files the decomp excludes, and which nothing ever constructs.
-if(APPLE)
+if(STRIKERS_VITA)
+    target_compile_options(port_flags INTERFACE -ffunction-sections -fdata-sections)
+    target_link_options(strikers PRIVATE -Wl,--gc-sections -Wl,-q)
+elseif(APPLE)
     target_link_options(strikers PRIVATE -dead_strip)
 elseif(MSVC)
     # clang-cl sets CMake's MSVC, and link.exe/lld-link take neither spelling. /OPT:REF is the
@@ -518,7 +617,7 @@ if(APPLE)
     foreach(_sym __Znwm __Znam __ZdlPv __ZdaPv)
         target_link_options(strikers PRIVATE "-Wl,-unexported_symbol,${_sym}")
     endforeach()
-elseif(NOT MSVC)
+elseif(NOT MSVC AND NOT STRIKERS_VITA)
     # An ELF executable exports a definition a shared library needs, so libc++ would bind to the
     # game's operators exactly as dyld does.
     set(_local_ops "${CMAKE_CURRENT_BINARY_DIR}/local-operators.map")
@@ -526,7 +625,7 @@ elseif(NOT MSVC)
     target_link_options(strikers PRIVATE "-Wl,--version-script=${_local_ops}")
 endif()
 
-if(STRIKERS_AURORA)
+if(STRIKERS_AURORA AND NOT STRIKERS_VITA)
     # Deliberately NOT aurora::os, Aurora's OS has no threads, and ours is already complete.
     target_link_libraries(strikers PRIVATE
         aurora::core aurora::gx aurora::gd aurora::vi aurora::pad aurora::si
@@ -534,6 +633,21 @@ if(STRIKERS_AURORA)
 
     # Frame capture lives inside Aurora now (lib/aurora.cpp, namespace capture).
 
+endif()
+
+if(STRIKERS_VITA)
+    find_package(SDL3 CONFIG REQUIRED)
+    target_link_libraries(strikers PRIVATE
+        aurora::vita_backend SDL3::SDL3-static
+        SceCtrl_stub SceAudio_stub SceAudioIn_stub ScePower_stub SceRtc_stub
+        SceIofilemgr_stub SceAppMgr_stub SceDisplay_stub SceGxm_stub
+        SceSysmodule_stub SceLibKernel_stub pthread m)
+
+    include("${VITASDK}/share/vita.cmake")
+    set_target_properties(strikers PROPERTIES OUTPUT_NAME "strikers_vita")
+    vita_create_self(strikers_vita.self strikers UNSAFE)
+    vita_create_vpk(strikers_vita.vpk SMSVITA01 strikers_vita.self
+        VERSION 01.00 NAME "Super Mario Strikers Vita")
 endif()
 
 # Windows: what a runnable build needs that a linkable one does not.
