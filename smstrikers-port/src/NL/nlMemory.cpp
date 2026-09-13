@@ -121,6 +121,8 @@ void* nlVirtualAlloc(size_t size, bool bZero)
  * Offset/Address/Size: 0x25C | 0x801D2140 | size: 0x1B8
  */
 extern "C" void* VMPortGetWindow(size_t*);  // src/platform/vm.c
+extern "C" void* port_region_reserve(size_t, size_t);  // src/platform/memalloc.cpp
+extern "C" void port_region_stats(size_t*, size_t*);   // src/platform/memalloc.cpp
 
 void nlInitMemory()
 {
@@ -133,6 +135,34 @@ void nlInitMemory()
         VIInit();
         PADInit();
 
+#if defined(STRIKERS_VITA)
+        // The Vita port owns one large game-memory slab. VMInit has already
+        // carved its paging window from the front; give the rest directly to
+        // StandardAllocator instead of allocating a second ~48 MiB newlib
+        // heap block just to hand it straight back to the game's allocator.
+        size_t regionUsed = 0;
+        size_t regionTotal = 0;
+        port_region_stats(&regionUsed, &regionTotal);
+        const size_t guard = 0x40000;
+        const size_t standardSize =
+            regionTotal > regionUsed + guard ? regionTotal - regionUsed - guard : 0;
+        void* standardBase =
+            standardSize != 0 ? port_region_reserve(standardSize, 32) : NULL;
+
+        size_t vmSize = 0;
+        void* vmBase = VMPortGetWindow(&vmSize);
+        if (standardBase == NULL || standardSize == 0 || vmBase == NULL || vmSize == 0)
+        {
+            OSReport("[vita] nlInitMemory allocation failed: std=%p/%u vm=%p/%u region=%u/%u\n",
+                     standardBase, (unsigned int)standardSize,
+                     vmBase, (unsigned int)vmSize,
+                     (unsigned int)regionUsed, (unsigned int)regionTotal);
+            abort();
+        }
+
+        StandardAllocator.Initialize(standardBase, (u32)standardSize);
+        VirtualAllocator.Initialize(vmBase, (u32)vmSize);
+#else
         void* arenaLo = OSGetArenaLo();
         void* arenaHi = OSGetArenaHi();
         arenaLo = OSInitAlloc(arenaLo, arenaHi, 1);
@@ -160,6 +190,7 @@ void nlInitMemory()
             void* vmBase = VMPortGetWindow(&vmSize);
             VirtualAllocator.Initialize(vmBase, (u32)vmSize);
         }
+#endif
         OSReport("After nlInitMemory\n");
         OSReport("Free Memory: %u\n", StandardAllocator.TotalFreeMemory());
         OSReport("Largest Free Block: %u\n", StandardAllocator.LargestFreeBlock());

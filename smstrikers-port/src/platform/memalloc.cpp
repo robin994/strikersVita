@@ -11,6 +11,7 @@
 
 #if defined(STRIKERS_VITA)
 #include <malloc.h>
+#include <psp2/kernel/sysmem.h>
 #elif defined(_WIN32)
 #include <windows.h>
 #else
@@ -41,13 +42,29 @@ struct BlockHeader
 char* s_region;
 char* s_bump;
 char* s_end;
+#if defined(STRIKERS_VITA)
+SceUID s_region_memblock = -1;
+#endif
 
 bool region_init()
 {
     if (s_region != nullptr)
         return true;
 #if defined(STRIKERS_VITA)
-    void* p = port_aligned_alloc(4096, kRegionSize);
+    // Keep the game's large backing slab out of newlib's 128 MiB heap.  The old
+    // malloc path consumed almost the whole heap before nlInitMemory tried to
+    // create its arena, which made that second allocation fail at boot.
+    s_region_memblock = sceKernelAllocMemBlock(
+        "strikersGameRegion", SCE_KERNEL_MEMBLOCK_TYPE_USER_RW,
+        (SceSize)kRegionSize, nullptr);
+    void* p = nullptr;
+    if (s_region_memblock >= 0
+        && sceKernelGetMemBlockBase(s_region_memblock, &p) < 0)
+    {
+        sceKernelFreeMemBlock(s_region_memblock);
+        s_region_memblock = -1;
+        p = nullptr;
+    }
 #elif defined(_WIN32)
     void* p = VirtualAlloc(nullptr, kRegionSize, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
 #else
@@ -75,6 +92,9 @@ struct AllocState
 {
     std::size_t live;
     std::size_t pool;
+    char* begin;
+    char* bump;
+    char* end;
     // Size class i holds blocks of 2^(i+5) bytes.
     void* freeList[32];
 };
@@ -104,20 +124,26 @@ inline std::size_t class_size(int c) { return (std::size_t)32 << c; }
 
 void MemoryAllocator::Initialize(void* memory, unsigned int size)
 {
-    // The size is kept so TotalFreeMemory still reports what the game budgeted for.
-    (void)memory;
     m_free_block_list = nullptr;
     AllocState* st = state_for(&m_free_block_list);
     st->pool = size;
     st->live = 0;
+#if defined(STRIKERS_VITA)
+    st->begin = (char*)memory;
+    st->bump = st->begin;
+    st->end = st->begin ? st->begin + size : nullptr;
+#else
+    (void)memory;
+    st->begin = nullptr;
+    st->bump = nullptr;
+    st->end = nullptr;
+#endif
 }
 
 void* MemoryAllocator::Allocate(unsigned long size, unsigned int alignment, bool fromEnd)
 {
     // fromEnd placed long-lived blocks at the top of the console's arena.
     (void)fromEnd;
-    if (!region_init())
-        return nullptr;
     if (alignment < alignof(std::max_align_t))
         alignment = alignof(std::max_align_t);
     if (alignment > kHeaderSize)
@@ -136,10 +162,17 @@ void* MemoryAllocator::Allocate(unsigned long size, unsigned int alignment, bool
     else
     {
         const std::size_t take = class_size(cls);
-        if (s_bump + take > s_end)
+#if defined(STRIKERS_VITA)
+        if (st->bump == nullptr || st->end == nullptr || st->bump + take > st->end)
+            return nullptr;
+        block = st->bump;
+        st->bump += take;
+#else
+        if (!region_init() || s_bump + take > s_end)
             return nullptr;
         block = s_bump;
         s_bump += take;
+#endif
     }
 
     std::uintptr_t raw = (std::uintptr_t)block + kHeaderSize;
