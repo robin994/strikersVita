@@ -75,6 +75,33 @@ std::size_t hostSize(int k)
     }
 }
 
+u32 diskMinSize(int k)
+{
+    // Minimum serialized GameCube bytes touched by expand()/emit() for each
+    // object kind. Recovered schema edges are heuristic, so never let one turn
+    // a short tail of the blob into a typed object and then read past DataLength.
+    switch (k)
+    {
+    case K_PACKAGE:      return 0x18;
+    case K_PRESENTATION: return 0x0C;
+    case K_SLIDE:        return 0x44;
+    case K_INSTANCE:     return 0x7F;
+    case K_IMAGE_INST:   return 0x84;
+    case K_TEXT_INST:    return 0x102;
+    case K_COMP_INST:    return 0x84;
+    case K_LIBOBJ:       return 0x68;
+    case K_FEIMAGE:      return 0x6C;
+    case K_FETEXT:       return 0x78;
+    case K_TLCOMPONENT:  return 0x94;
+    case K_TEXRES:       return 0x18;
+    case K_FONTRES:      return 0x14;
+    case K_ANIM:         return 0x1C;
+    case K_KF_F:         return 0x18;
+    case K_KF_V3:        return 0x38;
+    default:             return sizeof(u32);
+    }
+}
+
 const u32 kNullOffset = 0xFFFFFFFFu;
 
 struct Obj
@@ -204,7 +231,7 @@ int kindOfResource(Ctx* c, u32 off)
     return rd32(c, off + 0x08) == FERT_FONT ? K_FONTRES : K_TEXRES;
 }
 
-s32 discover(Ctx* c, u32 srcSlot, u32 target, int kind)
+s32 discover(Ctx* c, u32 srcSlot, u32 target, int kind, bool authoritative)
 {
     if (target == kNullOffset)
         return -1;
@@ -214,6 +241,26 @@ s32 discover(Ctx* c, u32 srcSlot, u32 target, int kind)
         fail(c, target >= c->blobLen ? "pointer target outside blob"
                                      : "pointer target is not word aligned",
              srcSlot, target, kind);
+        return -1;
+    }
+
+    const u32 minSize = diskMinSize(kind);
+    if (!rangeValid(c, target, minSize))
+    {
+        if (authoritative)
+        {
+            fail(c, "typed pointer target truncated", srcSlot, target, kind);
+        }
+        else
+        {
+            c->skippedNonReloc++;
+            if (c->skippedNonReloc <= 16)
+            {
+                OSReport("[fen] skip truncated recovered object: slot=%#x target=%#x kind=%d "
+                         "need=%#x remaining=%#x\n",
+                         srcSlot, target, kind, minSize, c->blobLen - target);
+            }
+        }
         return -1;
     }
 
@@ -247,7 +294,7 @@ void edge(Ctx* c, u32 base, u32 fieldOff, int kind)
     u32 slot = base + fieldOff;
     if (!shouldFollow(c, slot, kind))
         return;
-    discover(c, slot, rd32(c, slot), kind);
+    discover(c, slot, rd32(c, slot), kind, isRelocSlot(c, slot));
 }
 
 // FEPackage's three root pointers are required to enter the graph.  Retail
@@ -275,7 +322,7 @@ void edgePackageRoot(Ctx* c, u32 base, u32 fieldOff, int kind)
              slot, target, kind);
         return;
     }
-    discover(c, slot, target, kind);
+    discover(c, slot, target, kind, true);
 }
 
 void edgeInstance(Ctx* c, u32 base, u32 fieldOff)
@@ -291,7 +338,7 @@ void edgeInstance(Ctx* c, u32 base, u32 fieldOff)
         fail(c, "instance target truncated", slot, target, K_INSTANCE);
         return;
     }
-    discover(c, slot, target, kindOfInstance(c, target));
+    discover(c, slot, target, kindOfInstance(c, target), isRelocSlot(c, slot));
 }
 
 void edgeLibObj(Ctx* c, u32 base, u32 fieldOff)
@@ -307,7 +354,7 @@ void edgeLibObj(Ctx* c, u32 base, u32 fieldOff)
         fail(c, "library-object target truncated", slot, target, K_LIBOBJ);
         return;
     }
-    discover(c, slot, target, kindOfLibObj(c, target));
+    discover(c, slot, target, kindOfLibObj(c, target), isRelocSlot(c, slot));
 }
 
 void edgeResource(Ctx* c, u32 base, u32 fieldOff)
@@ -323,7 +370,7 @@ void edgeResource(Ctx* c, u32 base, u32 fieldOff)
         fail(c, "resource target truncated", slot, target, K_TEXRES);
         return;
     }
-    discover(c, slot, target, kindOfResource(c, target));
+    discover(c, slot, target, kindOfResource(c, target), isRelocSlot(c, slot));
 }
 
 void expand(Ctx* c, u32 index)
@@ -720,7 +767,7 @@ extern "C" void* port_fen_convert(const void* blob, unsigned long blobLen, const
     }
 
     if (!c.failed)
-        discover(&c, kNullOffset, 0, K_PACKAGE);
+        discover(&c, kNullOffset, 0, K_PACKAGE, true);
     for (u32 i = 0; i < c.objCount && !c.failed; i++)
         expand(&c, i);
 
