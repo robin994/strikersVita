@@ -6,6 +6,9 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdint.h>
+#if defined(STRIKERS_VITA)
+#include <psp2/kernel/sysmem.h>
+#endif
 
 // PORT: the desktop port widens pointers and several GL bookkeeping objects,
 // so it needs extra room versus the original 32-bit GameCube layouts.  Vita
@@ -37,6 +40,9 @@ static u32 n_phys;
 static int i_frame;
 static u32 glx_mem0;
 static int g_uResourceMarker;
+#if defined(STRIKERS_VITA)
+static SceUID s_vitaResourceMemblock = -1;
+#endif
 
 static uintptr_t p_frame[2][2];   // PORT: addresses, not offsets
 static u32 n_frame[2][2];
@@ -131,27 +137,58 @@ bool glxInitMemory()
     // `gfx_resource_mb=<n>` for hardware profiling without another build.
 #if defined(STRIKERS_VITA)
     {
-        u32 vitaResourceSize = MB(24);
+        // Keep long-lived GameCube texture data out of StandardAllocator.  The
+        // PAL global.glt alone exceeds 27 MiB on the port, and reserving that
+        // from the game's ~48 MiB CPU heap leaves too little room for the FE.
+        // CDRAM is CPU-addressable and is a much better home for this immutable
+        // swizzled source data; Aurora copies/decodes from these pointers into
+        // its own texture cache as needed.
+        u32 vitaResourceSize = MB(40);
         const char* overrideMb = getenv("STRIKERS_GFX_RESOURCE_MB");
         if (overrideMb != NULL && *overrideMb != '\0')
         {
             const unsigned long mb = strtoul(overrideMb, NULL, 10);
-            if (mb >= 14 && mb <= 32)
+            if (mb >= 28 && mb <= 64)
                 vitaResourceSize = (u32)mb * MB(1);
             else
-                OSReport("[gfxmem] ignoring STRIKERS_GFX_RESOURCE_MB=%s (expected 14..32)\n",
+                OSReport("[gfxmem] ignoring STRIKERS_GFX_RESOURCE_MB=%s (expected 28..64)\n",
                          overrideMb);
         }
         if (ResourceMemSize < vitaResourceSize)
             ResourceMemSize = vitaResourceSize;
-        OSReport("[gfxmem] Vita resource arena: %u KB\n", ResourceMemSize >> 10);
+
+        s_vitaResourceMemblock = sceKernelAllocMemBlock(
+            "strikersGLXResources", SCE_KERNEL_MEMBLOCK_TYPE_USER_CDRAM_RW,
+            (SceSize)ResourceMemSize, NULL);
+        void* vitaResourceBase = NULL;
+        if (s_vitaResourceMemblock >= 0
+            && sceKernelGetMemBlockBase(s_vitaResourceMemblock, &vitaResourceBase) < 0)
+        {
+            sceKernelFreeMemBlock(s_vitaResourceMemblock);
+            s_vitaResourceMemblock = -1;
+            vitaResourceBase = NULL;
+        }
+
+        if (vitaResourceBase != NULL)
+        {
+            p_phys = (uintptr_t)vitaResourceBase;
+            OSReport("[gfxmem] Vita CDRAM resource arena: %u KB at %p\n",
+                     ResourceMemSize >> 10, vitaResourceBase);
+        }
+        else
+        {
+            OSReport("[gfxmem] CDRAM resource allocation failed rc=0x%08X; falling back to game heap\n",
+                     (u32)s_vitaResourceMemblock);
+        }
     }
 #else
     // PORT: see the note on, host structures are wider.
     ResourceMemSize *= PORT_GFX_ARENA_SCALE;
 #endif
 
-    uintptr_t pMem = (uintptr_t)nlMalloc(ResourceMemSize, 32, false);
+    uintptr_t pMem = p_phys;
+    if (pMem == 0)
+        pMem = (uintptr_t)nlMalloc(ResourceMemSize, 32, false);
     if (pMem == 0)
     {
         OSReport("[gfxmem] resource arena allocation failed: %u KB requested\n",
