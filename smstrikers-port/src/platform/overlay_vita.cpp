@@ -40,7 +40,6 @@ extern "C" int PortOverlayMenuOpen(void) { return 0; }
 extern "C" void PortOverlayHandleKey(int scancode, int down) { (void)scancode; (void)down; }
 extern "C" int PortQuitRequested(void) { return s_quit; }
 extern "C" void PortRequestQuit(void) { s_quit = 1; }
-extern "C" int PortDebugStateWanted(void) { return 0; }
 extern "C" int PortDebugForcedStadium(void) { return s_forcedStadium; }
 extern "C" void PortDebugSetForcedStadium(int index) { s_forcedStadium = index; }
 extern "C" void PortDebugSetPad(int port, int err, unsigned int buttons, int stickX, int stickY,

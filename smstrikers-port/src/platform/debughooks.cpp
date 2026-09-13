@@ -19,12 +19,14 @@ void InstallCallStackDumper(void)
 }
 
 // EFB-to-XFB vertical scale; the port renders at Aurora's size, so this is 1.
+#if !defined(PORT_VITA)
 extern "C" f32 GXGetYScaleFactor(u16 efbHeight, u16 xfbHeight)
 {
     if (efbHeight == 0 || xfbHeight == 0)
         return 1.0f;
     return (f32)xfbHeight / (f32)efbHeight;
 }
+#endif
 
 namespace PlatAudio
 {

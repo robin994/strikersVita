@@ -3,9 +3,12 @@
 // Everything below needs Aurora.
 #if !defined(PORT_USE_AURORA) || defined(PORT_VITA)
 
+static unsigned long s_vitaInputFrame;
+
 extern "C" void PortInstallKeyboardBindings(void) {}
 extern "C" void PortNoteSceneEntered(int scene) { (void)scene; }
-extern "C" void PortUpdateSyntheticInput(unsigned long frame) { (void)frame; }
+extern "C" void PortUpdateSyntheticInput(unsigned long frame) { s_vitaInputFrame = frame; }
+extern "C" unsigned long PortInputFrame(void) { return s_vitaInputFrame; }
 
 #else
 

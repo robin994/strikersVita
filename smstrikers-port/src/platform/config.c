@@ -217,6 +217,11 @@ static void open_log(void)
                             "writing; logging to stderr as before\n", v, path);
             return;
         }
+#if defined(PORT_VITA)
+        fclose(f);
+        if (freopen(path, "w", stderr) == NULL)
+            return;
+#else
         if (port_dup2(port_fileno(f), port_fileno(stderr)) < 0)
         {
             // No descriptor behind stderr (a Windows GUI process has none); freopen is safe now
@@ -229,6 +234,7 @@ static void open_log(void)
         {
             fclose(f);
         }
+#endif
     }
     // Unbuffered, because the run this is most wanted for is the one that ends in a crash, and a
     // buffered last few hundred lines is exactly the part that would be missing.
