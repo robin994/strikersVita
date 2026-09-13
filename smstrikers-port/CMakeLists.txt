@@ -677,7 +677,6 @@ if(STRIKERS_VITA)
         SceSysmodule_stub SceLibKernel_stub pthread m)
 
     include("${VITASDK}/share/vita.cmake")
-    set_target_properties(strikers PROPERTIES OUTPUT_NAME "strikers_vita")
     vita_create_self(strikers_vita.self strikers UNSAFE)
     vita_create_vpk(strikers_vita.vpk SMSVITA01 strikers_vita.self
         VERSION 01.00 NAME "Super Mario Strikers Vita")

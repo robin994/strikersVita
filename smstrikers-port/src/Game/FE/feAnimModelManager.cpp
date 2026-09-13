@@ -16,6 +16,8 @@ class cPN_SAnimController;
 class cPoseAccumulator;
 class GLSkinMesh;
 
+FEBasic3dModel::~FEBasic3dModel() = default;
+
 // Retail DWARF defines this model locally before FEAnimModelManager. Its
 // methods are stripped, but parsing the destructor establishes the original
 // cInventory<cSHierarchy> cleanup-template ownership for this translation unit.

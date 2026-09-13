@@ -1,8 +1,15 @@
 #include "Game/World/worldanim.h"
 #include "Game/World.h"
+#include "Game/Drawable/DrawableSkinModel.h"
+#include "Game/GL/GLInventory.h"
+#include "Game/GL/ShaderSkinMesh.h"
 #include "NL/nlString.h"
 #include "NL/nlSlotPool.h"
+#include "NL/gl/gl.h"
+#include "NL/gl/glModel.h"
 #include "Game/SAnim.h"
+
+extern GLInventory glInventory;
 
 /**
  * Offset/Address/Size: 0x5C8 | 0x8019B394 | size: 0x94
@@ -167,4 +174,102 @@ float WorldAnimController::GetAnimationTime()
 float WorldAnimController::GetAnimationDuration()
 {
     return (float)m_pPoseTree->m_pSAnim->m_nNumKeys / 30.0f;
+}
+
+SkinnedAnimController::SkinnedAnimController(const char* szAnimSetAndHierarchyName, World* pWorldContext)
+    : WorldAnimController(szAnimSetAndHierarchyName, pWorldContext)
+    , m_pSkinMesh(NULL)
+    , m_pCachedSkinnedModel(NULL)
+    , m_pSkinModel(NULL)
+    , m_uLastFrameUpdated(~0UL)
+    , m_uLastFrameUpdatedSkinMesh(~0UL)
+    , m_bDisabled(false)
+{
+    cSHierarchy* hierarchy = pWorldContext->m_pWorldAnimManager->FindHierarchy(szAnimSetAndHierarchyName);
+    if (hierarchy != NULL)
+    {
+        m_pPoseAccumulator = new (nlMalloc(sizeof(cPoseAccumulator), 8, false)) cPoseAccumulator(hierarchy, true);
+    }
+}
+
+SkinnedAnimController::~SkinnedAnimController()
+{
+    delete m_pPoseTree;
+    m_pPoseTree = NULL;
+    delete m_pPoseAccumulator;
+    m_pPoseAccumulator = NULL;
+    delete m_pSkinMesh;
+    m_pSkinMesh = NULL;
+    m_pCachedSkinnedModel = NULL;
+}
+
+void SkinnedAnimController::UpdateAnimation(float fTimeDelta, const nlMatrix4& worldMatrix)
+{
+    if (m_bDisabled || m_pPoseTree == NULL || m_pPoseAccumulator == NULL)
+        return;
+
+    m_pPoseTree = (cPN_SAnimController*)m_pPoseTree->Update(fTimeDelta * m_fSpeed);
+    m_pPoseAccumulator->InitAccumulators();
+    m_pPoseTree->Evaluate(1.0f, m_pPoseAccumulator);
+    m_pPoseAccumulator->BuildNodeMatrices(worldMatrix);
+    m_uLastFrameUpdated = glGetCurrentFrame();
+}
+
+void SkinnedAnimController::Update(float fTimeDelta)
+{
+    nlMatrix4 worldMatrix;
+    worldMatrix.SetIdentity();
+
+    // Ganged models apply their world transform later through the packet matrix,
+    // so their bone pose remains in local space.
+    if (!m_bIsGanged && m_pSkinModel != NULL)
+        worldMatrix = m_pSkinModel->GetWorldMatrix();
+
+    UpdateAnimation(fTimeDelta, worldMatrix);
+}
+
+void SkinnedAnimController::CreateGLSkinMesh(glModel* pModel)
+{
+    delete m_pSkinMesh;
+    m_pSkinMesh = NULL;
+    m_pCachedSkinnedModel = NULL;
+
+    if (pModel == NULL)
+        return;
+
+    m_pSkinMesh = glInventory.MakeSkinMesh((unsigned long)(u32)pModel->id);
+    if (m_pSkinMesh != NULL && m_pPoseAccumulator != NULL)
+        m_pSkinMesh->ConnectToPose(m_pPoseAccumulator);
+    m_uLastFrameUpdatedSkinMesh = ~0UL;
+}
+
+void SkinnedAnimController::UpdateSkinnedMesh(unsigned long program, void* pLightData)
+{
+    if (m_pSkinMesh == NULL)
+    {
+        m_pCachedSkinnedModel = m_pSkinModel != NULL ? m_pSkinModel->m_pModel : NULL;
+        return;
+    }
+
+    const unsigned long frame = glGetCurrentFrame();
+    if (m_uLastFrameUpdatedSkinMesh != frame || m_pCachedSkinnedModel == NULL)
+    {
+        if (m_pPoseAccumulator != NULL)
+            m_pSkinMesh->Pose(m_pPoseAccumulator);
+
+        m_pSkinMesh->PrepareToRender(program, NULL);
+        m_pCachedSkinnedModel = glModelDup(m_pSkinMesh->pModel, true);
+
+        if (m_pCachedSkinnedModel != NULL && pLightData != NULL)
+        {
+            for (glModelPacket* packet = m_pCachedSkinnedModel->packets;
+                 packet < m_pCachedSkinnedModel->packets + m_pCachedSkinnedModel->numPackets;
+                 ++packet)
+            {
+                glUserAttach(pLightData, packet, false);
+            }
+        }
+
+        m_uLastFrameUpdatedSkinMesh = frame;
+    }
 }

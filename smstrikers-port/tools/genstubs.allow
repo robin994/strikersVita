@@ -28,8 +28,3 @@
 ^\?WriteXML@cFuzzyDebugger@@SAXXZ$
 ^_ZN16TMAnimControllerC1EPKcP5World$
 ^\?\?0TMAnimController@@QEAA@PEBDPEAVWorld@@@Z$
-^_ZN21SkinnedAnimControllerC1EPKcP5World$
-^_ZN21SkinnedAnimController16CreateGLSkinMeshEP7glModel$
-^\?\?0SkinnedAnimController@@QEAA@PEBDPEAVWorld@@@Z$
-# glModel is a struct, which MSVC spells U where a class is V.
-^\?CreateGLSkinMesh@SkinnedAnimController@@QEAAXPEAUglModel@@@Z$

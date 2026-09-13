@@ -30,10 +30,6 @@ void port_stub_7(void) __asm__("__ZN13StatsGatherer7GetNameEv");
 void port_stub_7(void) { port_missing("__ZN13StatsGatherer7GetNameEv"); }
 void port_stub_8(void) __asm__("__ZN16TMAnimControllerC1EPKcP5World");
 void port_stub_8(void) { port_missing("__ZN16TMAnimControllerC1EPKcP5World"); }
-void port_stub_9(void) __asm__("__ZN21SkinnedAnimController16CreateGLSkinMeshEP7glModel");
-void port_stub_9(void) { port_missing("__ZN21SkinnedAnimController16CreateGLSkinMeshEP7glModel"); }
-void port_stub_10(void) __asm__("__ZN21SkinnedAnimControllerC1EPKcP5World");
-void port_stub_10(void) { port_missing("__ZN21SkinnedAnimControllerC1EPKcP5World"); }
 void port_stub_11(void) __asm__("__ZThn72_N13StatsGatherer3RunEf");
 void port_stub_11(void) { port_missing("__ZThn72_N13StatsGatherer3RunEf"); }
 void port_stub_12(void) __asm__("__ZThn72_N13StatsGatherer7GetNameEv");
