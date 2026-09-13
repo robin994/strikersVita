@@ -49,7 +49,11 @@ struct VitaResourceSegment
     u32 size;
 };
 
-static const u32 kVitaResourceSegmentSize = MB(8);
+// Prefer one large early reservation so the GameCube-style linear arena stays
+// truly linear.  If CDRAM is already fragmented, fall back to 16 MiB chunks;
+// this is large enough for the biggest retail textures while wasting far less
+// tail space than the old 8 MiB segmentation.
+static const u32 kVitaResourceSegmentSize = MB(16);
 static const int kVitaResourceMaxSegments = 8;
 static VitaResourceSegment s_vitaResourceSegments[kVitaResourceMaxSegments];
 static int s_vitaResourceSegmentCount;
@@ -135,18 +139,39 @@ static u32 GetFromConfig(const char* szConfigString, u32 uDefault)
 #if defined(STRIKERS_VITA)
 static u32 VitaResourceTargetSize()
 {
-    u32 target = MB(40);
+    const u32 desiredDefault = MB(48);
+    const u32 vitaGlSafetyReserve = MB(48);
+    u32 desired = desiredDefault;
     const char* overrideMb = getenv("STRIKERS_GFX_RESOURCE_MB");
     if (overrideMb != NULL && *overrideMb != '\0')
     {
         const unsigned long mb = strtoul(overrideMb, NULL, 10);
-        if (mb >= 28 && mb <= 64)
-            target = (u32)mb * MB(1);
+        if (mb >= 32 && mb <= 64)
+            desired = (u32)mb * MB(1);
         else
-            OSReport("[gfxmem] ignoring STRIKERS_GFX_RESOURCE_MB=%s (expected 28..64)\n",
+            OSReport("[gfxmem] ignoring STRIKERS_GFX_RESOURCE_MB=%s (expected 32..64)\n",
                      overrideMb);
     }
-    return target;
+
+    // CDRAM is shared with vitaGL/libGXM. Never reserve the last pages merely
+    // because they happen to be free at process start: vitaGL still needs its
+    // display/depth surfaces, circular pool, texture storage and shader state.
+    SceKernelFreeMemorySizeInfo info = {};
+    info.size = sizeof(info);
+    if (sceKernelGetFreeMemorySize(&info) >= 0)
+    {
+        const u32 freeCdram = (u32)info.size_cdram;
+        const u32 safeMaximum = freeCdram > vitaGlSafetyReserve
+            ? freeCdram - vitaGlSafetyReserve : 0;
+        u32 target = desired < safeMaximum ? desired : safeMaximum;
+        target &= ~(MB(1) - 1);
+        OSReport("[gfxmem] CDRAM plan: free=%u KB GLX=%u KB reserve=%u KB desired=%u KB\n",
+                 freeCdram >> 10, target >> 10, vitaGlSafetyReserve >> 10,
+                 desired >> 10);
+        return target;
+    }
+
+    return desired;
 }
 
 bool glxVitaReserveResourceArena()
@@ -155,7 +180,45 @@ bool glxVitaReserveResourceArena()
         return true;
 
     const u32 target = VitaResourceTargetSize();
+    if (target < MB(32))
+    {
+        OSReport("[gfxmem] not enough CDRAM for stable GLX arena: %u KB target\n",
+                 target >> 10);
+        return false;
+    }
+
     u32 reserved = 0;
+
+    // Best case: one contiguous virtual CDRAM memblock.  We reserve before
+    // vitaGL starts, so this normally succeeds and eliminates all segment-tail
+    // waste from the GameCube bump allocator.
+    {
+        const SceUID uid = sceKernelAllocMemBlock(
+            "strikersGLX", SCE_KERNEL_MEMBLOCK_TYPE_USER_CDRAM_RW,
+            (SceSize)target, NULL);
+        if (uid >= 0)
+        {
+            void* base = NULL;
+            const int baseRc = sceKernelGetMemBlockBase(uid, &base);
+            if (baseRc >= 0 && base != NULL)
+            {
+                VitaResourceSegment& segment = s_vitaResourceSegments[0];
+                segment.uid = uid;
+                segment.base = (uintptr_t)base;
+                segment.logicalStart = 0;
+                segment.size = target;
+                s_vitaResourceSegmentCount = 1;
+                s_vitaResourceReservedSize = target;
+                ResourceMemSize = target;
+                p_phys = segment.base;
+                OSReport("[gfxmem] early CDRAM resource reservation: %u KB contiguous at %p\n",
+                         target >> 10, base);
+                return true;
+            }
+            sceKernelFreeMemBlock(uid);
+        }
+        OSReport("[gfxmem] contiguous CDRAM reservation unavailable; using 16 MiB segments\n");
+    }
 
     while (reserved < target && s_vitaResourceSegmentCount < kVitaResourceMaxSegments)
     {
@@ -192,7 +255,7 @@ bool glxVitaReserveResourceArena()
     }
 
     s_vitaResourceReservedSize = reserved;
-    if (reserved < MB(28))
+    if (reserved < MB(32))
     {
         OSReport("[gfxmem] early CDRAM reservation insufficient: %u/%u KB\n",
                  reserved >> 10, target >> 10);
@@ -201,7 +264,7 @@ bool glxVitaReserveResourceArena()
 
     ResourceMemSize = reserved;
     p_phys = s_vitaResourceSegments[0].base;
-    OSReport("[gfxmem] early CDRAM resource reservation: %u/%u KB in %d segment(s)\n",
+    OSReport("[gfxmem] early CDRAM resource reservation: %u/%u KB in %d x <=16MiB segment(s)\n",
              reserved >> 10, target >> 10, s_vitaResourceSegmentCount);
     return true;
 }
@@ -228,9 +291,10 @@ bool glxInitMemory()
         // Keep long-lived GameCube texture data out of StandardAllocator.  The
         // PAL global.glt alone exceeds 27 MiB on the port, and reserving that
         // from the game's ~48 MiB CPU heap leaves too little room for the FE.
-        // CDRAM is CPU-addressable and is a much better home for this immutable
-        // swizzled source data; Aurora copies/decodes from these pointers into
-        // its own texture cache as needed.
+        // CDRAM is CPU-addressable but uncached, so this is a capacity tradeoff,
+        // not a claim that it is faster CPU memory. These long-lived swizzled
+        // sources are read mainly during upload/decode, while keeping them here
+        // preserves scarce cached MAIN memory for gameplay and frontend state.
         if (s_vitaResourceSegmentCount == 0)
             (void)glxVitaReserveResourceArena();
         if (s_vitaResourceReservedSize != 0)
@@ -468,10 +532,14 @@ void* glplatResourceAlloc(unsigned long size, eGLMemory memType)
         const u32 newUsed = chosen != NULL ? logical + (u32)size : ResourceMemSize + 1;
         if (chosen == NULL || newUsed > ResourceMemSize)
         {
+            u32 payload = 0;
+            for (s32 level = 0; level <= g_uResourceMarker; ++level)
+                payload += g_uResourceAlloc[level].GetTotal();
+            const u32 packingWaste = n_phys > payload ? n_phys - payload : 0;
             OSReport("out of resource memory (%s)\n", szMemoryNames[memType]);
-            OSReport("[gfxmem] segmented request failed: %u bytes (%u KB) of %s; used=%u KB required=%u KB budget=%u KB segments=%d\n",
-                     (u32)size, (u32)(size >> 10), szMemoryNames[memType], n_phys >> 10,
-                     newUsed >> 10, ResourceMemSize >> 10, s_vitaResourceSegmentCount);
+            OSReport("[gfxmem] segmented request failed: %u bytes (%u KB) of %s; used=%u bytes required=%u bytes budget=%u bytes segments=%d packing_waste=%u bytes\n",
+                     (u32)size, (u32)(size >> 10), szMemoryNames[memType], n_phys,
+                     newUsed, ResourceMemSize, s_vitaResourceSegmentCount, packingWaste);
             port_ReportResourceArena("exhausted");
             nlBreak();
         }

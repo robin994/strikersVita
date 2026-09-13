@@ -754,8 +754,36 @@ int main(int argc, char* argv[])
         }
         aurora::vita::BackendConfig cfg = {};
         cfg.vgl_legacy_pool_size = 0;
-        cfg.vgl_ram_threshold = 16 * 1024 * 1024;
-        cfg.texture_cache_budget = 24 * 1024 * 1024;
+        // Do not use vglInitExtended's threshold mode here: with zero CDRAM
+        // and PHYCONT thresholds it turns almost every currently-free page into
+        // a vitaGL heap. Strikers already owns a long-lived GLX texture arena,
+        // so give the renderer explicit bounded pools and preserve OS/newlib /
+        // shader-compiler headroom.
+        if (sceKernelGetFreeMemorySize(&memInfo) >= 0)
+        {
+            const u32 mb = 1024u * 1024u;
+            cfg.vgl_ram_pool_size = memInfo.size_user > 8u * mb
+                ? ((memInfo.size_user - 8u * mb < 4u * mb) ? memInfo.size_user - 8u * mb : 4u * mb)
+                : 0;
+            cfg.vgl_cdram_pool_size = memInfo.size_cdram > 16u * mb
+                ? ((memInfo.size_cdram - 16u * mb < 40u * mb) ? memInfo.size_cdram - 16u * mb : 40u * mb)
+                : 0;
+            cfg.vgl_phycont_pool_size = memInfo.size_phycont > 8u * mb
+                ? ((memInfo.size_phycont - 8u * mb < 8u * mb) ? memInfo.size_phycont - 8u * mb : 8u * mb)
+                : 0;
+            OSReport("[vita] vitaGL fixed pools: ram=%u KB cdram=%u KB phycont=%u KB\n",
+                     cfg.vgl_ram_pool_size >> 10,
+                     cfg.vgl_cdram_pool_size >> 10,
+                     cfg.vgl_phycont_pool_size >> 10);
+        }
+        cfg.vgl_circular_pool_size = 16 * 1024 * 1024;
+        cfg.vgl_display_buffer_count = 3;
+        cfg.vgl_scratch_dynamic = true;
+        cfg.vgl_scratch_stream = true;
+        cfg.texture_cache_budget = 16 * 1024 * 1024;
+        cfg.stream_vertex_bytes = 2 * 1024 * 1024;
+        cfg.stream_index_bytes = 512 * 1024;
+        cfg.stream_slots = 3;
         cfg.wait_vblank = true;
         cfg.diagnostics = true;
         cfg.strict_unsupported = false;
