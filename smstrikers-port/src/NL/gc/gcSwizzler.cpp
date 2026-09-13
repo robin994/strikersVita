@@ -1,11 +1,73 @@
 #include "NL/gc/gcSwizzler.h"
 #include "NL/nlColour.h"
 
+static inline u32 GCBlocks(u32 value, u32 block)
+{
+    return (value + block - 1) / block;
+}
+
+u32 GCTextureEncodedSize(eGXTextureFormat format, int width, int height, int numLevels)
+{
+    if (width <= 0 || height <= 0 || numLevels <= 0 || format < 0 || format >= GXTex_Num)
+        return 0;
+
+    u32 total = 0;
+    u32 w = (u32)width;
+    u32 h = (u32)height;
+
+    for (int level = 0; level < numLevels; ++level)
+    {
+        u32 bytes = 0;
+        switch (format)
+        {
+        case GXTex_I4:
+        case GXTex_CMPR:
+            // I4 and CMPR both occupy one 32-byte GX block per 8x8 texels.
+            bytes = GCBlocks(w, 8) * GCBlocks(h, 8) * 32;
+            break;
+        case GXTex_I8:
+        case GXTex_A8:
+        case GXTex_CI8:
+            bytes = GCBlocks(w, 8) * GCBlocks(h, 4) * 32;
+            break;
+        case GXTex_RGB565:
+        case GXTex_RGB5A3:
+        case GXTex_IA8:
+            bytes = GCBlocks(w, 4) * GCBlocks(h, 4) * 32;
+            break;
+        case GXTex_RGBA8:
+            bytes = GCBlocks(w, 4) * GCBlocks(h, 4) * 64;
+            break;
+        default:
+            return 0;
+        }
+
+        if (0xFFFFFFFFu - total < bytes)
+            return 0;
+        total += bytes;
+        if (w > 1)
+            w >>= 1;
+        if (h > 1)
+            h >>= 1;
+    }
+
+    return total;
+}
+
 /**
  * Offset/Address/Size: 0x4A4 | 0x801C2668 | size: 0x74
  */
 u32 GCTextureSize(eGXTextureFormat format, int width, int height, int numLevels, unsigned long texhandle)
 {
+#if defined(STRIKERS_VITA)
+    // The decompiled retail helper models the game's linear bookkeeping and,
+    // notably, falls through to 16 bpp for GXTex_I4.  On Vita these byte counts
+    // are used as real host allocation/copy extents, so that quirk turns I4
+    // assets into 4x allocations and can read well beyond a .glt entry.  Use
+    // the actual tiled GX storage geometry on the native port.
+    (void)texhandle;
+    return GCTextureEncodedSize(format, width, height, numLevels);
+#else
     unsigned long size = 0;
 
     for (;;)
@@ -40,6 +102,7 @@ u32 GCTextureSize(eGXTextureFormat format, int width, int height, int numLevels,
     }
 
     return size;
+#endif
 }
 
 /**

@@ -168,7 +168,7 @@ bool glplatTextureLoad(uintptr_t texture);
 bool glplatEndLoadTextureBundle(void* data, unsigned long size);
 bool glplatBeginLoadTextureBundle(const char* filename, void (*callback)(void*, unsigned long, void*), void* param);
 bool glplatLoadTextureBundle(const char* filename);
-PlatTexture* glx_MakeTexture(GXTextureHeader* header, uintptr_t texhandle);
+PlatTexture* glx_MakeTexture(GXTextureHeader* header, uintptr_t texhandle, unsigned long fileSize);
 bool glx_AddTex(uintptr_t handle, PlatTexture* pTex);
 PlatTexture* glx_GetTex(uintptr_t handle, bool bMissingFatal, bool bAllowGrids);
 bool glx_SetGridMode(bool bGrid);
