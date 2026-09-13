@@ -22,6 +22,9 @@ void glplatResourceRelease(unsigned long long marker);
 unsigned long long glplatResourceMark();
 void* glplatResourceAlloc(unsigned long size, eGLMemory memType);
 bool glxInitMemory();
+#if defined(STRIKERS_VITA)
+bool glxVitaReserveResourceArena();
+#endif
 void glx_FreeMemory1(const char* filename);
 void glx_FreeMemory0();
 u32 glx_GetFreeMemory();

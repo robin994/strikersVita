@@ -43,6 +43,7 @@ extern "C" void PortDebugFrame(void);   // PORT: defined in Game.cpp
 #include "NL/gl/gl.h"
 #include "NL/gl/glAppAttach.h"
 #include "NL/gl/glMemory.h"
+#include "NL/glx/glxMemory.h"
 #include "Game/Effects/ParticleSystem.h"
 #include "Game/Transitions/ModelTransition.h"
 #include "NL/nlConfig.h"
@@ -738,6 +739,15 @@ int main(int argc, char* argv[])
         if (sceKernelGetFreeMemorySize(&memInfo) >= 0)
         {
             OSReport("[vita] pre-Aurora free memory: user=%u cdram=%u phycont=%u\n",
+                     (unsigned int)memInfo.size_user,
+                     (unsigned int)memInfo.size_cdram,
+                     (unsigned int)memInfo.size_phycont);
+        }
+        if (!glxVitaReserveResourceArena())
+            OSReport("[vita] warning: could not pre-reserve the full GLX CDRAM arena\n");
+        if (sceKernelGetFreeMemorySize(&memInfo) >= 0)
+        {
+            OSReport("[vita] post-GLX-reserve free memory: user=%u cdram=%u phycont=%u\n",
                      (unsigned int)memInfo.size_user,
                      (unsigned int)memInfo.size_cdram,
                      (unsigned int)memInfo.size_phycont);

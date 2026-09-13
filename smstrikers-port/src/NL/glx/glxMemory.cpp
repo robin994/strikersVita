@@ -41,7 +41,19 @@ static int i_frame;
 static u32 glx_mem0;
 static int g_uResourceMarker;
 #if defined(STRIKERS_VITA)
-static SceUID s_vitaResourceMemblock = -1;
+struct VitaResourceSegment
+{
+    SceUID uid;
+    uintptr_t base;
+    u32 logicalStart;
+    u32 size;
+};
+
+static const u32 kVitaResourceSegmentSize = MB(8);
+static const int kVitaResourceMaxSegments = 8;
+static VitaResourceSegment s_vitaResourceSegments[kVitaResourceMaxSegments];
+static int s_vitaResourceSegmentCount;
+static u32 s_vitaResourceReservedSize;
 #endif
 
 static uintptr_t p_frame[2][2];   // PORT: addresses, not offsets
@@ -120,6 +132,81 @@ static u32 GetFromConfig(const char* szConfigString, u32 uDefault)
     return uDefault;
 }
 
+#if defined(STRIKERS_VITA)
+static u32 VitaResourceTargetSize()
+{
+    u32 target = MB(40);
+    const char* overrideMb = getenv("STRIKERS_GFX_RESOURCE_MB");
+    if (overrideMb != NULL && *overrideMb != '\0')
+    {
+        const unsigned long mb = strtoul(overrideMb, NULL, 10);
+        if (mb >= 28 && mb <= 64)
+            target = (u32)mb * MB(1);
+        else
+            OSReport("[gfxmem] ignoring STRIKERS_GFX_RESOURCE_MB=%s (expected 28..64)\n",
+                     overrideMb);
+    }
+    return target;
+}
+
+bool glxVitaReserveResourceArena()
+{
+    if (s_vitaResourceSegmentCount != 0)
+        return true;
+
+    const u32 target = VitaResourceTargetSize();
+    u32 reserved = 0;
+
+    while (reserved < target && s_vitaResourceSegmentCount < kVitaResourceMaxSegments)
+    {
+        const u32 remaining = target - reserved;
+        const u32 chunk = remaining < kVitaResourceSegmentSize ? remaining : kVitaResourceSegmentSize;
+        char name[32];
+        snprintf(name, sizeof(name), "strikersGLX%u", (unsigned int)s_vitaResourceSegmentCount);
+
+        const SceUID uid = sceKernelAllocMemBlock(
+            name, SCE_KERNEL_MEMBLOCK_TYPE_USER_CDRAM_RW, (SceSize)chunk, NULL);
+        if (uid < 0)
+        {
+            OSReport("[gfxmem] early CDRAM segment %d allocation failed: %u KB rc=0x%08X\n",
+                     s_vitaResourceSegmentCount, chunk >> 10, (u32)uid);
+            break;
+        }
+
+        void* base = NULL;
+        const int baseRc = sceKernelGetMemBlockBase(uid, &base);
+        if (baseRc < 0 || base == NULL)
+        {
+            OSReport("[gfxmem] early CDRAM segment %d base lookup failed rc=0x%08X\n",
+                     s_vitaResourceSegmentCount, (u32)baseRc);
+            sceKernelFreeMemBlock(uid);
+            break;
+        }
+
+        VitaResourceSegment& segment = s_vitaResourceSegments[s_vitaResourceSegmentCount++];
+        segment.uid = uid;
+        segment.base = (uintptr_t)base;
+        segment.logicalStart = reserved;
+        segment.size = chunk;
+        reserved += chunk;
+    }
+
+    s_vitaResourceReservedSize = reserved;
+    if (reserved < MB(28))
+    {
+        OSReport("[gfxmem] early CDRAM reservation insufficient: %u/%u KB\n",
+                 reserved >> 10, target >> 10);
+        return false;
+    }
+
+    ResourceMemSize = reserved;
+    p_phys = s_vitaResourceSegments[0].base;
+    OSReport("[gfxmem] early CDRAM resource reservation: %u/%u KB in %d segment(s)\n",
+             reserved >> 10, target >> 10, s_vitaResourceSegmentCount);
+    return true;
+}
+#endif
+
 /**
  * Offset/Address/Size: 0x4F4 | 0x801B6E1C | size: 0x3F0
  */
@@ -131,9 +218,10 @@ bool glxInitMemory()
     ResourceMemSize = GetFromConfig(szResourceKey, ResourceMemSize);
     // PORT: the desktop port needs a large multiplier for widened host-side
     // structures. Vita is 32-bit again, but the PAL global texture bundle plus
-    // the permanent GL targets already exceed the retail 12 MiB arena. Keep a
-    // dedicated 24 MiB resource pool while leaving the per-frame pools at their
-    // native 32-bit sizes. strikers.ini can override this as
+    // the permanent GL targets already exceed the retail 12 MiB arena. Reserve
+    // the long-lived resource pool in small CDRAM segments before Aurora/vitaGL
+    // fragments that heap, while leaving the per-frame pools at their native
+    // 32-bit sizes. strikers.ini can override the total as
     // `gfx_resource_mb=<n>` for hardware profiling without another build.
 #if defined(STRIKERS_VITA)
     {
@@ -143,43 +231,10 @@ bool glxInitMemory()
         // CDRAM is CPU-addressable and is a much better home for this immutable
         // swizzled source data; Aurora copies/decodes from these pointers into
         // its own texture cache as needed.
-        u32 vitaResourceSize = MB(40);
-        const char* overrideMb = getenv("STRIKERS_GFX_RESOURCE_MB");
-        if (overrideMb != NULL && *overrideMb != '\0')
-        {
-            const unsigned long mb = strtoul(overrideMb, NULL, 10);
-            if (mb >= 28 && mb <= 64)
-                vitaResourceSize = (u32)mb * MB(1);
-            else
-                OSReport("[gfxmem] ignoring STRIKERS_GFX_RESOURCE_MB=%s (expected 28..64)\n",
-                         overrideMb);
-        }
-        if (ResourceMemSize < vitaResourceSize)
-            ResourceMemSize = vitaResourceSize;
-
-        s_vitaResourceMemblock = sceKernelAllocMemBlock(
-            "strikersGLXResources", SCE_KERNEL_MEMBLOCK_TYPE_USER_CDRAM_RW,
-            (SceSize)ResourceMemSize, NULL);
-        void* vitaResourceBase = NULL;
-        if (s_vitaResourceMemblock >= 0
-            && sceKernelGetMemBlockBase(s_vitaResourceMemblock, &vitaResourceBase) < 0)
-        {
-            sceKernelFreeMemBlock(s_vitaResourceMemblock);
-            s_vitaResourceMemblock = -1;
-            vitaResourceBase = NULL;
-        }
-
-        if (vitaResourceBase != NULL)
-        {
-            p_phys = (uintptr_t)vitaResourceBase;
-            OSReport("[gfxmem] Vita CDRAM resource arena: %u KB at %p\n",
-                     ResourceMemSize >> 10, vitaResourceBase);
-        }
-        else
-        {
-            OSReport("[gfxmem] CDRAM resource allocation failed rc=0x%08X; falling back to game heap\n",
-                     (u32)s_vitaResourceMemblock);
-        }
+        if (s_vitaResourceSegmentCount == 0)
+            (void)glxVitaReserveResourceArena();
+        if (s_vitaResourceReservedSize != 0)
+            ResourceMemSize = s_vitaResourceReservedSize;
     }
 #else
     // PORT: see the note on, host structures are wider.
@@ -187,6 +242,10 @@ bool glxInitMemory()
 #endif
 
     uintptr_t pMem = p_phys;
+#if defined(STRIKERS_VITA)
+    if (s_vitaResourceSegmentCount != 0)
+        pMem = s_vitaResourceSegments[0].base;
+#endif
     if (pMem == 0)
         pMem = (uintptr_t)nlMalloc(ResourceMemSize, 32, false);
     if (pMem == 0)
@@ -378,6 +437,51 @@ static void ResourceAllocRelease(int level)
  */
 void* glplatResourceAlloc(unsigned long size, eGLMemory memType)
 {
+#if defined(STRIKERS_VITA)
+    if (s_vitaResourceSegmentCount != 0)
+    {
+        u32 logical = (n_phys + 0x1F) & ~0x1Fu;
+        VitaResourceSegment* chosen = NULL;
+        u32 offset = 0;
+
+        for (int i = 0; i < s_vitaResourceSegmentCount; ++i)
+        {
+            VitaResourceSegment& segment = s_vitaResourceSegments[i];
+            const u32 segEnd = segment.logicalStart + segment.size;
+            if (logical < segment.logicalStart)
+                logical = segment.logicalStart;
+            if (logical >= segEnd)
+                continue;
+
+            offset = logical - segment.logicalStart;
+            if (size <= segment.size - offset)
+            {
+                chosen = &segment;
+                break;
+            }
+
+            // Keep each individual allocation physically contiguous. The
+            // logical bump pointer simply skips the tail of this CDRAM block.
+            logical = segEnd;
+        }
+
+        const u32 newUsed = chosen != NULL ? logical + (u32)size : ResourceMemSize + 1;
+        if (chosen == NULL || newUsed > ResourceMemSize)
+        {
+            OSReport("out of resource memory (%s)\n", szMemoryNames[memType]);
+            OSReport("[gfxmem] segmented request failed: %u bytes (%u KB) of %s; used=%u KB required=%u KB budget=%u KB segments=%d\n",
+                     (u32)size, (u32)(size >> 10), szMemoryNames[memType], n_phys >> 10,
+                     newUsed >> 10, ResourceMemSize >> 10, s_vitaResourceSegmentCount);
+            port_ReportResourceArena("exhausted");
+            nlBreak();
+        }
+
+        n_phys = newUsed;
+        g_uResourceAlloc[g_uResourceMarker].m_uBytes[memType] += size;
+        return (void*)(chosen->base + offset);
+    }
+#endif
+
     uintptr_t base = p_phys;
     // PORT: mask in pointer width, ~0x1FU would clear the top half.
     uintptr_t aligned = (base + n_phys + 0x1F) & ~(uintptr_t)0x1F;
