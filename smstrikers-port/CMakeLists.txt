@@ -686,6 +686,9 @@ if(STRIKERS_VITA)
         SceSysmodule_stub SceLibKernel_stub pthread m)
 
     include("${VITASDK}/share/vita.cmake")
+    # Request the extended user-memory mode in param.sfo. vita-mksfoex uses
+    # -d for DWORD entries; ATTRIBUTE2=12 selects the larger app memory budget.
+    set(VITA_MKSFOEX_FLAGS "${VITA_MKSFOEX_FLAGS} -d ATTRIBUTE2=12")
     vita_create_self(strikers_vita.self strikers UNSAFE)
     vita_create_vpk(strikers_vita.vpk SMSVITA01 strikers_vita.self
         VERSION 01.00 NAME "Super Mario Strikers Vita")

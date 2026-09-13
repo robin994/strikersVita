@@ -137,6 +137,15 @@ public:
     }
 };
 
+#if defined(PORT_VITA)
+extern "C" {
+// Reserve a large newlib heap now that ATTRIBUTE2 grants the title the
+// extended Vita user-memory budget. This is consumed by newlib malloc/free;
+// the game's own 96 MiB memblock allocator remains independently bounded.
+unsigned int _newlib_heap_size_user = 256u * 1024u * 1024u;
+}
+#endif
+
 bool g_bProfiling = false;
 bool g_bTweaking = false;
 bool g_e3_Build = false;
