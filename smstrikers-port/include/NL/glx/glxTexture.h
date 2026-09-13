@@ -115,6 +115,17 @@ struct GXTextureHeader
     /* 0x18 */ u32 pad[2];
 }; // total size: 0x20
 
+// This is a serialized GameCube structure, not merely a host-side convenience
+// type.  ARM's default short-enum ABI moves `width` from 0x0E to 0x0A, causing
+// numBits[] to be interpreted as dimensions.  Keep these assertions next to
+// the declaration so any future toolchain/flag regression fails at build time.
+static_assert(sizeof(eGXTextureFormat) == 4, "GameCube texture enums must remain 32-bit");
+static_assert(sizeof(GXTextureHeader) == 0x20, "GXTextureHeader disc ABI changed");
+static_assert(__builtin_offsetof(GXTextureHeader, format) == 0x04, "GXTextureHeader::format offset changed");
+static_assert(__builtin_offsetof(GXTextureHeader, width) == 0x0E, "GXTextureHeader::width offset changed");
+static_assert(__builtin_offsetof(GXTextureHeader, height) == 0x10, "GXTextureHeader::height offset changed");
+static_assert(__builtin_offsetof(GXTextureHeader, numEntries) == 0x14, "GXTextureHeader::numEntries offset changed");
+
 class PlatTexture
 {
 public:

@@ -239,7 +239,8 @@ if(STRIKERS_AURORA AND STRIKERS_VITA)
         AURORA_VITA_UPSTREAM=1 MKW_TARGET_VITA=1 TARGET_PC=1)
     target_compile_options(aurora_vita_backend PRIVATE
         -O3 -ffunction-sections -fdata-sections -fno-exceptions -fno-rtti
-        -mtune=cortex-a9 -mfpu=neon -ffast-math -fsigned-char -fshort-wchar)
+        -mtune=cortex-a9 -mfpu=neon -ffast-math -fsigned-char -fshort-wchar
+        -fno-short-enums)
     target_link_libraries(aurora_vita_backend PUBLIC
         vitaGL vitashark SceShaccCgExt SceShaccCg_stub taihen_stub
         SceGxm_stub SceDisplay_stub SceCtrl_stub SceAppMgr_stub
@@ -254,6 +255,11 @@ target_compile_definitions(port_flags INTERFACE ${PORT_DEFINES})
 if(STRIKERS_VITA)
     target_compile_options(port_flags INTERFACE
         -fshort-wchar
+        # ARM EABI otherwise uses the smallest integer container for enums.
+        # The original GameCube ABI stores enums as 32-bit values throughout
+        # asset/runtime structs (for example GXTextureHeader::format).  A short
+        # enum moves every following field and silently corrupts on-disc layout.
+        -fno-short-enums
         -include "${CMAKE_CURRENT_SOURCE_DIR}/include/port/prelude.h"
         -fno-strict-aliasing
         -fsigned-char
@@ -438,7 +444,10 @@ target_compile_definitions(strikers_musyx PRIVATE
     # _USE_MATH_DEFINES lives; and hardware.c's DPL2 coefficient uses M_PI.
     _USE_MATH_DEFINES)
 if(STRIKERS_VITA)
-    target_compile_options(strikers_musyx PRIVATE -w -std=gnu11)
+    # MusyX is intentionally kept off port_flags, but it still exchanges enums
+    # and enum-containing structures with the game runtime.  Match the 32-bit
+    # GameCube enum ABI used by every other Vita object.
+    target_compile_options(strikers_musyx PRIVATE -w -std=gnu11 -fno-short-enums)
 else()
     target_compile_options(strikers_musyx PRIVATE -fdeclspec -w -std=gnu11)
 endif()
