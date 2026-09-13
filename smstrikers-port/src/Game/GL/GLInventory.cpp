@@ -26,7 +26,12 @@ GLInventory glInventory;
  */
 GLInventory::~GLInventory()
 {
-    Delete();
+    // PORT: renderer/backend initialization may fail before Create() is reached.
+    // The original game never had that early-exit path, so its destructor could
+    // assume all per-level containers existed.  Keep shutdown safe on Vita (and
+    // on any future host-backend init failure) instead of dereferencing nulls.
+    if (m_bCreated)
+        Delete();
 }
 
 /**
@@ -99,6 +104,9 @@ void GLInventory::Create()
  */
 void GLInventory::Delete()
 {
+    if (!m_bCreated)
+        return;
+
     m_bCreated = false;
 
     nlListContainer<void*>* fileData = NULL;
