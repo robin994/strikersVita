@@ -23,7 +23,12 @@ namespace
 
 // Address space, committed by the OS on first touch; nothing here is returned to the OS.
 #if defined(STRIKERS_VITA)
-const std::size_t kRegionSize = 112u * 1024u * 1024u;
+// Leave enough USER/PHYCONT headroom for vitaShaRK + vitaGL.  Reserving 112 MiB
+// this early starved shark_init of its 2 MiB physically-contiguous page before
+// the renderer could even start.  96 MiB still leaves ~48 MiB for the game's
+// standard allocator after the 48 MiB VM window, which is comfortably above
+// the original GameCube MEM1 budget.
+const std::size_t kRegionSize = 96u * 1024u * 1024u;
 #else
 const std::size_t kRegionSize = 768u * 1024u * 1024u;
 #endif

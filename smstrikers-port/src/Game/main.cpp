@@ -9,6 +9,7 @@
 #include <aurora_vita_backend.hpp>
 #include <psp2/ctrl.h>
 #include <psp2/kernel/processmgr.h>
+#include <psp2/kernel/sysmem.h>
 #include <SDL3/SDL_events.h>
 #else
 #include <aurora/aurora.h>
@@ -732,6 +733,15 @@ int main(int argc, char* argv[])
 #if defined(PORT_VITA)
     {
         sceCtrlSetSamplingMode(SCE_CTRL_MODE_ANALOG);
+        SceKernelFreeMemorySizeInfo memInfo = {};
+        memInfo.size = sizeof(memInfo);
+        if (sceKernelGetFreeMemorySize(&memInfo) >= 0)
+        {
+            OSReport("[vita] pre-Aurora free memory: user=%u cdram=%u phycont=%u\n",
+                     (unsigned int)memInfo.size_user,
+                     (unsigned int)memInfo.size_cdram,
+                     (unsigned int)memInfo.size_phycont);
+        }
         aurora::vita::BackendConfig cfg = {};
         cfg.vgl_legacy_pool_size = 0;
         cfg.vgl_ram_threshold = 16 * 1024 * 1024;
