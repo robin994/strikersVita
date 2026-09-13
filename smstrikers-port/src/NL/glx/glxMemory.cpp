@@ -6,8 +6,15 @@
 #include <string.h>
 #include <stdint.h>
 
-// PORT: multiplier on the console's graphics memory budgets.
+// PORT: the desktop port widens pointers and several GL bookkeeping objects,
+// so it needs extra room versus the original 32-bit GameCube layouts.  Vita
+// is 32-bit again; carrying the desktop 8x multiplier there asks the game's
+// allocator for ~96 MiB during glStartup and guarantees an early boot failure.
+#if defined(STRIKERS_VITA)
+#define PORT_GFX_ARENA_SCALE 1u
+#else
 #define PORT_GFX_ARENA_SCALE 8u
+#endif
 #include "NL/glx/glxTexture.h"
 #include "NL/gc/gcSwizzler.h"
 #include "NL/gl/glMatrix.h"
@@ -111,7 +118,11 @@ bool glxInitMemory()
 
     uintptr_t pMem = (uintptr_t)nlMalloc(ResourceMemSize, 32, false);
     if (pMem == 0)
+    {
+        OSReport("[gfxmem] resource arena allocation failed: %u KB requested\n",
+                 ResourceMemSize >> 10);
         return false;
+    }
     p_phys = pMem;
 
     FrameMemSizeReal = GetFromConfig("frame vertex memory", FrameMemSizeReal);
@@ -119,7 +130,11 @@ bool glxInitMemory()
 
     pMem = (uintptr_t)nlMalloc(FrameMemSizeReal * 2, 32, false);
     if (pMem == 0)
+    {
+        OSReport("[gfxmem] frame vertex allocation failed: %u KB requested\n",
+                 (FrameMemSizeReal * 2) >> 10);
         return false;
+    }
     p_frame[0][0] = pMem;
     p_frame[1][0] = pMem + FrameMemSizeReal;
 
@@ -128,7 +143,11 @@ bool glxInitMemory()
 
     uintptr_t pVirt = (uintptr_t)nlVirtualAlloc(FrameMemSizeVirt * 2, false);
     if (pVirt == 0)
+    {
+        OSReport("[gfxmem] frame header allocation failed: %u KB requested\n",
+                 (FrameMemSizeVirt * 2) >> 10);
         return false;
+    }
 
     p_frame[0][1] = pVirt;
     p_frame[1][1] = pVirt + FrameMemSizeVirt;
