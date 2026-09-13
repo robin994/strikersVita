@@ -200,19 +200,46 @@ if(STRIKERS_AURORA AND STRIKERS_VITA)
         "${AURORA_VITA_ROOT}/platforms/vita/gfx/vita_texture_cache.cpp"
         "${AURORA_VITA_ROOT}/platforms/vita/gfx/vita_pipeline_cache.cpp"
         "${AURORA_VITA_ROOT}/platforms/vita/gfx/vita_efb.cpp"
-        "${AURORA_VITA_ROOT}/platforms/vita/gfx/vita_renderer.cpp")
+        "${AURORA_VITA_ROOT}/platforms/vita/gfx/vita_renderer.cpp"
+        "${AURORA_VITA_ROOT}/platforms/vita/gx/aurora_gx_bridge.cpp"
+        "${AURORA_VITA_ROOT}/lib/vita/runtime.cpp"
+        "${AURORA_VITA_ROOT}/lib/vita/gx_frontend_state.cpp"
+        "${AURORA_VITA_ROOT}/lib/gx/fifo.cpp"
+        "${AURORA_VITA_ROOT}/lib/gx/command_processor.cpp"
+        "${AURORA_VITA_ROOT}/lib/dolphin/gx/GXBump.cpp"
+        "${AURORA_VITA_ROOT}/lib/dolphin/gx/GXCull.cpp"
+        "${AURORA_VITA_ROOT}/lib/dolphin/gx/GXCpu2Efb.cpp"
+        "${AURORA_VITA_ROOT}/lib/dolphin/gx/GXDispList.cpp"
+        "${AURORA_VITA_ROOT}/lib/dolphin/gx/GXDraw.cpp"
+        "${AURORA_VITA_ROOT}/lib/dolphin/gx/GXExtra.cpp"
+        "${AURORA_VITA_ROOT}/lib/dolphin/gx/GXFifo.cpp"
+        "${AURORA_VITA_ROOT}/lib/dolphin/gx/GXFrameBuffer.cpp"
+        "${AURORA_VITA_ROOT}/lib/dolphin/gx/GXGeometry.cpp"
+        "${AURORA_VITA_ROOT}/lib/dolphin/gx/GXGet.cpp"
+        "${AURORA_VITA_ROOT}/lib/dolphin/gx/GXLighting.cpp"
+        "${AURORA_VITA_ROOT}/lib/dolphin/gx/GXManage.cpp"
+        "${AURORA_VITA_ROOT}/lib/dolphin/gx/GXPixel.cpp"
+        "${AURORA_VITA_ROOT}/lib/dolphin/gx/GXTev.cpp"
+        "${AURORA_VITA_ROOT}/lib/dolphin/gx/GXTexture.cpp"
+        "${AURORA_VITA_ROOT}/lib/dolphin/gx/GXTransform.cpp"
+        "${AURORA_VITA_ROOT}/lib/dolphin/gx/GXVert.cpp"
+        "${AURORA_VITA_ROOT}/lib/dolphin/gx/GXAurora.cpp"
+        "${AURORA_VITA_ROOT}/lib/dolphin/vi/vi.cpp")
     add_library(aurora_vita_backend STATIC ${AURORA_VITA_BACKEND_SOURCES})
     add_library(aurora::vita_backend ALIAS aurora_vita_backend)
     target_compile_features(aurora_vita_backend PUBLIC cxx_std_20)
     target_include_directories(aurora_vita_backend PUBLIC
+        "${AURORA_VITA_ROOT}/include"
         "${AURORA_VITA_ROOT}/platforms/vita"
         "${AURORA_VITA_ROOT}/platforms/vita/gfx"
         "${AURORA_VITA_ROOT}/platforms/vita/integration")
     target_compile_definitions(aurora_vita_backend PUBLIC
         AURORA_PLATFORM_VITA=1 AURORA_GFX_VITA=1 __vita__=1)
+    target_compile_definitions(aurora_vita_backend PRIVATE
+        AURORA_VITA_UPSTREAM=1 MKW_TARGET_VITA=1 TARGET_PC=1)
     target_compile_options(aurora_vita_backend PRIVATE
         -O3 -ffunction-sections -fdata-sections -fno-exceptions -fno-rtti
-        -mtune=cortex-a9 -mfpu=neon -ffast-math -fsigned-char)
+        -mtune=cortex-a9 -mfpu=neon -ffast-math -fsigned-char -fshort-wchar)
     target_link_libraries(aurora_vita_backend PUBLIC
         vitaGL vitashark SceShaccCgExt SceShaccCg_stub taihen_stub
         SceGxm_stub SceDisplay_stub SceCtrl_stub SceAppMgr_stub
@@ -262,6 +289,12 @@ else()
 endif()
 if(STRIKERS_ASAN)
     target_link_options(port_flags INTERFACE -fsanitize=address)
+endif()
+if(STRIKERS_VITA)
+    # The decomp uses the GameCube/Metrowerks 16-bit wchar_t ABI. Passing the
+    # flag to the link driver as well keeps the final ELF EABI attribute aligned
+    # with every translation unit instead of advertising VitaSDK's default 32-bit wchar_t.
+    target_link_options(port_flags INTERFACE -fshort-wchar)
 endif()
 
 if(STRIKERS_AURORA AND NOT STRIKERS_VITA)
