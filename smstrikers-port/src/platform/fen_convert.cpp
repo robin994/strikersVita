@@ -103,11 +103,66 @@ struct Ctx
     u8* arena;
     std::size_t arenaSize;
     bool failed;
+
+    u32 failSlot;
+    u32 failTarget;
+    int failKind;
+    const char* failReason;
+    u32 skippedNonReloc;
 };
 
 u32 rd32(Ctx* c, u32 off) { return port_be32(c->blob + off); }
 u16 rd16(Ctx* c, u32 off) { return port_be16(c->blob + off); }
 float rdf32(Ctx* c, u32 off) { return port_bef32(c->blob + off); }
+
+bool rangeValid(Ctx* c, u32 off, u32 size)
+{
+    return off <= c->blobLen && size <= c->blobLen - off;
+}
+
+void fail(Ctx* c, const char* reason, u32 slot, u32 target, int kind)
+{
+    if (!c->failed)
+    {
+        c->failReason = reason;
+        c->failSlot = slot;
+        c->failTarget = target;
+        c->failKind = kind;
+    }
+    c->failed = true;
+}
+
+bool isRelocSlot(Ctx* c, u32 slot)
+{
+    return c->isSlot != nullptr && rangeValid(c, slot, sizeof(u32)) &&
+           (slot & 3u) == 0 && c->isSlot[slot >> 2] != 0;
+}
+
+bool shouldFollow(Ctx* c, u32 slot, int kind)
+{
+    if (!rangeValid(c, slot, sizeof(u32)) || (slot & 3u) != 0)
+    {
+        fail(c, "pointer slot outside/alignment-invalid", slot, kNullOffset, kind);
+        return false;
+    }
+
+    if (isRelocSlot(c, slot))
+        return true;
+
+    // The relocation table is the authoritative description of which words in a
+    // .fen are pointers.  Earlier versions of this converter followed every
+    // schema candidate anyway, so one layout mismatch turned ordinary payload
+    // bytes into a blob offset and aborted the whole graph walk.  The retail
+    // loader only relocates table entries; mirror that behaviour here.
+    c->mismatches++;
+    c->skippedNonReloc++;
+    if (c->skippedNonReloc <= 8)
+    {
+        OSReport("[fen] skip non-relocation edge: slot=%#x value=%#x kind=%d\n",
+                 slot, rd32(c, slot), kind);
+    }
+    return false;
+}
 
 int kindOfInstance(Ctx* c, u32 off)
 {
@@ -141,12 +196,11 @@ s32 discover(Ctx* c, u32 srcSlot, u32 target, int kind)
     if (target == kNullOffset)
         return -1;
 
-    if (srcSlot != kNullOffset && c->isSlot != nullptr && !c->isSlot[srcSlot >> 2])
-        c->mismatches++;
-
-    if (target >= c->blobLen)
+    if (target >= c->blobLen || (target & 3u) != 0)
     {
-        c->failed = true;
+        fail(c, target >= c->blobLen ? "pointer target outside blob"
+                                     : "pointer target is not word aligned",
+             srcSlot, target, kind);
         return -1;
     }
 
@@ -178,28 +232,57 @@ s32 discover(Ctx* c, u32 srcSlot, u32 target, int kind)
 void edge(Ctx* c, u32 base, u32 fieldOff, int kind)
 {
     u32 slot = base + fieldOff;
+    if (!shouldFollow(c, slot, kind))
+        return;
     discover(c, slot, rd32(c, slot), kind);
 }
 
 void edgeInstance(Ctx* c, u32 base, u32 fieldOff)
 {
     u32 slot = base + fieldOff;
+    if (!shouldFollow(c, slot, K_INSTANCE))
+        return;
     u32 target = rd32(c, slot);
-    discover(c, slot, target, target == kNullOffset ? K_INSTANCE : kindOfInstance(c, target));
+    if (target == kNullOffset)
+        return;
+    if (!rangeValid(c, target, 0x7C + sizeof(u32)))
+    {
+        fail(c, "instance target truncated", slot, target, K_INSTANCE);
+        return;
+    }
+    discover(c, slot, target, kindOfInstance(c, target));
 }
 
 void edgeLibObj(Ctx* c, u32 base, u32 fieldOff)
 {
     u32 slot = base + fieldOff;
+    if (!shouldFollow(c, slot, K_LIBOBJ))
+        return;
     u32 target = rd32(c, slot);
-    discover(c, slot, target, target == kNullOffset ? K_LIBOBJ : kindOfLibObj(c, target));
+    if (target == kNullOffset)
+        return;
+    if (!rangeValid(c, target, 0x64 + sizeof(u32)))
+    {
+        fail(c, "library-object target truncated", slot, target, K_LIBOBJ);
+        return;
+    }
+    discover(c, slot, target, kindOfLibObj(c, target));
 }
 
 void edgeResource(Ctx* c, u32 base, u32 fieldOff)
 {
     u32 slot = base + fieldOff;
+    if (!shouldFollow(c, slot, K_TEXRES))
+        return;
     u32 target = rd32(c, slot);
-    discover(c, slot, target, target == kNullOffset ? K_TEXRES : kindOfResource(c, target));
+    if (target == kNullOffset)
+        return;
+    if (!rangeValid(c, target, 0x08 + sizeof(u32)))
+    {
+        fail(c, "resource target truncated", slot, target, K_TEXRES);
+        return;
+    }
+    discover(c, slot, target, kindOfResource(c, target));
 }
 
 void expand(Ctx* c, u32 index)
@@ -290,8 +373,12 @@ void expand(Ctx* c, u32 index)
 
 void* resolve(Ctx* c, u32 slotOff)
 {
+    if (!isRelocSlot(c, slotOff))
+        return nullptr;
     u32 target = rd32(c, slotOff);
     if (target == kNullOffset)
+        return nullptr;
+    if (target >= c->blobLen || (target & 3u) != 0)
         return nullptr;
     s32 index = c->byWord[target >> 2];
     if (index < 0)
@@ -558,17 +645,28 @@ extern "C" void* port_fen_convert(const void* blob, unsigned long blobLen, const
     for (u32 i = 0; i < c.tableCount; i++)
     {
         u32 off = c.table[i];
-        if (off < c.blobLen)
+        if (rangeValid(&c, off, sizeof(u32)) && (off & 3u) == 0)
             c.isSlot[off >> 2] = 1;
+        else
+        {
+            OSReport("port_fen_convert: invalid relocation slot %#x (blob=%u)\n",
+                     off, c.blobLen);
+            fail(&c, "invalid relocation-table slot", off, kNullOffset, K_PACKAGE);
+            break;
+        }
     }
 
-    discover(&c, kNullOffset, 0, K_PACKAGE);
+    if (!c.failed)
+        discover(&c, kNullOffset, 0, K_PACKAGE);
     for (u32 i = 0; i < c.objCount && !c.failed; i++)
         expand(&c, i);
 
     if (c.failed || c.objCount == 0)
     {
-        OSReport("port_fen_convert: graph walk failed after %u object(s)\n", c.objCount);
+        OSReport("port_fen_convert: graph walk failed after %u object(s): %s "
+                 "slot=%#x target=%#x kind=%d\n",
+                 c.objCount, c.failReason != nullptr ? c.failReason : "unknown",
+                 c.failSlot, c.failTarget, c.failKind);
         std::free(c.byWord);
         std::free(c.isSlot);
         std::free(c.objs);
@@ -599,9 +697,8 @@ extern "C" void* port_fen_convert(const void* blob, unsigned long blobLen, const
 
     if (c.mismatches != 0)
     {
-        OSReport("port_fen_convert: %u pointer field(s) absent from the "
-                 "relocation table; layout drift?\n",
-                 c.mismatches);
+        OSReport("port_fen_convert: skipped %u schema edge(s) absent from the "
+                 "relocation table\n", c.mismatches);
     }
 
     if (std::getenv("STRIKERS_DUMP_FEN") != nullptr)
