@@ -1,57 +1,172 @@
-# Strikers - A Native PC Port of Super Mario Strikers
+# strikersVita - Super Mario Strikers for PS Vita
 
 ![](media/strikers-gameplay.webp)
 
-*Requires game data from your own copy of Super Mario Strikers. No game assets are included.*
+> [!IMPORTANT]
+> **Work in progress.** This repository is an active PS Vita port and is not yet a finished release. The current milestone is a hardware-testable native VPK with the original game booting through the Vita backend.
 
-Super Mario Strikers, rebuilt to run natively on Windows, Linux and macOS, with modern display support, configurable controls and a focus on performance across both powerful and low-power hardware.
+`strikersVita` is an unofficial native port of **Super Mario Strikers / Mario Smash Football** for PlayStation Vita.
 
-Built on the community decompilation by the excellent [Yannick Suter](https://github.com/yannicksuter), this project brings the original game to modern systems without changing how it plays or looks.
+The project builds on the existing native Strikers port and the community decompilation work led by [Yannick Suter](https://github.com/yannicksuter). The Vita renderer is based on our fork of [Aurora](https://github.com/encounter/aurora), [aurora-vita](https://github.com/robin994/aurora-vita), with a dedicated vitaGL/vitashark backend.
 
-## Features
+No game assets are included. You must provide game data from your own legally obtained copy of Super Mario Strikers.
 
-- High framerate support with configurable frame limits and VSync.
-- Widescreen and ultrawide support, with an expanded view of the pitch and corrected aspect ratios.
-- Higher-resolution rendering with adjustable internal resolution, 4x MSAA and up to 16x anisotropic filtering.
-- Modern graphics backends through Metal, Vulkan and Direct3D 12 via [Aurora](https://github.com/encounter/aurora). Vulkan is personally recommended on non-macOS systems.
-- Controller support for Xbox, PlayStation, Switch Pro and compatible GameCube adapters through SDL.
-- Customisable controls, including keyboard and gamepad bindings, stick deadzones and rumble.
-- Faster loading compared with original hardware.
-- Direct disc-image loading from ISO/GCM, CISO and GCZ files, alongside extracted game folders.
-- US, European and Japanese game support in one executable, with region-aware saves and language handling.
-- A dedicated settings app for configuring graphics, controls, audio and game-data location. Some basic localisation included to help.
+## Current status
 
-The obvious omission is online multiplayer. I have no desire to implement this as I don't have much experience with netcode. But I am sure someone will fork this and build it. It will be a fun challenge and I look forward to trying it myself.
+The Vita bring-up is under active development. The current port includes:
 
-## Hardware and performance
+- ARM32/VitaSDK build support.
+- A dedicated PS Vita CMake/VPK target.
+- `aurora-vita` integration using the `vita-experiment` backend.
+- Native 960x544 output and 60 Hz display setup.
+- vitaGL/vitashark rendering infrastructure.
+- Native PS Vita controls through `sceCtrl`.
+- Vita filesystem, timing, memory and runtime adaptations.
+- Game data loading from `ux0:data/strikersVita`.
+- Region-aware support inherited from the native port for USA, Europe and Japan game data.
+- Aurora diagnostics and telemetry for real-hardware debugging.
 
-Developed on a modern MacBook Pro and tested on a variety of hardware I can get my hands on right now.
+The port is **not yet considered fully playable**. Rendering coverage, remaining GameCube-to-Vita platform assumptions, audio and full-game stability are still being brought up on real hardware.
 
-Efficient performance is a priority, especially on smaller systems and handhelds. Steam Deck testing is still to come when I have access to mine again. The goal is a later release tuned for smooth gameplay, low power draw and longer battery life, but from testing with the hardware I have, I think it's 90% there.
+## Requirements
 
-## Notes
+- A homebrew-enabled PlayStation Vita or PlayStation TV.
+- VitaShell or another way to install VPK files and copy game data.
+- A copy of your own Super Mario Strikers / Mario Smash Football GameCube disc data.
+- Enough free storage for the game data. An extracted `files` directory is roughly 618 MB; a full GameCube image is larger.
 
-This has been a solo effort. I am releasing this on what is effectively a 'burner' GitHub account because I don't want it attached to my name for professional and legal reasons. I have not done this port for reasons of ego or notoriety. Mario Strikers is one of my favourite games and it's been a dream of mine to bring it to the PC platform without the pains of emulation. My goal is simply to have it running on Steam Deck or similar low-end hardware with as little power draw as possible and nice performance, as I play the original game on Steam Deck a lot and bring it to parties and such.
+## Game data
 
-[Yannick Suter](https://github.com/yannicksuter), who headed the decomp effort, and the other contributors deserve a ton of credit for the work that's gone into the mind-numbing process of decompilation. And of course, the team behind [Aurora](https://github.com/encounter/aurora), for making this kind of project as easy as possible, deserve endless respect.
+The Vita port uses:
 
-Pull requests are welcome, but it's more than likely this project will be forked by people more invested than I, as I feel like my job is done.
+```text
+ux0:data/strikersVita/
+```
 
-## Licensing
+The preferred layouts are either a disc image directly in that directory:
 
-This project contains material with different licences and rights statuses.
+```text
+ux0:data/strikersVita/strikers.iso
+```
 
-My original porting code, tools and documentation are offered under CC0 1.0, except where otherwise noted, and only to the extent that I own the relevant rights. This does not relicense third-party material or grant rights to the original game.
+or the extracted GameCube `files` directory:
 
-The main distinctions are:
+```text
+ux0:data/strikersVita/files/common.ini
+ux0:data/strikersVita/files/art/...
+ux0:data/strikersVita/files/audio/...
+```
 
-- Reconstructed game code: this is an unofficial source reconstruction, not an official source release. Reconstructed material may remain subject to third-party rights; this project claims no ownership of those rights and grants no permission on behalf of their holders.
-- MusyX audio middleware: the upstream decompilation carries an MIT licence, which is preserved here. That notice does not, by itself, establish that its licensors hold all rights in the reconstructed middleware.
-- ODE physics: upstream ODE portions use the historical BSD-style licence preserved in the repository. That licence does not, by itself, establish the licensing status of independently copyrightable game-specific modifications.
-- Other third-party material and dependencies: these retain their applicable licences and notices. FFmpeg's terms depend on its build configuration.
+The disc reader supports plain `.iso` / `.gcm` images and GameCube CISO. GCZ support depends on whether the build was linked with zlib. For Vita development and testing, a normal `.iso` or extracted `files` directory is recommended.
 
-The project's current distribution policy is source-only. This is a project policy, not a claim that all reconstructed source is cleared for redistribution. Public availability does not itself grant permission to reuse or redistribute third-party material.
+Do **not** open an issue asking for game files, disc images, copyrighted assets or download links.
 
-You must supply game data from your own lawfully obtained copy. This project grants no rights to distribute game assets or disc images.
+## Controls
 
-This is an unofficial project, unaffiliated with and not endorsed by Nintendo or Next Level Games.
+The current GameCube-to-Vita mapping is:
+
+| GameCube | PS Vita |
+| --- | --- |
+| A | Cross |
+| B | Circle |
+| X | Square |
+| Y | Triangle |
+| L | L |
+| R | R |
+| Z | Select |
+| Start | Start |
+| Control Stick | Left Stick |
+| C-Stick | Right Stick |
+| D-Pad | D-Pad |
+
+During development, **Start + Select** exits the application cleanly.
+
+## Building for PS Vita
+
+### Dependencies
+
+You need a working [VitaSDK](https://vitasdk.org/) installation with the libraries used by the Vita backend, including:
+
+- vitaGL
+- vitashark
+- SDL3
+- VitaSDK system stubs/toolchain
+
+Clone the repository together with its submodules:
+
+```sh
+git clone --recursive https://github.com/robin994/strikersVita.git
+cd strikersVita/smstrikers-port
+```
+
+If the repository was already cloned without submodules:
+
+```sh
+git submodule update --init --recursive
+```
+
+Build the Vita target with:
+
+```sh
+make -f Makefile.vita
+```
+
+The Vita build uses `VITASDK=/usr/local/vitasdk` by default. Override it when your SDK lives elsewhere:
+
+```sh
+make -f Makefile.vita VITASDK=/path/to/vitasdk
+```
+
+The generated VPK is produced in the Vita build directory as:
+
+```text
+smstrikers-port/build-vita/strikers_vita.vpk
+```
+
+## Renderer
+
+The desktop port uses upstream Aurora and modern desktop graphics APIs. This fork instead has a dedicated Vita path using [robin994/aurora-vita](https://github.com/robin994/aurora-vita).
+
+The Vita backend is designed around the hardware available on PS Vita rather than trying to reproduce the desktop Dawn/WebGPU stack. Current work includes GX translation, vitaGL draw submission, texture decoding/caching, vertex conversion, EFB handling, shader generation, pipeline caching and memory-budget tracking.
+
+Runtime diagnostics are written under:
+
+```text
+ux0:data/strikersVita/aurora_telemetry.log
+ux0:data/strikersVita/aurora_coverage.log
+ux0:data/strikersVita/aurora_trace.log
+```
+
+These logs are especially useful when reporting rendering or boot failures from real hardware.
+
+## Contributing
+
+The focus of this repository is the **PS Vita port**. Useful contributions include:
+
+- GX/Aurora Vita rendering fixes.
+- ARM32 correctness and alignment fixes.
+- vitaGL/vitashark performance work.
+- Memory reduction and allocator improvements.
+- Audio backend work.
+- Input and PS TV compatibility.
+- Reproducible real-hardware crash reports and logs.
+
+When reporting a crash, include the relevant runtime/Aurora logs and, when available, the Vita core dump. Do not include copyrighted game data.
+
+## Credits
+
+- [Yannick Suter](https://github.com/yannicksuter) and all contributors to the Super Mario Strikers decompilation.
+- The authors and contributors of the native PC Strikers port this fork is based on.
+- The [Aurora](https://github.com/encounter/aurora) project and its contributors.
+- [aurora-vita](https://github.com/robin994/aurora-vita) for the PS Vita graphics backend used by this port.
+- The VitaSDK, vitaGL and vitashark communities.
+
+## Licensing and legal notice
+
+This repository contains material with different licences and rights statuses.
+
+Original porting code, tools and documentation retain their applicable licences. Reconstructed game code is an unofficial source reconstruction and is **not** an official source release. Third-party components such as MusyX, ODE, Aurora and other dependencies retain their respective licences and notices.
+
+No copyrighted game assets or disc images are distributed by this project. You must supply game data from your own lawfully obtained copy.
+
+This is an unofficial fan project. It is not affiliated with, sponsored by or endorsed by Nintendo, Next Level Games or Sony Interactive Entertainment.
