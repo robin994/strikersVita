@@ -150,18 +150,30 @@ bool shouldFollow(Ctx* c, u32 slot, int kind)
     if (isRelocSlot(c, slot))
         return true;
 
-    // The relocation table is the authoritative description of which words in a
-    // .fen are pointers.  Earlier versions of this converter followed every
-    // schema candidate anyway, so one layout mismatch turned ordinary payload
-    // bytes into a blob offset and aborted the whole graph walk.  The retail
-    // loader only relocates table entries; mirror that behaviour here.
+    // Some retail FENs seen on hardware omit schema-known ring/root slots from
+    // the relocation table.  Treat a schema edge as recoverable only when its
+    // value is itself a plausible GameCube blob pointer.  Invalid scalar-looking
+    // values remain ignored rather than becoming the fatal false positives that
+    // the original permissive converter produced.
+    const u32 target = rd32(c, slot);
     c->mismatches++;
+    if (target == kNullOffset)
+        return false;
+
+    if (target < c->blobLen && (target & 3u) == 0)
+    {
+        if (c->mismatches <= 16)
+        {
+            OSReport("[fen] recover schema edge: slot=%#x target=%#x kind=%d\n",
+                     slot, target, kind);
+        }
+        return true;
+    }
+
     c->skippedNonReloc++;
     if (c->skippedNonReloc <= 8)
-    {
-        OSReport("[fen] skip non-relocation edge: slot=%#x value=%#x kind=%d\n",
-                 slot, rd32(c, slot), kind);
-    }
+        OSReport("[fen] skip invalid schema edge: slot=%#x value=%#x kind=%d\n",
+                 slot, target, kind);
     return false;
 }
 
