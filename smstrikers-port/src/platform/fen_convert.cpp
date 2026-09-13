@@ -109,6 +109,7 @@ struct Ctx
     int failKind;
     const char* failReason;
     u32 skippedNonReloc;
+    u32 skippedInvalidReloc;
 };
 
 u32 rd32(Ctx* c, u32 off) { return port_be32(c->blob + off); }
@@ -649,10 +650,18 @@ extern "C" void* port_fen_convert(const void* blob, unsigned long blobLen, const
             c.isSlot[off >> 2] = 1;
         else
         {
-            OSReport("port_fen_convert: invalid relocation slot %#x (blob=%u)\n",
-                     off, c.blobLen);
-            fail(&c, "invalid relocation-table slot", off, kNullOffset, K_PACKAGE);
-            break;
+            // Retail relocates every entry without a logical DataLength bounds
+            // check. Some packages contain relocation entries that land in
+            // allocator padding beyond the serialized payload. They are harmless
+            // on GameCube but our graph converter cannot and need not model them.
+            // Ignore only the out-of-blob slot; every in-range relocation remains
+            // authoritative for graph discovery.
+            c.skippedInvalidReloc++;
+            if (c.skippedInvalidReloc <= 8)
+            {
+                OSReport("port_fen_convert: skipping relocation slot %#x outside blob=%u\n",
+                         off, c.blobLen);
+            }
         }
     }
 
@@ -699,6 +708,11 @@ extern "C" void* port_fen_convert(const void* blob, unsigned long blobLen, const
     {
         OSReport("port_fen_convert: skipped %u schema edge(s) absent from the "
                  "relocation table\n", c.mismatches);
+    }
+    if (c.skippedInvalidReloc != 0)
+    {
+        OSReport("port_fen_convert: skipped %u relocation slot(s) outside serialized blob\n",
+                 c.skippedInvalidReloc);
     }
 
     if (std::getenv("STRIKERS_DUMP_FEN") != nullptr)
