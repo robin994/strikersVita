@@ -182,12 +182,26 @@ void hwInitIrq() {
   pthread_mutexattr_init(&attr);
   pthread_mutexattr_settype(&attr, PTHREAD_MUTEX_ROBUST);
   pthread_mutex_init(&globalMutex, &attr);
+  pthread_mutexattr_destroy(&attr);
 #else
-  // TODO
+  /* PORT: Vita and the other POSIX targets use the pthread critical section
+     below too.  Leaving this zero-initialized is not equivalent to a valid
+     pthread mutex on Vita and eventually faults in pthread_mutex_unlock from
+     snd_handle_irq(). */
+  pthread_mutex_init(&globalMutex, NULL);
 #endif
 }
 
-void hwExitIrq() {}
+void hwExitIrq() {
+#ifdef _WIN32
+  if (globalMutex != NULL) {
+    CloseHandle(globalMutex);
+    globalMutex = NULL;
+  }
+#else
+  pthread_mutex_destroy(&globalMutex);
+#endif
+}
 
 void hwEnableIrq() {
   if (--hwIrqLevel == 0) {
