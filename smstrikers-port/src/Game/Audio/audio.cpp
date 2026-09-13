@@ -2197,7 +2197,7 @@ static inline void Update3DSFXListenerPos();
 /**
  * Offset/Address/Size: 0x1FD0 | 0x8013E4E4 | size: 0x354
  */
-void Audio::Update(float fDeltaT)
+void Update(float fDeltaT)
 {
     if (::g_bAudioInitialized == false)
     {
@@ -2862,7 +2862,7 @@ void SetVolGroupVolume(int volGroup, float fVol, int fadeTime)
 /**
  * Offset/Address/Size: 0x1028 | 0x8013D53C | size: 0xE0
  */
-void Audio::ActivateFilterOnAllCurrentSFX(bool bOn)
+void ActivateFilterOnAllCurrentSFX(bool bOn)
 {
     gWorldSFX.ActivateFilterOnAllTrackedSFX(bOn);
     gPowerupSFX.ActivateFilterOnAllTrackedSFX(bOn);
@@ -2921,7 +2921,7 @@ static void SetFilterFreqOnAllCurrentSFX(unsigned short freq)
 /**
  * Offset/Address/Size: 0xF6C | 0x8013D480 | size: 0xBC
  */
-void Audio::SetPitchBendOnAllDialogueSFX(unsigned short pitch)
+void SetPitchBendOnAllDialogueSFX(unsigned short pitch)
 {
     if (pitch > 0x3FFF)
     {

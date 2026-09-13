@@ -4,7 +4,7 @@
 
 // LP64/LLP64: the tree's 32-bit pointer assumptions are widened to 8 bytes, and on an ILP32 host
 // every one of those is wrong the other way.
-#if defined(__SIZEOF_POINTER__) && __SIZEOF_POINTER__ != 8
+#if !defined(PORT_VITA) && defined(__SIZEOF_POINTER__) && __SIZEOF_POINTER__ != 8
 #error "port assumes 64-bit pointers"
 #endif
 
@@ -197,7 +197,7 @@ static inline unsigned int __cntlzw(unsigned int x)
 // arguments, behind a GXSETARRAY macro in its own GXGeometry.h that a non-Aurora build never sees,
 // so it is defined here rather than in include/dolphin/.
 
-#if !defined(PORT_USE_AURORA) && !defined(GXSETARRAY)
+#if (!defined(PORT_USE_AURORA) || defined(PORT_VITA)) && !defined(GXSETARRAY)
 #define GXSETARRAY(attr, data, size, stride, le)                                \
     ((void)(size), (void)(le), GXSetArray((attr), (data), (stride)))
 #endif

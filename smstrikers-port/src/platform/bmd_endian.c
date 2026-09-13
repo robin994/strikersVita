@@ -130,10 +130,12 @@ typedef struct
 } PortStream;
 #pragma pack(pop)
 
-_Static_assert(sizeof(PortStateBundle) == 82,
+_Static_assert(sizeof(PortStateBundle) == (sizeof(uintptr_t) == 4 ? 54 : 82),
                "PortStateBundle must match glStateBundle");
-_Static_assert(sizeof(PortPacket) == 114, "PortPacket must match glModelPacket");
-_Static_assert(sizeof(PortStream) == 15, "PortStream must match glModelStream");
+_Static_assert(sizeof(PortPacket) == (sizeof(uintptr_t) == 4 ? 74 : 114),
+               "PortPacket must match glModelPacket");
+_Static_assert(sizeof(PortStream) == (sizeof(uintptr_t) == 4 ? 11 : 15),
+               "PortStream must match glModelStream");
 
 void port_bmd_convert_packets(void* dst, const void* src, unsigned long count)
 {

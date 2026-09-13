@@ -1052,8 +1052,8 @@ u32 synthFXStart(u16 fid,
 #if MUSY_VERSION >= MUSY_VERSION_CHECK(2, 0, 1)
 int synthCheckFXRealloc(unsigned short fid) {
   struct FX_TAB* fx;            // r31
-  unsigned long allocId;        // r30
-  unsigned long currentAllocId; // r1+0x8
+  u32 allocId;        // r30
+  u32 currentAllocId; // r1+0x8
 
   fx = dataGetFX(fid);
   if (fx == NULL) {
