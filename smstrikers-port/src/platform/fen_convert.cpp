@@ -37,6 +37,46 @@
 // size_t, not unsigned long, which is a different type on Windows.
 void* nlMalloc(size_t size, unsigned int alignment, bool atEnd);
 
+#if defined(__vita__)
+// The FEN serializer writes the retail 32-bit GameCube layouts.  These asserts
+// make ABI drift a build failure instead of a runtime graph corruption.
+static_assert(sizeof(void*) == 4, "FEN host pointers must be 32-bit on Vita");
+static_assert(sizeof(unsigned long) == 4, "FEN scalar ABI requires 32-bit unsigned long");
+static_assert(sizeof(eTimeLineAssetType) == 4, "FEN enums must stay 32-bit");
+static_assert(sizeof(eFELibObjectType) == 4, "FEN enums must stay 32-bit");
+static_assert(sizeof(eFEResourceType) == 4, "FEN enums must stay 32-bit");
+static_assert(sizeof(eTimeLinePlayMode) == 4, "FEN enums must stay 32-bit");
+static_assert(sizeof(AnimType) == 4, "FEN enums must stay 32-bit");
+
+static_assert(sizeof(FEPackage) == 0x18, "FEPackage ABI drift");
+static_assert(sizeof(FEPresentation) == 0x0C, "FEPresentation ABI drift");
+static_assert(sizeof(TLSlide) == 0x44, "TLSlide ABI drift");
+static_assert(offsetof(TLSlide, m_next) == 0x00, "TLSlide::m_next ABI drift");
+static_assert(offsetof(TLSlide, m_prev) == 0x04, "TLSlide::m_prev ABI drift");
+static_assert(offsetof(TLSlide, m_instances) == 0x08, "TLSlide::m_instances ABI drift");
+static_assert(offsetof(TLSlide, m_animations) == 0x0C, "TLSlide::m_animations ABI drift");
+static_assert(offsetof(TLSlide, m_hash) == 0x40, "TLSlide::m_hash ABI drift");
+
+static_assert(sizeof(TLInstance) == 0x80, "TLInstance ABI drift");
+static_assert(sizeof(TLImageInstance) == 0x84, "TLImageInstance ABI drift");
+static_assert(sizeof(TLComponentInstance) == 0x84, "TLComponentInstance ABI drift");
+static_assert(sizeof(TLTextInstance) == 0x104, "TLTextInstance ABI drift");
+static_assert(offsetof(TLInstance, m_type) == 0x78, "TLInstance::m_type ABI drift");
+static_assert(offsetof(TLTextInstance, m_OverloadFlags) == 0x90,
+              "TLTextInstance::m_OverloadFlags ABI drift");
+
+static_assert(sizeof(FELibObject) == 0x68, "FELibObject ABI drift");
+static_assert(sizeof(FEImage) == 0x6C, "FEImage ABI drift");
+static_assert(sizeof(FEText) == 0x78, "FEText ABI drift");
+static_assert(sizeof(TLComponent) == 0x94, "TLComponent ABI drift");
+static_assert(sizeof(FEResourceHandle) == 0x14, "FEResourceHandle ABI drift");
+static_assert(sizeof(FETextureResource) == 0x18, "FETextureResource ABI drift");
+static_assert(sizeof(FEFontResource) == 0x18, "FEFontResource ABI drift");
+static_assert(sizeof(FEAnimation) == 0x1C, "FEAnimation ABI drift");
+static_assert(sizeof(fAnimationKeyframe) == 0x18, "fAnimationKeyframe ABI drift");
+static_assert(sizeof(v3AnimationKeyframe) == 0x38, "v3AnimationKeyframe ABI drift");
+#endif
+
 namespace
 {
 
@@ -125,7 +165,8 @@ struct Ctx
     s32* byWord;
 
     u8* isSlot;
-    u32 mismatches;
+    u32 recoveredNonReloc;
+    u32 nonRelocNull;
 
     u8* arena;
     std::size_t arenaSize;
@@ -183,13 +224,16 @@ bool shouldFollow(Ctx* c, u32 slot, int kind)
     // values remain ignored rather than becoming the fatal false positives that
     // the original permissive converter produced.
     const u32 target = rd32(c, slot);
-    c->mismatches++;
     if (target == kNullOffset)
+    {
+        c->nonRelocNull++;
         return false;
+    }
 
     if (target < c->blobLen && (target & 3u) == 0)
     {
-        if (c->mismatches <= 16)
+        c->recoveredNonReloc++;
+        if (c->recoveredNonReloc <= 16)
         {
             OSReport("[fen] recover schema edge: slot=%#x target=%#x kind=%d\n",
                      slot, target, kind);
@@ -407,7 +451,7 @@ void expand(Ctx* c, u32 index)
 
     case K_SLIDE:
         edge(c, b, 0x00, K_SLIDE);   // m_next
-        edge(c, b, 0x04, K_SLIDE);   // m_prev, `pad0` in the header
+        edge(c, b, 0x04, K_SLIDE);   // m_prev
         edgeInstance(c, b, 0x08);
         edge(c, b, 0x0C, K_ANIM);
         break;
@@ -805,10 +849,11 @@ extern "C" void* port_fen_convert(const void* blob, unsigned long blobLen, const
     for (u32 i = 0; i < c.objCount; i++)
         emit(&c, i);
 
-    if (c.mismatches != 0)
+    if (c.recoveredNonReloc != 0)
     {
-        OSReport("port_fen_convert: skipped %u schema edge(s) absent from the "
-                 "relocation table\n", c.mismatches);
+        OSReport("port_fen_convert: recovered %u non-null schema edge(s) absent from the "
+                 "relocation table (%u null schema slot(s) omitted as expected)\n",
+                 c.recoveredNonReloc, c.nonRelocNull);
     }
     if (c.skippedInvalidReloc != 0)
     {

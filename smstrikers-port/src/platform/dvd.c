@@ -85,6 +85,93 @@ static char s_root[1024];
 // Non-NULL when the data is a disc image rather than a directory.
 static PortDisc* s_disc;
 
+static int is_fen_mapping_probe(const char* path)
+{
+    return path != NULL
+        && (strcmpi(path, "art/fe/popup_menu.fen") == 0
+            || strcmpi(path, "art/fe/saving_loading.fen") == 0);
+}
+
+static u32 fen_mapping_fingerprint(const DvdEntry* entry)
+{
+    // FNV-1a over the complete file.  This is diagnostic-only and runs for two
+    // small FEN files during DVDInit, so favour a deterministic identity over a
+    // sample that could accidentally match the common package header.
+    unsigned char buffer[4096];
+    u32 hash = 2166136261u;
+    u32 pos = 0;
+
+    while (pos < entry->length)
+    {
+        size_t want = entry->length - pos;
+        if (want > sizeof buffer)
+            want = sizeof buffer;
+
+        long got;
+        if (entry->host != NULL)
+        {
+            FILE* f = fopen(entry->host, "rb");
+            if (f == NULL)
+                return 0;
+            if (fseek(f, (long)pos, SEEK_SET) != 0)
+            {
+                fclose(f);
+                return 0;
+            }
+            got = (long)fread(buffer, 1, want, f);
+            fclose(f);
+        }
+        else
+        {
+            got = port_disc_read(s_disc, buffer, want,
+                                 (unsigned long long)entry->offset + pos);
+        }
+
+        if (got != (long)want)
+            return 0;
+        for (size_t i = 0; i < want; ++i)
+        {
+            hash ^= buffer[i];
+            hash *= 16777619u;
+        }
+        pos += (u32)want;
+    }
+    return hash;
+}
+
+static void log_fen_mapping_probes(void)
+{
+    static const char* const kPaths[] = {
+        "art/fe/popup_menu.fen",
+        "art/fe/saving_loading.fen",
+    };
+
+    for (unsigned p = 0; p < sizeof kPaths / sizeof kPaths[0]; ++p)
+    {
+        int found = -1;
+        for (int i = 0; i < s_count; ++i)
+        {
+            if (strcmpi(s_entries[i].path, kPaths[p]) == 0)
+            {
+                found = i;
+                break;
+            }
+        }
+
+        if (found < 0)
+        {
+            OSReport("[dvd-fen] missing %s\n", kPaths[p]);
+            continue;
+        }
+
+        const DvdEntry* e = &s_entries[found];
+        OSReport("[dvd-fen] map path=%s idx=%d off=%#x len=%u fnv=%08x source=%s\n",
+                 e->path, found, (unsigned)e->offset, (unsigned)e->length,
+                 (unsigned)fen_mapping_fingerprint(e),
+                 e->host != NULL ? "host" : "image");
+    }
+}
+
 static char* dup_lower(const char* s)
 {
     size_t n = strlen(s);
@@ -310,6 +397,12 @@ void DVDInit(void)
     else
         fprintf(stderr, "[port] DVD: %d files under %s\n", s_count, s_root);
 
+    // The boot save-flow opens popup_menu.fen immediately after
+    // saving_loading.fen.  A hardware crash proved that the popup scene was
+    // receiving the save/load graph, so print the authoritative index identity
+    // before either scene can mutate runtime state.
+    log_fen_mapping_probes();
+
     // PORT: fatal rather than zero files and a printed warning; launched from a file manager there
     // is no console to read.
     if (s_count == 0)
@@ -430,6 +523,13 @@ BOOL DVDFastOpen(s32 entrynum, DVDFileInfo* fileInfo)
 {
     if (entrynum < 0 || entrynum >= s_count || !fileInfo)
         return FALSE;
+    if (is_fen_mapping_probe(s_entries[entrynum].path))
+    {
+        OSReport("[dvd-fen] open path=%s idx=%d off=%#x len=%u\n",
+                 s_entries[entrynum].path, (int)entrynum,
+                 (unsigned)s_entries[entrynum].offset,
+                 (unsigned)s_entries[entrynum].length);
+    }
     // Under STRIKERS_LOG_AUDIO, name every stream file opened, whichever route resolved it.
     {
         static int s_log = -1;
@@ -480,6 +580,13 @@ s32 DVDReadAsyncPrio(DVDFileInfo* fileInfo, void* addr, s32 length, s32 offset,
     if (!fileInfo || fileInfo->startAddr >= (u32)s_count)
         return -1;
     const DvdEntry* e = &s_entries[fileInfo->startAddr];
+
+    if (is_fen_mapping_probe(e->path))
+    {
+        OSReport("[dvd-fen] read path=%s idx=%u file_off=%d len=%d iso_off=%#llx\n",
+                 e->path, (unsigned)fileInfo->startAddr, (int)offset, (int)length,
+                 (unsigned long long)e->offset + (offset >= 0 ? (unsigned)offset : 0));
+    }
 
     // A null destination or nonsensical length is a caller bug, named here because the UCRT's fread
     // rejects them through _invalid_parameter, aborting from inside the CRT with the caller's
