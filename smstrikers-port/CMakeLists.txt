@@ -350,10 +350,11 @@ file(GLOB_RECURSE PLATFORM_SOURCES CONFIGURE_DEPENDS
      "${CMAKE_CURRENT_SOURCE_DIR}/src/platform/*.cpp"
      "${CMAKE_CURRENT_SOURCE_DIR}/src/platform/*.c")
 
-# Camera chunks are decoded immutably by animcam.cpp. cam_endian.c is now only
-# the malformed-buffer validator used by tests, not a runtime byte-swap pass.
+# Camera and world chunks are decoded immutably by their runtime loaders. The
+# endian C files below are now malformed-buffer validators used only by tests.
 list(REMOVE_ITEM PLATFORM_SOURCES
-     "${CMAKE_CURRENT_SOURCE_DIR}/src/platform/cam_endian.c")
+     "${CMAKE_CURRENT_SOURCE_DIR}/src/platform/cam_endian.c"
+     "${CMAKE_CURRENT_SOURCE_DIR}/src/platform/wld_endian.c")
 
 # src/platform/operator_new.cpp is the one file in the tree that is not C++11.
 list(REMOVE_ITEM PLATFORM_SOURCES

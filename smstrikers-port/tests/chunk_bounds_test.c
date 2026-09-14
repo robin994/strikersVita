@@ -9,8 +9,8 @@
 #include "port/endian.h"
 
 unsigned long port_cam_validate(const void* data, unsigned long size);
-unsigned long port_wld_swap(void* data, unsigned long size);
-unsigned long port_phys_swap(void* data, unsigned long size);
+unsigned long port_wld_validate(const void* data, unsigned long size);
+unsigned long port_phys_validate(const void* data, unsigned long size);
 unsigned long port_skin_swap(void* outerChunk);
 unsigned long port_bmd_swap_headers(void* data, unsigned long size);
 
@@ -202,7 +202,7 @@ int main(void)
         put32(buf + 8, (16u << 24) | 0x19003);
         put32(buf + 12, 8);
         put32(buf + 16, 1);
-        check(port_wld_swap(buf, 24) == 0, "wld: a record aligned past its end refuses the file");
+        check(port_wld_validate(buf, 24) == 0, "wld: a record aligned past its end refuses the file");
         check(buf[19] == 1, "wld: ...and its payload is left alone");
         free(buf);
     }
@@ -215,14 +215,14 @@ int main(void)
         put32(buf + 12, 16);
         put32(buf + 16, (16u << 24) | 0x1D001);
         put32(buf + 20, 8);
-        check(port_wld_swap(buf, 32) == 0, "wld: a bad chunk inside the physics block refuses the file");
+        check(port_wld_validate(buf, 32) == 0, "wld: a bad chunk inside the physics block refuses the file");
         put32(buf, 0x19000);
         put32(buf + 4, 24);
         put32(buf + 8, 0x1D000);
         put32(buf + 12, 16);
         put32(buf + 16, (16u << 24) | 0x1D001);
         put32(buf + 20, 8);
-        check(port_phys_swap(buf + 8, 24) == 0, "phys: the same block as a file of its own is refused");
+        check(port_phys_validate(buf + 8, 24) == 0, "phys: the same block as a file of its own is refused");
         free(buf);
     }
 
@@ -294,8 +294,8 @@ int main(void)
         put32(buf + 8, (3u << 24) | 0x19001);
         put32(buf + 12, 16);
         put32(buf + 16, 7);
-        check(port_wld_swap(buf, 32) == 2, "wld: a well-formed file converts its chunks");
-        check(host32(buf + 16) == 7, "wld: the aligned count is in host order");
+        check(port_wld_validate(buf, 32) == 2, "wld: a well-formed file validates its chunks");
+        check(port_be32(buf + 16) == 7, "wld: validation keeps the count big-endian and immutable");
         
     }
 
