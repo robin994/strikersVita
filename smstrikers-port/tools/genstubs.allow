@@ -28,3 +28,8 @@
 ^\?WriteXML@cFuzzyDebugger@@SAXXZ$
 ^_ZN16TMAnimControllerC1EPKcP5World$
 ^\?\?0TMAnimController@@QEAA@PEBDPEAVWorld@@@Z$
+
+# Recovered skin-controller declaration. Keep the exact glModel* signature
+# anchored so a different overload is still rejected by the stub gate.
+^_ZN21SkinnedAnimController16CreateGLSkinMeshEP7glModel$
+^\?CreateGLSkinMesh@SkinnedAnimController@@QEAAXPEAUglModel@@@Z$
