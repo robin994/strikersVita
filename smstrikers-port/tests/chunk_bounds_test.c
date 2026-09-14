@@ -11,8 +11,8 @@
 unsigned long port_cam_validate(const void* data, unsigned long size);
 unsigned long port_wld_validate(const void* data, unsigned long size);
 unsigned long port_phys_validate(const void* data, unsigned long size);
-unsigned long port_skin_swap(void* outerChunk);
-unsigned long port_bmd_swap_headers(void* data, unsigned long size);
+unsigned long port_skin_validate(const void* outerChunk, unsigned long size);
+unsigned long port_bmd_validate(const void* data, unsigned long size);
 
 static int failures;
 
@@ -234,14 +234,16 @@ int main(void)
         put32(buf + 12, 16);
         put32(buf + 16, (127u << 24) | 0x1B00Eu);
         put32(buf + 20, 8);
-        check(port_bmd_swap_headers(buf, 32) == 0, "bmd: an alignment exponent the loader cannot shift by refuses the tree");
+        check(port_bmd_validate(buf, 32) == 0, "bmd: an alignment exponent the loader cannot shift by refuses the tree");
         put32(buf, 0x8001B000u);
         put32(buf + 4, 24);
         put32(buf + 8, 0x8001B008u);
         put32(buf + 12, 16);
         put32(buf + 16, (3u << 24) | 0x1B00Eu);
         put32(buf + 20, 8);
-        check(port_bmd_swap_headers(buf, 32) == 3, "bmd: an 8-byte alignment is accepted");
+        check(port_bmd_validate(buf, 32) == 3, "bmd: an 8-byte alignment is accepted");
+        check(port_be32(buf) == 0x8001B000u && port_be32(buf + 8) == 0x8001B008u,
+              "bmd: validation keeps nested headers big-endian and immutable");
         free(buf);
     }
 
@@ -251,12 +253,12 @@ int main(void)
         put32(buf + 4, 20);
         put32(buf + 8, (5u << 24) | 0x1B004u);
         put32(buf + 12, 12);
-        check(port_bmd_swap_headers(buf, 28) == 0, "bmd: an aligned payload past the chunk's end refuses the tree");
+        check(port_bmd_validate(buf, 28) == 0, "bmd: an aligned payload past the chunk's end refuses the tree");
         put32(buf, 0x8001B000u);
         put32(buf + 4, 40);
         put32(buf + 8, (5u << 24) | 0x1B004u);
         put32(buf + 12, 32);
-        check(port_bmd_swap_headers(buf, 48) == 2, "bmd: an aligned payload inside the chunk is accepted");
+        check(port_bmd_validate(buf, 48) == 2, "bmd: an aligned payload inside the chunk is accepted");
     }
 
     {
@@ -278,12 +280,12 @@ int main(void)
         put32(buf + 4, 16);
         put32(buf + 8, 0x1B002);
         put32(buf + 12, 4000);
-        check(port_bmd_swap_headers(buf, 24) == 0, "bmd: a chunk sized past its container refuses the tree");
+        check(port_bmd_validate(buf, 24) == 0, "bmd: a chunk sized past its container refuses the tree");
         put32(buf, 0x8001B100u);
         put32(buf + 4, 16);
         put32(buf + 8, 0x1B002);
         put32(buf + 12, 8);
-        check(port_bmd_swap_headers(buf, 24) == 2, "bmd: a well-formed tree reports its chunk count");
+        check(port_bmd_validate(buf, 24) == 2, "bmd: a well-formed tree reports its chunk count");
         free(buf);
     }
 
@@ -299,7 +301,7 @@ int main(void)
         
     }
 
-    // SKIN conversion now receives a private copy of the untouched big-endian chunk.
+    // SKIN remains serialized big-endian; validation must never mutate it.
     {
         unsigned char* buf = exact(24);
         put32(buf + 0, 0x8001B008u);
@@ -307,7 +309,7 @@ int main(void)
         put32(buf + 8, (16u << 24) | 0x1B00E);
         put32(buf + 12, 8);
         buf[16] = 0; buf[17] = 1;
-        check(port_skin_swap(buf) == 0, "skin: a child aligned past its end refuses the chunk");
+        check(port_skin_validate(buf, 24) == 0, "skin: a child aligned past its end refuses the chunk");
         check(buf[16] == 0 && buf[17] == 1, "skin: ...and its payload is left alone");
         free(buf);
     }
@@ -320,10 +322,51 @@ int main(void)
         put32(buf + 12, 24);
         buf[16] = 0; buf[17] = 1;
         buf[38] = 0; buf[39] = 2;
-        check(port_skin_swap(buf) == 1, "skin: a well-formed chunk is converted");
-        check(buf[16] == 1 && buf[17] == 0 && buf[38] == 2 && buf[39] == 0,
-              "skin: the pairs are in host order to the chunk's end");
+        check(port_skin_validate(buf, 40) == 2, "skin: a well-formed chunk validates");
+        check(buf[16] == 0 && buf[17] == 1 && buf[38] == 0 && buf[39] == 2,
+              "skin: validation keeps pair data big-endian and immutable");
         
+    }
+
+    {
+        unsigned char* buf = exact(24);
+        put32(buf + 0, 0x8001B008u);
+        put32(buf + 4, 16);
+        put32(buf + 8, 0x1B010u);
+        put32(buf + 12, 8);
+        put32(buf + 16, 3); // packet index
+        put32(buf + 20, 3); // packet count
+        check(port_skin_validate(buf, 24) == 0,
+              "skin: stitching refuses packet index equal to packet count");
+        free(buf);
+    }
+
+    {
+        unsigned char* buf = exact(100);
+        put32(buf + 0, 0x8001B008u);
+        put32(buf + 4, 92);
+        put32(buf + 8, 0x1B00Cu);
+        put32(buf + 12, 84);
+        put32(buf + 16, 9); // more morphs than morphWeights[8]
+        put32(buf + 20, 1);
+        check(port_skin_validate(buf, 100) == 0,
+              "skin: morph table refuses more than eight morph channels");
+        free(buf);
+    }
+
+    {
+        unsigned char* buf = exact(48);
+        put32(buf + 0, 0x8001B008u);
+        put32(buf + 4, 40);
+        put32(buf + 8, 0x1B00Cu);
+        put32(buf + 12, 32);
+        put32(buf + 16, 0); // num morphs
+        put32(buf + 20, 1); // one base vertex
+        put32(buf + 24, 1); // one delta
+        put32(buf + 40, 1); // delta index == numBaseVerts: OOB
+        check(port_skin_validate(buf, 48) == 0,
+              "skin: morph delta index must stay inside base vertex array");
+        free(buf);
     }
 
     if (failures)

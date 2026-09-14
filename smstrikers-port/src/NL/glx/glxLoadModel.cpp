@@ -3,7 +3,7 @@
 #include "NL/nlWare.h"
 #include "dolphin/os.h"
 extern "C" {
-unsigned long port_skin_swap(void*);
+unsigned long port_skin_validate(const void*, unsigned long);
 unsigned long port_bmd_packet_count(unsigned long);
 unsigned long port_bmd_stream_count(unsigned long);
 void port_bmd_convert_packets(void*, const void*, unsigned long);
@@ -97,6 +97,15 @@ void glSetIgnoreDuplicateModels(bool ignore)
     glIgnoreDuplicateModels = ignore;
 }
 
+static void glx_DecodeMatrixBE(nlMatrix4* out, const u8* in)
+{
+    for (u32 word = 0; word < sizeof(nlMatrix4) / sizeof(float); ++word)
+    {
+        const float value = port_bef32(in + word * 4);
+        memcpy((u8*)out + word * 4, &value, sizeof(value));
+    }
+}
+
 /**
  * Offset/Address/Size: 0xC08 | 0x801C0828 | size: 0x2A0
  */
@@ -105,35 +114,37 @@ GLSkinMesh* glx_MakeSkinMesh(nlChunk* outerChunk, glModel* models)
     if (outerChunk == NULL || models == NULL)
         return NULL;
 
+    const u8* outerRaw = (const u8*)outerChunk;
+    const u32 outerID = port_be32(outerRaw + 0);
+    const u32 outerSize = port_be32(outerRaw + 4);
+    if ((outerID & ~0x7F000000u) != 0x8001B008u)
+        return NULL;
+
     ShaderSkinMesh* mesh = new (nlMalloc(sizeof(ShaderSkinMesh), 8, false)) ShaderSkinMesh();
     if (mesh == NULL)
         return NULL;
 
     mesh->pModel = models;
+    const auto fail = [&]() -> GLSkinMesh* {
+        delete mesh;
+        return NULL;
+    };
 
     u32 i;
     u32 count;
-    const u8* outerRaw = (const u8*)outerChunk;
-    const u32 outerSize = port_u32_unaligned(outerRaw + 4);
     const u8* cursor = outerRaw + 8;
     const u8* end = cursor + outerSize;
 
     while (cursor < end)
     {
-        if ((unsigned long)(end - cursor) < 8)
-            return NULL;
+        PortBEChunkView view;
+        if (!port_be_chunk_read(cursor, end, &view))
+            return fail();
+        cursor = view.next;
 
-        const u32 id = port_u32_unaligned(cursor + 0);
-        const u32 serializedSize = port_u32_unaligned(cursor + 4);
-        if (serializedSize > (u32)(end - cursor - 8))
-            return NULL;
-
-        u32 chunkType = id & ~0x7F000000u;
-        unsigned long payloadLen = 0;
-        const u8* data = port_chunk_payload_const(cursor, id, serializedSize, &payloadLen);
-        if (data == NULL)
-            return NULL;
-        const u32 chunkSize = (u32)payloadLen;
+        const u32 chunkType = view.id & ~0x7F000000u;
+        const u8* data = view.payload;
+        const u32 chunkSize = (u32)view.payload_len;
 
         switch (chunkType)
         {
@@ -142,14 +153,14 @@ GLSkinMesh* glx_MakeSkinMesh(nlChunk* outerChunk, glModel* models)
         case 0x1B00A:
         {
             if (chunkSize % 0x44 != 0)
-                return NULL;
+                return fail();
             count = chunkSize / 0x44;
             for (i = 0; i < count; i++)
             {
-                u32 boneID = port_u32_unaligned(data);
+                const u32 boneID = port_be32(data);
                 nlMatrix4 src;
                 nlMatrix4 inv;
-                memcpy(&src, data + 4, sizeof(nlMatrix4));
+                glx_DecodeMatrixBE(&src, data + 4);
                 data += 0x44;
                 nlInvertMatrix(inv, src);
                 mesh->SetBoneMatrix(boneID, &inv);
@@ -159,17 +170,17 @@ GLSkinMesh* glx_MakeSkinMesh(nlChunk* outerChunk, glModel* models)
         case 0x1B00B:
         {
             if (chunkSize % 8 != 0)
-                return NULL;
+                return fail();
             BoneMapList* node = new (nlMalloc(sizeof(BoneMapList), 8, false)) BoneMapList;
             if (node == NULL)
-                return NULL;
+                return fail();
 
             count = chunkSize >> 3;
             node->m_next = NULL;
             for (i = 0; i < count; i++)
             {
-                unsigned long key = port_u32_unaligned(data + 0);
-                unsigned long value = port_u32_unaligned(data + 4);
+                const unsigned long key = port_be32(data + 0);
+                const unsigned long value = port_be32(data + 4);
                 data += 8;
                 node->boneMap.Add(key, value);
             }
@@ -177,51 +188,139 @@ GLSkinMesh* glx_MakeSkinMesh(nlChunk* outerChunk, glModel* models)
             break;
         }
         case 0x1B00D:
+        {
             if (chunkSize % 0x10 != 0)
-                return NULL;
-            mesh->SetSoftwareVertices((int)(chunkSize >> 4), (const SkinVertex*)data);
+                return fail();
+            count = chunkSize >> 4;
+            if (count > 0x1000u)
+                return fail();
+            SkinVertex* vertices = count != 0
+                ? (SkinVertex*)nlMalloc(count * sizeof(SkinVertex), 8, false) : NULL;
+            if (count != 0 && vertices == NULL)
+                return fail();
+            for (i = 0; i < count; ++i)
+            {
+                vertices[i].position.x = port_bef32(data + i * 0x10 + 0x00);
+                vertices[i].position.y = port_bef32(data + i * 0x10 + 0x04);
+                vertices[i].position.z = port_bef32(data + i * 0x10 + 0x08);
+                memcpy(vertices[i].packed_normal, data + i * 0x10 + 0x0C, 4);
+            }
+            mesh->SetSoftwareVertices((int)count, vertices);
+            if (vertices != NULL)
+                nlFree(vertices);
+            if (count != 0 && mesh->softwareVertices == NULL)
+                return fail();
             break;
+        }
         case 0x1B00E:
+        {
             if (chunkSize % 4 != 0)
-                return NULL;
-            mesh->AppendSkinPairList((int)(chunkSize >> 2), (const SkinPair*)data);
+                return fail();
+            count = chunkSize >> 2;
+            SkinPair* pairs = count != 0
+                ? (SkinPair*)nlMalloc(count * sizeof(SkinPair), 8, false) : NULL;
+            if (count != 0 && pairs == NULL)
+                return fail();
+            for (i = 0; i < count; ++i)
+            {
+                pairs[i].vertexIndex = port_be16(data + i * 4 + 0);
+                pairs[i].vertexWeight = port_be16(data + i * 4 + 2);
+            }
+            mesh->AppendSkinPairList((int)count, pairs);
+            if (pairs != NULL)
+                nlFree(pairs);
             break;
+        }
         case 0x1B00C:
         {
-            if (chunkSize < 8)
-                return NULL;
-            u32 numMorphs = port_u32_unaligned(data + 0);
-            const u32 numBaseVerts = port_u32_unaligned(data + 4);
-            if (numMorphs > (chunkSize - 8) / 8)
-                return NULL;
+            if (chunkSize < 12)
+                return fail();
+            const u32 numMorphs = port_be32(data + 0);
+            const u32 numBaseVerts = port_be32(data + 4);
+            if (numMorphs > 8 || numBaseVerts > 0x1000u ||
+                numMorphs > (chunkSize - 12) / 8)
+                return fail();
             mesh->numMorphs = (int)numMorphs;
             mesh->numBaseVerts = numBaseVerts;
-            data += 8;
-            mesh->SetMorphIDs((const u32*)data);
-            data += numMorphs * 4;
-            mesh->SetMorphNumDeltas((const u32*)data);
-            data += numMorphs * 4;
+            const u8* idsRaw = data + 8;
+            const u8* countsRaw = idsRaw + numMorphs * 4;
             const u32 used = 8 + numMorphs * 8;
-            if (chunkSize - used < 4)
-                return NULL;
-            const u32 deltaCount = port_u32_unaligned(data);
+            const u8* deltaCountRaw = data + used;
+            const u32 deltaCount = port_be32(deltaCountRaw);
             if (deltaCount > (chunkSize - used - 4) / sizeof(MorphDelta))
-                return NULL;
-            mesh->SetMorphDeltas((int)deltaCount, (const MorphDelta*)(data + 4));
+                return fail();
+
+            u32* ids = numMorphs != 0 ? (u32*)nlMalloc(numMorphs * sizeof(u32), 8, false) : NULL;
+            u32* deltaCounts = numMorphs != 0 ? (u32*)nlMalloc(numMorphs * sizeof(u32), 8, false) : NULL;
+            if (numMorphs != 0 && (ids == NULL || deltaCounts == NULL))
+            {
+                if (ids != NULL) nlFree(ids);
+                if (deltaCounts != NULL) nlFree(deltaCounts);
+                return fail();
+            }
+
+            uint64_t referencedDeltas = 0;
+            for (i = 0; i < numMorphs; ++i)
+            {
+                ids[i] = port_be32(idsRaw + i * 4);
+                deltaCounts[i] = port_be32(countsRaw + i * 4);
+                referencedDeltas += deltaCounts[i];
+            }
+            if (referencedDeltas > deltaCount)
+            {
+                if (ids != NULL) nlFree(ids);
+                if (deltaCounts != NULL) nlFree(deltaCounts);
+                return fail();
+            }
+            mesh->SetMorphIDs(ids);
+            mesh->SetMorphNumDeltas(deltaCounts);
+            if (ids != NULL) nlFree(ids);
+            if (deltaCounts != NULL) nlFree(deltaCounts);
+            if (numMorphs != 0 && (mesh->morphIDs == NULL || mesh->morphNumDeltas == NULL))
+                return fail();
+
+            MorphDelta* deltas = deltaCount != 0
+                ? (MorphDelta*)nlMalloc(deltaCount * sizeof(MorphDelta), 8, false) : NULL;
+            if (deltaCount != 0 && deltas == NULL)
+                return fail();
+            const u8* deltaRaw = deltaCountRaw + 4;
+            for (i = 0; i < deltaCount; ++i)
+            {
+                deltas[i].delta.x = port_bef32(deltaRaw + i * 0x10 + 0x00);
+                deltas[i].delta.y = port_bef32(deltaRaw + i * 0x10 + 0x04);
+                deltas[i].delta.z = port_bef32(deltaRaw + i * 0x10 + 0x08);
+                deltas[i].index = (int)port_be32(deltaRaw + i * 0x10 + 0x0C);
+                if ((u32)deltas[i].index >= numBaseVerts)
+                {
+                    nlFree(deltas);
+                    return fail();
+                }
+            }
+            mesh->SetMorphDeltas((int)deltaCount, deltas);
+            if (deltas != NULL) nlFree(deltas);
+            if (deltaCount != 0 && mesh->morphData == NULL)
+                return fail();
             break;
         }
         case 0x1B00F:
             break;
         case 0x1B010:
             if (chunkSize < 8)
-                return NULL;
-            mesh->AppendStitchingInfo((int)port_u32_unaligned(data + 4),
-                                      (int)port_u32_unaligned(data + 0),
+                return fail();
+            {
+                const u32 packetIndex = port_be32(data + 0);
+                const u32 numPackets = port_be32(data + 4);
+                if (numPackets == 0 || packetIndex >= numPackets ||
+                    (mesh->stitchArray != NULL && mesh->numPackets != (int)numPackets))
+                    return fail();
+                mesh->AppendStitchingInfo((int)packetIndex,
+                                      (int)numPackets,
                                       (int)chunkSize - 8, data + 8);
+                if (mesh->stitchArray == NULL)
+                    return fail();
+            }
             break;
         }
-
-        cursor += 8 + serializedSize;
     }
 
     mesh->StitchModel();
@@ -497,16 +596,18 @@ static glModel* glxLoadModelFromMemory(char* data, int size, unsigned long* pNum
                     if (pModels == NULL || numModels == 0)
                         return NULL;
                     const u32 skinSize = chunkView.size + 8;
-                    nlChunk* pSkinChunk = (nlChunk*)NLVIRTUALALLOC(skinSize);
-                    if (pSkinChunk == NULL) return NULL;
-                    memcpy(pSkinChunk, chunkView.raw, skinSize);
-                    // Convert only this retained private copy: the source BMD remains immutable.
-                    if (port_skin_swap(pSkinChunk) == 0)
+                    if (port_skin_validate(chunkView.raw, skinSize) == 0)
                     {
                         OSReport("Error: SKIN chunk of model %lu is not well-formed\n",
-                                 pModels ? (unsigned long)pModels->id : 0ul);
+                                 (unsigned long)pModels->id);
                         return NULL;
                     }
+                    nlChunk* pSkinChunk = (nlChunk*)NLVIRTUALALLOC(skinSize);
+                    if (pSkinChunk == NULL) return NULL;
+                    // Retain the original immutable BE chunk. Mesh construction decodes
+                    // format-defined fields into host-owned arrays; no private endian-swapped
+                    // nlChunk tree is needed anymore.
+                    memcpy(pSkinChunk, chunkView.raw, skinSize);
                     // PORT: see rw_glinventory_skinprobe.
                     if (getenv("STRIKERS_PROBE_SKIN"))
                         OSReport("[skin] ADD id=%lu pModels=%p numModels=%lu\n",
