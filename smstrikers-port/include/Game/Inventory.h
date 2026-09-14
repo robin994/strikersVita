@@ -18,21 +18,59 @@ public:
 
     void ParseChunks(nlChunk* chunk, nlChunk* end)
     {
-        // PORT: the file is big-endian and each item converts its own subtree, so the walk reads the header rather than trusting it.
-        while (chunk != end && chunk != NULL)
+        // PORT: inventory files can contain allocator/file padding after their
+        // last logical chunk. The original console walk only compared the
+        // cursor for equality with end, so one bogus size in that tail could
+        // jump beyond the buffer and make the next header load fault on ARM.
+        // Validate every header/extent before T::Initialize mutates its subtree.
+        unsigned char* cursor = (unsigned char*)chunk;
+        unsigned char* limit = (unsigned char*)end;
+
+        while (cursor < limit)
         {
-            const unsigned long uSize = port_be32(&chunk->m_Size);
-            if (T::IsValidChunkID(port_be32(&chunk->m_ID) & 0x80FFFFFF))
+            const unsigned long remaining = (unsigned long)(limit - cursor);
+            if (remaining < sizeof(nlChunk))
             {
-                T* item = T::Initialize(chunk);
-                m_lItemList.AddStart(item);
-                m_nItemCount++;
+                nlPrintf("Warning: inventory ignored %lu trailing byte(s) after final chunk\n",
+                         remaining);
+                break;
+            }
+
+            nlChunk* current = (nlChunk*)cursor;
+            const unsigned long rawID = port_be32(&current->m_ID);
+            const unsigned long uSize = port_be32(&current->m_Size);
+            const unsigned long payloadMax = remaining - sizeof(nlChunk);
+
+            if (uSize > payloadMax)
+            {
+                nlPrintf("Warning: inventory stopped at invalid chunk id=%08lx size=%lu remaining=%lu\n",
+                         rawID, uSize, remaining);
+                break;
+            }
+
+            // Save the step before Initialize(): hierarchy/animation loaders
+            // endian-convert this chunk tree in place.
+            const unsigned long step = uSize + sizeof(nlChunk);
+
+            if (T::IsValidChunkID(rawID & 0x80FFFFFF))
+            {
+                T* item = T::Initialize(current);
+                if (item != NULL)
+                {
+                    m_lItemList.AddStart(item);
+                    m_nItemCount++;
+                }
+                else
+                {
+                    nlPrintf("Warning: inventory rejected chunk type %08lx\n", rawID);
+                }
             }
             else
             {
-                nlPrintf("Warning: inventory encountered an unknown chunk type\n");
+                nlPrintf("Warning: inventory encountered unknown chunk type %08lx\n", rawID);
             }
-            chunk = (nlChunk*)((unsigned char*)chunk + uSize + sizeof(nlChunk));
+
+            cursor += step;
         }
     }
 

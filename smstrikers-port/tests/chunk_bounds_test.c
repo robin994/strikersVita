@@ -62,6 +62,34 @@ static unsigned char* aligned64(void)
 int main(void)
 {
     {
+        unsigned char chunk[32];
+        PortBEChunkView view;
+        const unsigned char* childBegin;
+        const unsigned char* childEnd;
+        memset(chunk, 0, sizeof chunk);
+        put32(chunk + 0, 0x80018000u);
+        put32(chunk + 4, 24);
+        put32(chunk + 8, 0x18001u);
+        put32(chunk + 12, 16);
+        put32(chunk + 16, 0x11223344u);
+        check(port_be_chunk_read(chunk, chunk + sizeof chunk, &view) &&
+                  view.id == 0x80018000u && view.size == 24 &&
+                  view.raw == chunk && view.next == chunk + 32,
+              "BE view: reads a root without mutating it");
+        check(port_be32(chunk) == 0x80018000u && port_be32(chunk + 4) == 24,
+              "BE view: serialized header remains big-endian");
+        check(port_be_chunk_children(&view, &childBegin, &childEnd) &&
+                  childBegin == chunk + 8 && childEnd == chunk + 32,
+              "BE view: exposes the exact nested child range");
+        check(port_be_chunk_read(childBegin, childEnd, &view) &&
+                  view.id == 0x18001u && view.payload_len == 16 &&
+                  port_be32(view.payload) == 0x11223344u,
+              "BE view: nested payload is decoded on demand");
+        check(!port_be_chunk_read(chunk + 8, chunk + 23, &view),
+              "BE view: child extending past its parent is rejected");
+    }
+
+    {
         unsigned char chunk[24];
         unsigned long len = 99;
         memset(chunk, 0, sizeof chunk);
@@ -271,14 +299,13 @@ int main(void)
         
     }
 
-    // The SKIN chunk arrives with its headers already in host order; the model pass did those.
+    // SKIN conversion now receives a private copy of the untouched big-endian chunk.
     {
         unsigned char* buf = exact(24);
-        uint32_t v;
-        v = 0x1B008;                      memcpy(buf, &v, 4);
-        v = 16;                           memcpy(buf + 4, &v, 4);
-        v = (16u << 24) | 0x1B00E;        memcpy(buf + 8, &v, 4);
-        v = 8;                            memcpy(buf + 12, &v, 4);
+        put32(buf + 0, 0x1B008);
+        put32(buf + 4, 16);
+        put32(buf + 8, (16u << 24) | 0x1B00E);
+        put32(buf + 12, 8);
         buf[16] = 0; buf[17] = 1;
         check(port_skin_swap(buf) == 0, "skin: a child aligned past its end refuses the chunk");
         check(buf[16] == 0 && buf[17] == 1, "skin: ...and its payload is left alone");
@@ -287,17 +314,50 @@ int main(void)
 
     {
         unsigned char* buf = aligned64();
-        uint32_t v;
-        v = 0x1B008;                      memcpy(buf, &v, 4);
-        v = 32;                           memcpy(buf + 4, &v, 4);
-        v = (3u << 24) | 0x1B00E;         memcpy(buf + 8, &v, 4);
-        v = 24;                           memcpy(buf + 12, &v, 4);
+        put32(buf + 0, 0x1B008);
+        put32(buf + 4, 32);
+        put32(buf + 8, (3u << 24) | 0x1B00E);
+        put32(buf + 12, 24);
         buf[16] = 0; buf[17] = 1;
         buf[38] = 0; buf[39] = 2;
         check(port_skin_swap(buf) == 1, "skin: a well-formed chunk is converted");
         check(buf[16] == 1 && buf[17] == 0 && buf[38] == 2 && buf[39] == 0,
               "skin: the pairs are in host order to the chunk's end");
         
+    }
+
+    {
+        // Retarget files nest the actual record/map chunks inside 0x17106.
+        // Keep this shape covered: leaving those child headers big-endian made
+        // AnimRetargetList treat a 12-byte 0x17107 record as 0x0C000000 bytes.
+        unsigned char buf[0x34];
+        uint32_t v;
+        memset(buf, 0, sizeof buf);
+
+        v = 0x80017104; put32(buf + 0x00, v);
+        v = 0x2C;       put32(buf + 0x04, v);
+        v = 0x80017106; put32(buf + 0x08, v);
+        v = 0x24;       put32(buf + 0x0C, v);
+        v = 0x00017107; put32(buf + 0x10, v);
+        v = 0x0C;       put32(buf + 0x14, v);
+        v = 0x0F4BE30D; put32(buf + 0x18, v);
+        v = 0x00000004; put32(buf + 0x1C, v);
+        v = 0x00000000; put32(buf + 0x20, v);
+        v = 0x00017108; put32(buf + 0x24, v);
+        v = 0x08;       put32(buf + 0x28, v);
+        buf[0x2C] = 0; buf[0x2D] = 1;
+        buf[0x2E] = 0; buf[0x2F] = 2;
+        buf[0x30] = 0; buf[0x31] = 3;
+        buf[0x32] = 0; buf[0x33] = 4;
+
+        check(port_bmd_swap_headers(buf, sizeof buf) == 4,
+              "retarget: nested 0x17106 child headers are converted");
+        memcpy(&v, buf + 0x14, 4);
+        check(v == 0x0C,
+              "retarget: 0x17107 size is host-order after conversion");
+        memcpy(&v, buf + 0x28, 4);
+        check(v == 0x08,
+              "retarget: 0x17108 size is host-order after conversion");
     }
 
     if (failures)

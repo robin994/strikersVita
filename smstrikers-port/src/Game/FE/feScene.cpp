@@ -63,6 +63,11 @@ void QueueResourceLoadCallback::Callback(FEResourceHandle* handle)
  */
 void FEScene::UnloadPackage()
 {
+    // PORT: a rejected package can be queued for pop before it ever acquired a
+    // package/resource handle.  Treat that as an already-unloaded scene.
+    if (m_pFEPackage == NULL)
+        return;
+
     UnloadResourceCallback unloadResourceCallback;
     unloadResourceCallback.m_resourceManager = FEResourceManager::Instance();
     nlWalkRing<FEResourceHandle, UnloadResourceCallback>(m_pFEPackage->m_pResourceList, &unloadResourceCallback, &UnloadResourceCallback::Callback);
@@ -100,9 +105,50 @@ bool FEScene::LoadPackage(const char* szPackageFileName)
     unsigned long* pPointer;
 
     file = nlOpen(szPackageFileName);
+    if (file == NULL)
+    {
+        OSReport("FEScene::LoadPackage(%s): open failed\n", szPackageFileName);
+        return false;
+    }
+
+    const unsigned int fileSize = nlFileSize(file, NULL);
+    if (fileSize < sizeof(FE_FILE_HEADER))
+    {
+        OSReport("FEScene::LoadPackage(%s): truncated header (%u bytes)\n",
+                 szPackageFileName, fileSize);
+        nlClose(file);
+        return false;
+    }
+
+    unsigned char rawHeader[sizeof(FE_FILE_HEADER)];
     nlRead(file, &FenHdr, 0x10);
+    memcpy(rawHeader, &FenHdr, sizeof rawHeader);
     // PORT: Thumbprint is four chars; the three lengths behind it are big-endian and every read below is sized from them.
     port_be32_array((char*)&FenHdr + 4, 3);
+
+    const unsigned long long requiredSize =
+        (unsigned long long)sizeof(FE_FILE_HEADER) +
+        (unsigned long long)FenHdr.DataLength +
+        (unsigned long long)FenHdr.PointerTableLength;
+
+    if (FenHdr.DataLength < sizeof(FEPackage) ||
+        (FenHdr.PointerTableLength & 3u) != 0 ||
+        requiredSize > (unsigned long long)fileSize)
+    {
+        OSReport("[fen] reject %s: file=%u version=%u data=%u ptr=%u required=%llu\n",
+                 szPackageFileName, fileSize, FenHdr.Version, FenHdr.DataLength,
+                 FenHdr.PointerTableLength, requiredSize);
+        OSReport("[fen] raw header %s: "
+                 "%02x %02x %02x %02x  %02x %02x %02x %02x  "
+                 "%02x %02x %02x %02x  %02x %02x %02x %02x\n",
+                 szPackageFileName,
+                 rawHeader[0], rawHeader[1], rawHeader[2], rawHeader[3],
+                 rawHeader[4], rawHeader[5], rawHeader[6], rawHeader[7],
+                 rawHeader[8], rawHeader[9], rawHeader[10], rawHeader[11],
+                 rawHeader[12], rawHeader[13], rawHeader[14], rawHeader[15]);
+        nlClose(file);
+        return false;
+    }
 
     // PORT: scene loads are rare and are the natural suspects when something goes wrong at a particular moment.
     if (getenv("STRIKERS_LOG_SCENES") != NULL)

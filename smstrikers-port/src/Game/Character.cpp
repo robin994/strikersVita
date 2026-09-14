@@ -2003,7 +2003,8 @@ void cCharacter::PoseSkinMesh(cPoseAccumulator* pPoseAccumulator)
     {
         skinMesh = m_pSkinMesh[0];
     }
-    skinMesh->Pose(pPoseAccumulator);
+    if (skinMesh != nullptr)
+        skinMesh->Pose(pPoseAccumulator);
 }
 
 /**

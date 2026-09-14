@@ -110,6 +110,7 @@ public:
         return mCurrentStackDepth != 0 ? mBaseSceneHandlerStack[mCurrentStackDepth - 1] : NULL;
     }
     virtual void Pop();
+    void RemoveScene(BaseSceneHandler* scene);
     void PopEntireStack();
     SceneList GetSceneType(BaseSceneHandler* scene);
     bool IsOnStack(SceneList scene);

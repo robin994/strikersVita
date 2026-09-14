@@ -410,39 +410,56 @@ inline unsigned char AsyncManager::AddEntry(GCFile* pFile, ReadAsyncCallback pFu
 {
     unsigned char bServiceImmediately = 0;
 
-    if (m_freeEntryList != NULL)
+    // PORT: this queue is bounded. The original port silently returned success
+    // when all 64 entries were in use, so callers advanced the file position and
+    // could later consume an allocation that had never been filled by I/O.
+    // Apply backpressure instead: service outstanding work until one slot is
+    // actually available. This preserves the asynchronous API while making a
+    // successful enqueue mean that a read really exists in the queue.
+    while (m_freeEntryList == NULL)
     {
-        AsyncEntry* pEntry = nlDLRingRemoveStart<AsyncEntry>(&m_freeEntryList);
-
-        pEntry->m_pFile = pFile;
-        pEntry->m_pFunc = pFunc;
-        pEntry->m_pBuffer = pBuffer;
-        pEntry->m_uSize = uSize;
-        pEntry->m_uParam = uParam;
-        pEntry->m_uPosition = pFile->m_Position;
-        if ((long)uSize < 0 || uSize > 0x2000000UL)
-        {
-            // PORT: 32 MB is far beyond any single read this game issues; a size past it is a computed value that went wrong upstream.
-            OSReport("[port] AsyncManager::AddEntry: implausible read size "
-                     "%lu at offset %lu\n", (unsigned long)uSize,
-                     (unsigned long)pFile->m_Position);
-        }
-        pEntry->ReadNumBytes = uSize;
-        pEntry->Phase = eRS_ISSUE_HEAD_READ;
-        pEntry->m_pFile->PendingAsync.m_Count++;
-
         if (m_activeEntryList == NULL)
         {
-            GCFileSystem fs = fileSystem;
-            bServiceImmediately = (((u32)(1 - fs) | (u32)(fs - 1)) >> 31);
+            OSReport("[port] AsyncManager::AddEntry: no free or active entries\n");
+            return 0;
         }
 
-        nlDLRingAddEnd<AsyncEntry>(&m_activeEntryList, pEntry);
-
-        if (bServiceImmediately)
+        if (Service() != 2)
         {
-            Service();
+            OSYieldThread();
         }
+    }
+
+    AsyncEntry* pEntry = nlDLRingRemoveStart<AsyncEntry>(&m_freeEntryList);
+
+    pEntry->m_pFile = pFile;
+    pEntry->m_pFunc = pFunc;
+    pEntry->m_pBuffer = pBuffer;
+    pEntry->m_uSize = uSize;
+    pEntry->m_uParam = uParam;
+    pEntry->m_uPosition = pFile->m_Position;
+    if ((long)uSize < 0 || uSize > 0x2000000UL)
+    {
+        // PORT: 32 MB is far beyond any single read this game issues; a size past it is a computed value that went wrong upstream.
+        OSReport("[port] AsyncManager::AddEntry: implausible read size "
+                 "%lu at offset %lu\n", (unsigned long)uSize,
+                 (unsigned long)pFile->m_Position);
+    }
+    pEntry->ReadNumBytes = uSize;
+    pEntry->Phase = eRS_ISSUE_HEAD_READ;
+    pEntry->m_pFile->PendingAsync.m_Count++;
+
+    if (m_activeEntryList == NULL)
+    {
+        GCFileSystem fs = fileSystem;
+        bServiceImmediately = (((u32)(1 - fs) | (u32)(fs - 1)) >> 31);
+    }
+
+    nlDLRingAddEnd<AsyncEntry>(&m_activeEntryList, pEntry);
+
+    if (bServiceImmediately)
+    {
+        Service();
     }
 
     return 1;
@@ -453,7 +470,10 @@ inline unsigned char AsyncManager::AddEntry(GCFile* pFile, ReadAsyncCallback pFu
  */
 static unsigned char GameCubeReadAsync(GCFile* pFile, ReadAsyncCallback pFunc, void* pBuffer, unsigned long uSize, uintptr_t uParam)
 {
-    s_pAsyncManager->AddEntry(pFile, pFunc, pBuffer, uSize, uParam);
+    if (!s_pAsyncManager->AddEntry(pFile, pFunc, pBuffer, uSize, uParam))
+    {
+        return 0;
+    }
 
     pFile->m_Position += uSize;
     return 1;
@@ -464,7 +484,10 @@ static unsigned char GameCubeReadAsync(GCFile* pFile, ReadAsyncCallback pFunc, v
  */
 unsigned char GameCubeReadBlocking(GCFile* pFile, void* pBuffer, unsigned long uSize)
 {
-    GameCubeReadAsync(pFile, NULL, pBuffer, uSize, 0);
+    if (!GameCubeReadAsync(pFile, NULL, pBuffer, uSize, 0))
+    {
+        return 0;
+    }
 
     while ((s_pAsyncManager->Service(), s_pAsyncManager->m_activeEntryList != NULL))
     {
@@ -646,12 +669,22 @@ inline int AsyncManager::Service()
             nlDLRingRemove<AsyncEntry>(&m_activeEntryList, entry);
             entry->m_pFile->PendingAsync.m_Count--;
 
-            if (entry->m_pFunc != NULL)
+            // Return the slot before invoking user code. A completion callback
+            // is allowed to queue another read; keeping this entry hostage until
+            // after the callback can otherwise force nested servicing when the
+            // queue is full.
+            ReadAsyncCallback callback = entry->m_pFunc;
+            GCFile* callbackFile = entry->m_pFile;
+            void* callbackBuffer = entry->m_pBuffer;
+            unsigned int callbackSize = entry->m_uSize;
+            uintptr_t callbackParam = entry->m_uParam;
+            nlDLRingAddEnd<AsyncEntry>(&m_freeEntryList, entry);
+
+            if (callback != NULL)
             {
-                entry->m_pFunc(entry->m_pFile, entry->m_pBuffer, entry->m_uSize, entry->m_uParam);
+                callback(callbackFile, callbackBuffer, callbackSize, callbackParam);
             }
 
-            nlDLRingAddEnd<AsyncEntry>(&m_freeEntryList, entry);
             return 2;   // PORT: completed one.
         }
 
@@ -959,12 +992,19 @@ void nlReadAsyncToVirtualMemory(nlFile* file, void* buffer, int size, ReadAsyncC
             counter2 = i;
             counter1 = i;
             sz = chunkSize;
-            asyncToVirMemBufferLoad[i].numChunksLeft = numChunks + 1;
+            int remainder = size - numChunks * chunkSize;
+            asyncToVirMemBufferLoad[i].numChunksLeft =
+                (int)numChunks + (remainder != 0 ? 1 : 0);
             asyncToVirMemBufferLoad[i].param = param;
             asyncToVirMemBufferLoad[i].callback = callback;
             asyncToVirMemBufferLoad[i].size = size;
-            int remainder = size - numChunks * chunkSize;
             asyncToVirMemBufferLoad[i].target = (char*)buffer;
+
+            if (asyncToVirMemBufferLoad[i].numChunksLeft == 0)
+            {
+                callback(file, buffer, 0, param);
+                return;
+            }
 
             int j;
             for (j = 0; j < (int)numChunks; j++)
@@ -972,7 +1012,10 @@ void nlReadAsyncToVirtualMemory(nlFile* file, void* buffer, int size, ReadAsyncC
                 nlReadAsync(file, userData, sz, AsyncToVirMemBufferCallback, counter1);
             }
 
-            nlReadAsync(file, userData, remainder, AsyncToVirMemBufferCallback, counter2);
+            if (remainder != 0)
+            {
+                nlReadAsync(file, userData, remainder, AsyncToVirMemBufferCallback, counter2);
+            }
             return;
         }
     }

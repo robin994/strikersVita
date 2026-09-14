@@ -98,6 +98,20 @@ void glSetIgnoreDuplicateModels(bool ignore)
     glIgnoreDuplicateModels = ignore;
 }
 
+static inline u32 glxReadU32Unaligned(const void* p)
+{
+    u32 v;
+    memcpy(&v, p, sizeof(v));
+    return v;
+}
+
+static inline s32 glxReadS32Unaligned(const void* p)
+{
+    s32 v;
+    memcpy(&v, p, sizeof(v));
+    return v;
+}
+
 /**
  * Offset/Address/Size: 0xC08 | 0x801C0828 | size: 0x2A0
  */
@@ -107,34 +121,43 @@ GLSkinMesh* glx_MakeSkinMesh(nlChunk* outerChunk, glModel* models)
 
     mesh->pModel = models;
 
-    u32 align;
     u32 i;
     u32 count;
-    nlChunk* chunkEnd = (nlChunk*)((u8*)outerChunk + outerChunk->m_Size + 8);
-    u32 chunkSize;
-    u8* data;
+    const u32 outerSize = glxReadU32Unaligned((u8*)outerChunk + 4);
+    u8* chunk = (u8*)outerChunk + 8;
+    u8* chunkEnd = chunk + outerSize;
 
-    for (nlChunk* chunk = (nlChunk*)((u8*)outerChunk + 8); chunk != chunkEnd; chunk = (nlChunk*)((u8*)chunk + chunk->m_Size + 8))
+    while (chunk < chunkEnd)
     {
-        u32 id = chunk->m_ID;
-        chunkSize = chunk->m_Size;
-        u32 alignBits = id & 0x7F000000;
-        u32 chunkType = id & ~0x7F000000u;
+        if ((unsigned long)(chunkEnd - chunk) < 8)
+        {
+            OSReport("Error: truncated SKIN child header (%lu byte(s) remain)\n",
+                     (unsigned long)(chunkEnd - chunk));
+            break;
+        }
 
-        u8* result;
-        if (((-alignBits | alignBits) >> 31) != 0)
+        // PORT: SKIN child chunks are byte-packed. In real assets a stitching
+        // chunk can have an odd byte count, so the next nlChunk header is not
+        // necessarily 4-byte aligned. Direct struct/u32 loads let GCC emit
+        // LDRD on ARM and fault (Bowser's skin reaches a header at ...EAB).
+        const u32 id = glxReadU32Unaligned(chunk + 0);
+        const u32 chunkSize = glxReadU32Unaligned(chunk + 4);
+        if (chunkSize > (u32)(chunkEnd - chunk - 8))
         {
-            align = 1 << (alignBits >> 24);
-            uintptr_t ptr = (uintptr_t)chunk;
-            ptr += align;
-            ptr += 7;
-            result = (u8*)(ptr & ~(uintptr_t)(align - 1));
+            OSReport("Error: SKIN child 0x%08x overruns parent (%lu > %lu)\n",
+                     id, (unsigned long)chunkSize,
+                     (unsigned long)(chunkEnd - chunk - 8));
+            break;
         }
-        else
+
+        u32 chunkType = id & ~0x7F000000u;
+        unsigned long dataSize = 0;
+        u8* data = port_chunk_payload(chunk, id, chunkSize, &dataSize);
+        if (data == NULL)
         {
-            result = (u8*)chunk + 8;
+            OSReport("Error: invalid SKIN child alignment for 0x%08x\n", id);
+            break;
         }
-        data = result;
 
         switch (chunkType)
         {
@@ -142,10 +165,10 @@ GLSkinMesh* glx_MakeSkinMesh(nlChunk* outerChunk, glModel* models)
             break;
         case 0x1B00A:
         {
-            count = chunkSize / 0x44;
+            count = dataSize / 0x44;
             for (i = 0; i < count; i++)
             {
-                u32 boneID = *(u32*)data;
+                u32 boneID = glxReadU32Unaligned(data);
                 nlMatrix4 src;
                 nlMatrix4 inv;
                 memcpy(&src, data + 4, sizeof(nlMatrix4));
@@ -159,12 +182,12 @@ GLSkinMesh* glx_MakeSkinMesh(nlChunk* outerChunk, glModel* models)
         {
             BoneMapList* node = new (nlMalloc(sizeof(BoneMapList), 8, false)) BoneMapList;
 
-            count = chunkSize >> 3;
+            count = dataSize >> 3;
             node->m_next = NULL;
             for (i = 0; i < count; i++)
             {
-                unsigned long key = *(u32*)(data + 0);
-                unsigned long value = *(u32*)(data + 4);
+                unsigned long key = glxReadU32Unaligned(data + 0);
+                unsigned long value = glxReadU32Unaligned(data + 4);
                 data += 8;
                 node->boneMap.Add(key, value);
             }
@@ -172,30 +195,60 @@ GLSkinMesh* glx_MakeSkinMesh(nlChunk* outerChunk, glModel* models)
             break;
         }
         case 0x1B00D:
-            mesh->SetSoftwareVertices((int)(chunkSize >> 4), (const SkinVertex*)data);
+            mesh->SetSoftwareVertices((int)(dataSize >> 4), (const SkinVertex*)data);
             break;
         case 0x1B00E:
-            mesh->AppendSkinPairList((int)(chunkSize >> 2), (const SkinPair*)data);
+            mesh->AppendSkinPairList((int)(dataSize >> 2), (const SkinPair*)data);
             break;
         case 0x1B00C:
         {
-            u32 numMorphs = *(u32*)(data + 0);
+            if (dataSize < 12)
+            {
+                OSReport("Error: truncated SKIN morph header (%lu bytes)\n", dataSize);
+                break;
+            }
+
+            u32 numMorphs = glxReadU32Unaligned(data + 0);
+            const unsigned long arraysSize = (unsigned long)numMorphs * 8;
+            if (arraysSize > dataSize - 12)
+            {
+                OSReport("Error: SKIN morph arrays overrun payload (morphs=%lu size=%lu)\n",
+                         (unsigned long)numMorphs, dataSize);
+                break;
+            }
+
             mesh->numMorphs = (int)numMorphs;
-            mesh->numBaseVerts = *(u32*)(data + 4);
+            mesh->numBaseVerts = glxReadU32Unaligned(data + 4);
             data += 8;
             mesh->SetMorphIDs((const u32*)data);
             data += numMorphs * 4;
             mesh->SetMorphNumDeltas((const u32*)data);
             data += numMorphs * 4;
-            mesh->SetMorphDeltas(*(int*)data, (const MorphDelta*)(data + 4));
+            const s32 numDeltas = glxReadS32Unaligned(data);
+            const unsigned long used = 8 + arraysSize + 4;
+            if (numDeltas < 0 || (unsigned long)numDeltas > (dataSize - used) / sizeof(MorphDelta))
+            {
+                OSReport("Error: SKIN morph deltas overrun payload (deltas=%ld size=%lu)\n",
+                         (long)numDeltas, dataSize);
+                break;
+            }
+            mesh->SetMorphDeltas(numDeltas, (const MorphDelta*)(data + 4));
             break;
         }
         case 0x1B00F:
             break;
         case 0x1B010:
-            mesh->AppendStitchingInfo(*(int*)(data + 4), *(int*)(data + 0), (int)chunkSize - 8, data + 8);
+            if (dataSize >= 8)
+            {
+                const s32 numPackets = glxReadS32Unaligned(data + 0);
+                const s32 packetIndex = glxReadS32Unaligned(data + 4);
+                mesh->AppendStitchingInfo(packetIndex, numPackets,
+                                          (int)dataSize - 8, data + 8);
+            }
             break;
         }
+
+        chunk += 8 + chunkSize;
     }
 
     mesh->StitchModel();

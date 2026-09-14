@@ -6,10 +6,12 @@
 #include "Game/Font/fontmanager.h"
 #include "NL/nlMemory.h"
 #include "NL/nlString.h"
+#include "NL/gl/glState.h"
 #include "NL/gl/glTexture.h"
 #include "NL/nlAVLTree.h"
 #include "NL/nlDLListContainer.h"
 #include "NL/glx/glxMemory.h"
+#include "dolphin/os.h"
 
 static nlAVLTreeSlotPool<unsigned long, FEResourceHandle*, DefaultKeyCompare<unsigned long> > s_loadedResourceList(0x100, 0);
 static unsigned char* s_pResourceLoadBuffer;
@@ -307,9 +309,22 @@ ResourceResult FEResourceManager::IssueTextureLoadRequest(FETextureResource* pFe
             fileDirectoryEntry.m_length,
             FEResourceManager::TextureResourceLoadComplete,
             (uintptr_t)pFeTextureResource);
+
+        return FERR_WaitingForResource;
     }
 
-    return FERR_WaitingForResource;
+    // PORT: the original game assumes every FE texture named by a .fen is in
+    // the on-demand bundle.  A missing entry used to return Waiting without
+    // scheduling any I/O, leaving this resource invalid forever and stalling
+    // the entire FE scene queue.  Keep the scene usable with a resident
+    // texture and advance to the next queued resource instead.
+    static const u32 whiteTexture = glGetTexture("global/white");
+    OSReport("[fe-resource] missing texture %08lx; using global/white\n",
+             (unsigned long)pFeTextureResource->m_hashID);
+    pFeTextureResource->m_glTextureHandle = whiteTexture;
+    AddResourceToResourceList(pFeTextureResource);
+    PlaceHolderForceTextureValid(pFeTextureResource);
+    return FERR_AlreadyLoaded;
 }
 
 ResourceResult FEResourceManager::IssueSceneContextSwitch(FESceneResource* pFeSceneResource)

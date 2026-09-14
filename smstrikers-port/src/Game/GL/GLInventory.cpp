@@ -418,6 +418,13 @@ GLSkinMesh* GLInventory::MakeSkinMesh(unsigned long hashID)
                  (unsigned long)hashID, (void*)pChunk, (void*)pModel,
                  (int)m_nLevel);
 
+    if (pChunk == nullptr || pModel == nullptr)
+    {
+        OSReport("[skin] missing skin/model for id=%08lx chunk=%p model=%p; returning no mesh\n",
+                 (unsigned long)hashID, (void*)pChunk, (void*)pModel);
+        return nullptr;
+    }
+
     return MakeSkinMesh(pChunk, pModel);
 }
 

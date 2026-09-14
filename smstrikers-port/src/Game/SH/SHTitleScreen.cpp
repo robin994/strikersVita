@@ -51,6 +51,7 @@ TitleScene::TitleScene()
     m_fTimeElapsed = 0.0f;
     mStartedDemo = false;
     mStartedMovie = false;
+    mTextPressStart = NULL;
 
     AudioStreamTrack::TrackManagerBase* trackMgr = g_pTrackManager;
     // PORT: null when audio is disabled, there is no track manager to ask.
@@ -79,14 +80,31 @@ void TitleScene::SceneCreated()
     FEMusic::StopStream();
     AudioLoader::PlayFETitleMusicWithFade();
 
+    if (m_pFEPresentation == NULL || m_pFEPresentation->m_currentSlide == NULL)
+    {
+        OSReport("[title] presentation/current slide missing; falling back to main menu\n");
+        return;
+    }
+
     TLComponentInstance* comp = FEFinder<TLComponentInstance, 4>::Find<TLSlide>(
         m_pFEPresentation->m_currentSlide,
         InlineHasher(nlStringLowerHash("Layer2")),
         InlineHasher(nlStringLowerHash("Component2")));
 
+    if (comp == NULL || comp->GetActiveSlide() == NULL)
+    {
+        OSReport("[title] Layer2/Component2 missing; falling back to main menu\n");
+        return;
+    }
+
     mTextPressStart = FEFinder<TLTextInstance, 3>::Find<TLSlide>(
         comp->GetActiveSlide(),
         InlineHasher(nlStringLowerHash("Text")));
+
+    if (mTextPressStart == NULL)
+    {
+        OSReport("[title] Press Start text missing; falling back to main menu\n");
+    }
 }
 
 /**
@@ -95,6 +113,18 @@ void TitleScene::SceneCreated()
 void TitleScene::Update(float dt)
 {
     BaseSceneHandler::Update(dt);
+
+    if (mTextPressStart == NULL)
+    {
+        if (!mStartedMovie)
+        {
+            mStartedMovie = true;
+            OSReport("[title] invalid title graph; bypassing title scene\n");
+            nlSingleton<GameSceneManager>::Instance()->Push(
+                SCENE_MAIN_MENU, SCREEN_NOTHING, true);
+        }
+        return;
+    }
 
     m_fTimeElapsed += dt;
     if (m_fTimeElapsed < 1.0f)

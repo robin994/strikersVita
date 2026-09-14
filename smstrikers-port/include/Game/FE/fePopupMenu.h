@@ -80,6 +80,12 @@ public:
     virtual void Update(float fDeltaT);
     virtual void SceneCreated();
 
+    // PORT: if popup_menu.fen cannot be loaded, memory-card prompts must not
+    // strand the whole front end on an invalid scene.  Selects the conservative
+    // "continue without" action for save/load prompts so the popup destructor
+    // can run the same callback the player would have chosen manually.
+    bool PrepareLoadFailureFallback();
+
     void SetOptionTextColourOnCurrent(bool bHighlighted);
     void ResizeHighlight();
     void CentrePopup(float totalHeight, float topOfMessageBox);

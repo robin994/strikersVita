@@ -300,7 +300,7 @@ if(STRIKERS_VITA)
     # The decomp uses the GameCube/Metrowerks 16-bit wchar_t ABI. Passing the
     # flag to the link driver as well keeps the final ELF EABI attribute aligned
     # with every translation unit instead of advertising VitaSDK's default 32-bit wchar_t.
-    target_link_options(port_flags INTERFACE -fshort-wchar)
+    target_link_options(port_flags INTERFACE -fshort-wchar -fno-short-enums)
 endif()
 
 if(STRIKERS_AURORA AND NOT STRIKERS_VITA)
@@ -447,7 +447,7 @@ if(STRIKERS_VITA)
     # MusyX is intentionally kept off port_flags, but it still exchanges enums
     # and enum-containing structures with the game runtime.  Match the 32-bit
     # GameCube enum ABI used by every other Vita object.
-    target_compile_options(strikers_musyx PRIVATE -w -std=gnu11 -fno-short-enums)
+    target_compile_options(strikers_musyx PRIVATE -w -std=gnu11 -fshort-wchar -fno-short-enums)
 else()
     target_compile_options(strikers_musyx PRIVATE -fdeclspec -w -std=gnu11)
 endif()

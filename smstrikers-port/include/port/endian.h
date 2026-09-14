@@ -32,6 +32,45 @@ static inline float port_bef32(const void* p)
     return f;
 }
 
+// Host-order loads from asset buffers. Even after an endian conversion pass,
+// chunk payloads/headers can still be byte-packed, so a plain *(u32*)/float*
+// is not ARM-safe.
+static inline uint16_t port_u16_unaligned(const void* p)
+{
+    uint16_t v;
+    memcpy(&v, p, sizeof v);
+    return v;
+}
+
+static inline uint32_t port_u32_unaligned(const void* p)
+{
+    uint32_t v;
+    memcpy(&v, p, sizeof v);
+    return v;
+}
+
+static inline float port_f32_unaligned(const void* p)
+{
+    float v;
+    memcpy(&v, p, sizeof v);
+    return v;
+}
+
+/*
+ * Immutable view of an on-disc GameCube nlChunk. Serialized chunks are
+ * big-endian and child headers may be byte-packed. Keep the input untouched:
+ * host alignment and host endian must never become part of the file format.
+ */
+typedef struct PortBEChunkView
+{
+    const unsigned char* raw;
+    const unsigned char* payload;
+    const unsigned char* next;
+    uint32_t id;
+    uint32_t size;
+    unsigned long payload_len;
+} PortBEChunkView;
+
 static inline void port_be16_array(void* p, unsigned long count)
 {
     unsigned char* b = (unsigned char*)p;
@@ -55,8 +94,9 @@ static inline void port_be32_array(void* p, unsigned long count)
 // An nlChunk's payload and the bytes of it inside the chunk: bits 24-30 of the id are an alignment
 // exponent (nlChunk::GetAlignedData), the padding it costs is inside the chunk's size, and a chunk
 // aligned past its own end, or with an exponent no asset uses (past 64 KB), yields NULL.
-static inline unsigned char* port_chunk_payload(unsigned char* chunk, uint32_t id,
-                                                uint32_t size, unsigned long* len)
+static inline const unsigned char* port_chunk_payload_const(const unsigned char* chunk,
+                                                            uint32_t id, uint32_t size,
+                                                            unsigned long* len)
 {
     uintptr_t addr = (uintptr_t)(chunk + 8);
     uintptr_t end = addr + size;
@@ -73,7 +113,60 @@ static inline unsigned char* port_chunk_payload(unsigned char* chunk, uint32_t i
     if (addr > end)
         return NULL;
     *len = (unsigned long)(end - addr);
-    return (unsigned char*)addr;
+    return (const unsigned char*)addr;
+}
+
+static inline unsigned char* port_chunk_payload(unsigned char* chunk, uint32_t id,
+                                                uint32_t size, unsigned long* len)
+{
+    return (unsigned char*)port_chunk_payload_const(chunk, id, size, len);
+}
+
+/* Read exactly one BE chunk contained in [cursor, end). */
+static inline int port_be_chunk_read(const unsigned char* cursor,
+                                     const unsigned char* end,
+                                     PortBEChunkView* out)
+{
+    const unsigned char* payload;
+    const unsigned char* chunk_end;
+    uint32_t id;
+    uint32_t size;
+    unsigned long payload_len;
+
+    if (cursor == NULL || end == NULL || out == NULL || cursor > end ||
+        (unsigned long)(end - cursor) < 8)
+        return 0;
+
+    id = port_be32(cursor + 0);
+    size = port_be32(cursor + 4);
+    if (size > (uint32_t)(end - cursor - 8))
+        return 0;
+
+    chunk_end = cursor + 8 + size;
+    payload = port_chunk_payload_const(cursor, id, size, &payload_len);
+    if (payload == NULL || payload > chunk_end ||
+        payload_len > (unsigned long)(chunk_end - payload))
+        return 0;
+
+    out->raw = cursor;
+    out->payload = payload;
+    out->next = chunk_end;
+    out->id = id;
+    out->size = size;
+    out->payload_len = payload_len;
+    return 1;
+}
+
+/* Nested chunks start immediately after their parent's serialized header. */
+static inline int port_be_chunk_children(const PortBEChunkView* parent,
+                                         const unsigned char** begin,
+                                         const unsigned char** end)
+{
+    if (parent == NULL || parent->raw == NULL || begin == NULL || end == NULL)
+        return 0;
+    *begin = parent->raw + 8;
+    *end = parent->next;
+    return *begin <= *end;
 }
 
 #ifdef __cplusplus

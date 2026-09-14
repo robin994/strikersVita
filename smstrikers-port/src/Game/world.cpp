@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include "port/input.h"
+#include "port/endian.h"
 #include "NL/nlString.h"
 #include "NL/vmath.h"
 #include "Game/World.h"
@@ -226,6 +227,25 @@ struct WorldEmitterChunkData
     /* 0x5C */ float m_fPadding6;
     /* 0x60 */ nlMatrix4 m_worldMatrix;
 }; // total size: 0xA0
+
+static bool WorldCopyChunkPayload(nlChunk* chunk, u32 expectedType,
+                                  void* dst, unsigned long expectedSize)
+{
+    if (chunk == NULL || chunk->GetID() != expectedType)
+        return false;
+
+    unsigned long payloadLen = 0;
+    u8* payload = port_chunk_payload((u8*)chunk,
+                                     port_u32_unaligned(&chunk->m_ID),
+                                     chunk->GetSize(), &payloadLen);
+    if (payload == NULL || payloadLen < expectedSize)
+        return false;
+
+    // The world converter has already put numeric fields in host order. Copy
+    // out of the byte-packed asset so subsequent struct/matrix reads are aligned.
+    memcpy(dst, payload, expectedSize);
+    return true;
+}
 
 // PORT: was a second declaration of FlareHandler, padded to the console's 0x70.
 
@@ -497,18 +517,38 @@ bool World::LoadPhysicsPrimitives(nlChunk* pChunk)
         switch (pChunk->GetID())
         {
         case 0x1D001:
+        {
             m_pPhysicsData = new (nlMalloc(sizeof(CharacterPhysicsData), 8, false)) CharacterPhysicsData();
-            // PORT: a 4-byte count on disc; an 8-byte read takes the top half of the next chunk's header with it.
-        m_pPhysicsData->physicsElementCount = *(u32*)pChunk->GetData();
+            unsigned long payloadLen = 0;
+            u8* payload = port_chunk_payload((u8*)pChunk,
+                                             port_u32_unaligned(&pChunk->m_ID),
+                                             pChunk->GetSize(), &payloadLen);
+            if (payload == NULL || payloadLen < sizeof(u32))
+                return false;
+            m_pPhysicsData->physicsElementCount = port_u32_unaligned(payload);
+            if (m_pPhysicsData->physicsElementCount > 0x10000u)
+                return false;
             m_pPhysicsData->pPhysicsElements = (CharacterPhysicsElement*)nlMalloc(
                 m_pPhysicsData->physicsElementCount * sizeof(CharacterPhysicsElement), 8, false);
             break;
+        }
         case 0x1D002:
         {
-            CharacterPhysicsElement* pPhysicsElements = (CharacterPhysicsElement*)pChunk->GetData();
+            if (m_pPhysicsData == NULL || m_pPhysicsData->pPhysicsElements == NULL)
+                return false;
+            unsigned long payloadLen = 0;
+            u8* payload = port_chunk_payload((u8*)pChunk,
+                                             port_u32_unaligned(&pChunk->m_ID),
+                                             pChunk->GetSize(), &payloadLen);
+            const unsigned long required =
+                (unsigned long)m_pPhysicsData->physicsElementCount * sizeof(CharacterPhysicsElement);
+            if (payload == NULL || payloadLen < required)
+                return false;
             for (i = 0; i < m_pPhysicsData->physicsElementCount; i++)
             {
-                m_pPhysicsData->pPhysicsElements[i] = pPhysicsElements[i];
+                memcpy(&m_pPhysicsData->pPhysicsElements[i],
+                       payload + i * sizeof(CharacterPhysicsElement),
+                       sizeof(CharacterPhysicsElement));
             }
             break;
         }
@@ -845,28 +885,17 @@ void World::CreateHelperObjFromChunk(nlChunk* chunk)
     static signed char init;
 
     HelperObject* pHelper;
-    WorldHelperChunkData* pWorldHelperChunkData;
+    WorldHelperChunkData helperData;
+    WorldHelperChunkData* pWorldHelperChunkData = &helperData;
     char* substring;
     const char* flashString;
     const char* flareTag;
     char flareName[64];
 
-    u32 chunkFlags = *(u32*)chunk;
-    u32 alignment = chunkFlags & 0x7F000000;
-
-    if ((((u32)(-(s32)alignment) | alignment) >> 31) != 0)
+    if (!WorldCopyChunkPayload(chunk, 0x19201, &helperData, sizeof(helperData)))
     {
-        u32 shift = alignment >> 24;
-        u32 alignBytes = 1 << shift;
-        u8* pChunkData = (u8*)chunk;
-        pChunkData = pChunkData + alignBytes;
-        pChunkData = pChunkData + 7;
-        pWorldHelperChunkData =
-            (WorldHelperChunkData*)((uintptr_t)pChunkData & ~(uintptr_t)(alignBytes - 1));
-    }
-    else
-    {
-        pWorldHelperChunkData = (WorldHelperChunkData*)((u8*)chunk + 8);
+        OSReport("Error: truncated/invalid world helper chunk\n");
+        return;
     }
 
     pHelper = (HelperObject*)nlMalloc(sizeof(HelperObject), 8, false);
@@ -875,7 +904,8 @@ void World::CreateHelperObjFromChunk(nlChunk* chunk)
 
     substring = nlStrChr<char>(pWorldHelperChunkData->m_szName, '/');
     flashString = "fx_camera_flash";
-    if (nlStrNICmp<char>(substring + 1, flashString, nlStrLen<char>(flashString)) == 0)
+    if (substring != NULL &&
+        nlStrNICmp<char>(substring + 1, flashString, nlStrLen<char>(flashString)) == 0)
     {
         nlStrNCpy<char>(pHelper->m_szName, substring + 1, sizeof(pHelper->m_szName));
     }
@@ -921,7 +951,8 @@ void World::CreateHelperObjFromChunk(nlChunk* chunk)
 
 void World::CreateEmitterObjFromChunk(nlChunk* pChunk)
 {
-    WorldEmitterChunkData* pEmitterData;
+    WorldEmitterChunkData emitterData;
+    WorldEmitterChunkData* pEmitterData = &emitterData;
     const char* pPersistentEffectsTag;
     char fxName[256];
     int i;
@@ -929,7 +960,11 @@ void World::CreateEmitterObjFromChunk(nlChunk* pChunk)
     EmissionController* pEmissionController;
     HelperObject* pHelper;
 
-    pEmitterData = (WorldEmitterChunkData*)pChunk->GetData();
+    if (!WorldCopyChunkPayload(pChunk, 0x19101, &emitterData, sizeof(emitterData)))
+    {
+        OSReport("Error: truncated/invalid world emitter chunk\n");
+        return;
+    }
     pPersistentEffectsTag = "fx_persistent_";
     static int persistentLen = nlStrLen<char>(pPersistentEffectsTag);
 
@@ -974,7 +1009,13 @@ void World::CreateEmitterObjFromChunk(nlChunk* pChunk)
 void World::CreateLightObjFromChunk(nlChunk* pChunk)
 {
     LightObject* pLightObj;
-    WorldLightChunkData* pWorldLightChunkData = (WorldLightChunkData*)pChunk->GetData();
+    WorldLightChunkData lightData;
+    if (!WorldCopyChunkPayload(pChunk, 0x19005, &lightData, sizeof(lightData)))
+    {
+        OSReport("Error: truncated/invalid world light chunk\n");
+        return;
+    }
+    WorldLightChunkData* pWorldLightChunkData = &lightData;
 
     pLightObj = (LightObject*)nlMalloc(sizeof(LightObject), 8, false);
     pLightObj->m_uHashID = pWorldLightChunkData->m_uHashID;
@@ -1001,10 +1042,15 @@ void World::CreateLightObjFromChunk(nlChunk* pChunk)
 
 void World::CreateWorldObjFromChunk(nlChunk* pChunk)
 {
-    WorldObjectChunkData* pWorldObjectChunkData;
+    WorldObjectChunkData worldChunkData;
+    WorldObjectChunkData* pWorldObjectChunkData = &worldChunkData;
     WorldObjectData objectData;
     memset(&objectData, 0, sizeof(WorldObjectData));
-    pWorldObjectChunkData = (WorldObjectChunkData*)pChunk->GetData();
+    if (!WorldCopyChunkPayload(pChunk, 0x19003, &worldChunkData, sizeof(worldChunkData)))
+    {
+        OSReport("Error: truncated/invalid world object chunk\n");
+        return;
+    }
 
     objectData.m_uObjectCreationFlags = pWorldObjectChunkData->m_uObjectCreationFlags;
     objectData.m_uHashID = pWorldObjectChunkData->m_uHashID;

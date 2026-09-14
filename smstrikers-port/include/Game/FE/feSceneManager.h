@@ -38,6 +38,7 @@ public:
     void RenderActiveScenes();
     void QueueAllScenesPop();
     void QueueScenePop();
+    void QueueScenePop(BaseSceneHandler* pSceneHandler);
     void QueueScenePush(BaseSceneHandler* pSceneHandler, const char* szFilename);
     void ProcessPushPopQueue();
     void LoadScene(const char* szFilename, BaseSceneHandler* pHandler);

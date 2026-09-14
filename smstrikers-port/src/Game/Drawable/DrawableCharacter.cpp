@@ -664,6 +664,9 @@ void DrawableCharacter::SendToGl(const cCharacter& character) const
     }
 
     GLSkinMesh* skinMesh = character.GetSkinMesh();
+    if (skinMesh == nullptr)
+        return;
+
     skinMesh->PrepareToRender(program, nullptr);
 
     if (ec == DONKEYKONG || ec == MYSTERY)

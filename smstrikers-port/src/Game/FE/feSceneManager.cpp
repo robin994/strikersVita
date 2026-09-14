@@ -1,6 +1,9 @@
 #include "Game/FE/feSceneManager.h"
 #include "Game/FE/feInput.h"
 #include "Game/FE/feRender.h"
+#include "Game/FE/fePopupMenu.h"
+#include "Game/GameSceneManager.h"
+#include "Game/OverlayManager.h"
 #include "NL/nlDLRing.h"
 #include "NL/nlDLListContainer.h"
 #include "NL/nlDebug.h"
@@ -227,6 +230,22 @@ void FESceneManager::QueueScenePop()
     FindSceneAndQueuePop(msg, m_sceneHandlerStack.m_Head, sceneEntry, queueHead);
 }
 
+void FESceneManager::QueueScenePop(BaseSceneHandler* pSceneHandler)
+{
+    if (pSceneHandler == NULL || IsObjectQueuedForPop(pSceneHandler))
+        return;
+
+    PackagePushPopMessage* msg = NULL;
+    PackagePushPopMessage::m_PushPopMessageSlotPool.Allocate(msg);
+    if (msg == NULL)
+        return;
+
+    msg->m_szFilename[0] = 0;
+    msg->m_pSceneHandler = pSceneHandler;
+    msg->m_bPush = false;
+    m_pushPopMessageQueue.AddEnd(msg);
+}
+
 /**
  * Offset/Address/Size: 0x42C | 0x8020DA78 | size: 0x114
  */
@@ -262,20 +281,92 @@ void FESceneManager::LoadScene(
     FESceneManager* pSceneManager = FESceneManager::Instance();
     FEScene* pFEScene = new (nlMalloc(sizeof(FEScene), 8, false)) FEScene();
     pFEScene->m_uHashID = nlStringLowerHash(szFilename);
+    pHandler->m_pFEScene = pFEScene;
 
-    if (!pFEScene->LoadPackage(szFilename))
+    BaseGameSceneManager* owner = NULL;
+    SceneList sceneType = SCENE_INVALID;
+    if (nlSingleton<GameSceneManager>::s_pInstance != NULL)
     {
-        nlPrintf("Error: failed to load package!\n");
-        nlBreak();
+        SceneList type = nlSingleton<GameSceneManager>::s_pInstance->GetSceneType(pHandler);
+        if (type != SCENE_INVALID)
+        {
+            owner = nlSingleton<GameSceneManager>::s_pInstance;
+            sceneType = type;
+        }
     }
-    else
+    if (owner == NULL && nlSingleton<OverlayManager>::s_pInstance != NULL)
     {
-        pFEScene->m_uRenderView = pSceneManager->m_uDefaultRenderView;
-        pHandler->m_pFEScene = pFEScene;
-        pHandler->SetPresentation(pFEScene->m_pFEPackage->GetPresentation());
-        pHandler->SceneCreated();
-        pHandler->InitializeSubHandlers();
+        SceneList type = nlSingleton<OverlayManager>::s_pInstance->GetSceneType(pHandler);
+        if (type != SCENE_INVALID)
+        {
+            owner = nlSingleton<OverlayManager>::s_pInstance;
+            sceneType = type;
+        }
     }
+
+    const char* loadedFilename = szFilename;
+    bool loaded = pFEScene->LoadPackage(szFilename);
+
+    // PORT: PAL currently selects the German title package for every European
+    // language.  If that physical FEN is missing/truncated in the supplied disc
+    // image, retry the standard title package before rejecting the scene.
+    if (!loaded && sceneType == SCENE_TITLE
+        && strcmpi(szFilename, "art/fe/start_screen_v2.fen") != 0)
+    {
+        const char* fallbackFilename = "art/fe/start_screen_v2.fen";
+        OSReport("[fen] title package %s rejected; trying %s\n",
+                 szFilename, fallbackFilename);
+        pFEScene->m_uHashID = nlStringLowerHash(fallbackFilename);
+        pHandler->m_uHashID = pFEScene->m_uHashID;
+        loaded = pFEScene->LoadPackage(fallbackFilename);
+        if (loaded)
+        {
+            loadedFilename = fallbackFilename;
+            OSReport("[fen] title fallback loaded: %s\n", fallbackFilename);
+        }
+    }
+
+    if (!loaded)
+    {
+        OSReport("FESceneManager::LoadScene(%s): package rejected; removing scene type=%d\n",
+                 loadedFilename, (int)sceneType);
+        pHandler->SetPresentation(NULL);
+
+        if (sceneType == SCENE_POPUP_MENU || sceneType == OVERLAY_POPUP)
+        {
+            ((FEPopupMenu*)pHandler)->PrepareLoadFailureFallback();
+        }
+
+        // PORT: never leave a rejected package in the FE stack.  One invalid
+        // scene makes AreAllScenesValid() discard every frame forever.
+        if (owner != NULL)
+        {
+            OSReport("[fen] removing rejected scene type=%d from FE/game stacks\n",
+                     (int)sceneType);
+            owner->RemoveScene(pHandler);
+        }
+        else
+        {
+            OSReport("[fen] rejected scene has no owner; removing from FE stack only\n");
+            pSceneManager->QueueScenePop(pHandler);
+        }
+
+        // Keep boot progressing even if both title packages are unusable.  The
+        // menu has independent FENs and gives us a useful next diagnostic point.
+        if (sceneType == SCENE_TITLE
+            && nlSingleton<GameSceneManager>::s_pInstance != NULL)
+        {
+            OSReport("[fen] title unavailable; continuing to main menu\n");
+            nlSingleton<GameSceneManager>::s_pInstance->Push(
+                SCENE_MAIN_MENU, SCREEN_NOTHING, false);
+        }
+        return;
+    }
+
+    pFEScene->m_uRenderView = pSceneManager->m_uDefaultRenderView;
+    pHandler->SetPresentation(pFEScene->m_pFEPackage->GetPresentation());
+    pHandler->SceneCreated();
+    pHandler->InitializeSubHandlers();
 }
 
 /**

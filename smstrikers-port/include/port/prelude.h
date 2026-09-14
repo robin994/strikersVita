@@ -8,6 +8,26 @@
 #error "port assumes 64-bit pointers"
 #endif
 
+#if defined(PORT_VITA) && defined(__SIZEOF_POINTER__) && __SIZEOF_POINTER__ != 4
+#error "Vita port requires 32-bit pointers"
+#endif
+#if defined(PORT_VITA) && defined(__SIZEOF_LONG__) && __SIZEOF_LONG__ != 4
+#error "Vita port requires 32-bit long"
+#endif
+
+#if defined(PORT_VITA)
+typedef enum PortABIEnumProbe
+{
+    PORT_ABI_ENUM_ZERO = 0,
+    PORT_ABI_ENUM_LARGE = 0x12345678
+} PortABIEnumProbe;
+#if defined(__cplusplus)
+static_assert(sizeof(PortABIEnumProbe) == 4, "Vita port requires 32-bit enums (-fno-short-enums)");
+#else
+_Static_assert(sizeof(PortABIEnumProbe) == 4, "Vita port requires 32-bit enums (-fno-short-enums)");
+#endif
+#endif
+
 // include/port/endian.h byte-swaps unconditionally, so on a big-endian host those helpers would
 // corrupt data that was already correct.
 #if defined(__BYTE_ORDER__) && defined(__ORDER_LITTLE_ENDIAN__) &&             \

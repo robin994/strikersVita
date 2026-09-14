@@ -70,7 +70,15 @@ void CrossFaderScene::SceneCreated()
             nlSingleton<FEResourceManager>::Instance()->Run(0.0f);
         }
         nlSingleton<GameSceneManager>::Instance()->PopEntireStack();
+#if defined(PORT_VITA)
+        // PORT: the THP intro is non-essential and currently leaves the Vita
+        // front end parked on the last legal-screen frame.  Enter the title
+        // scene directly; movie playback can be fixed independently later.
+        OSReport("[port] Vita boot: skipping intro THP and entering title\n");
+        nlSingleton<GameSceneManager>::Instance()->Push(SCENE_TITLE, SCREEN_NOTHING, false);
+#else
         nlSingleton<GameSceneManager>::Instance()->Push(SCENE_INTRO_MOVIE, SCREEN_NOTHING, false);
+#endif
     }
     else
     {
@@ -374,7 +382,12 @@ void CrossFaderScene::Update(float fDeltaT)
             if (timer >= 0.2f)
             {
                 nlSingleton<GameSceneManager>::Instance()->PopEntireStack();
+#if defined(PORT_VITA)
+                OSReport("[port] Vita boot: legal sequence complete, entering title\n");
+                nlSingleton<GameSceneManager>::Instance()->Push(SCENE_TITLE, SCREEN_NOTHING, false);
+#else
                 nlSingleton<GameSceneManager>::Instance()->Push(SCENE_INTRO_MOVIE, SCREEN_NOTHING, false);
+#endif
                 mFadeToBlackTimer = 0.0f;
             }
         }

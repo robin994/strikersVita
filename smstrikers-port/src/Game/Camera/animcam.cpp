@@ -1,6 +1,7 @@
 #include "Game/Camera/animcam.h"
 #include "NL/nlWare.h"
 #include "dolphin/os.h"
+#include "port/endian.h"
 extern "C" unsigned long port_cam_swap(void*, unsigned long);
 
 #include "Game/AI/AiUtil.h"
@@ -44,7 +45,7 @@ static DofDebugFlag g_EnableDofDebug;
 
 static inline void* nlGetChunkData(nlChunk* chunk)
 {
-    u32 alignField = chunk->m_ID & 0x7F000000;
+    u32 alignField = chunk->GetChunkAlignment();
     u32 isAligned = ((-alignField) | alignField) >> 31;
     if (isAligned != 0)
     {
@@ -59,13 +60,13 @@ static inline void* nlGetChunkData(nlChunk* chunk)
 
 static inline nlChunk* nlGetNextChunk(nlChunk* chunk)
 {
-    return (nlChunk*)((u8*)chunk + chunk->m_Size + 8);
+    return chunk->GetNextChunk();
 }
 
 template <class T>
 static inline void nlGetChunkDataAs(nlChunk* chunk, T*& out)
 {
-    u32 alignField = chunk->m_ID & 0x7F000000;
+    u32 alignField = chunk->GetChunkAlignment();
     u32 isAligned = ((-alignField) | alignField) >> 31;
     if (isAligned != 0)
     {
@@ -90,12 +91,11 @@ static bool LoadAnimCameraData(nlChunk* outerChunk, nlChunk* outerEnd, cCameraDa
     pAnimCameraData->ownsKeyData = ownsKeyData;
     while (outerChunk < outerEnd)
     {
-        u32 id = outerChunk->m_ID;
-        u32 type = id & 0x80FFFFFF;
+        u32 type = outerChunk->GetID();
         switch (type)
         {
         case 0x15508:
-            pAnimCameraData->m_uKeyCount = *(u32*)nlGetChunkData(outerChunk);
+            pAnimCameraData->m_uKeyCount = port_u32_unaligned(nlGetChunkData(outerChunk));
             if (ownsKeyData)
             {
                 pAnimCameraData->cameraPos = (nlVector3*)nlMalloc(pAnimCameraData->m_uKeyCount * sizeof(nlVector3), 8, false);
@@ -125,14 +125,22 @@ static bool LoadAnimCameraData(nlChunk* outerChunk, nlChunk* outerEnd, cCameraDa
                 offset = 0;
                 while (i < pAnimCameraData->m_uKeyCount)
                 {
-                    *(nlVector3*)((u8*)pAnimCameraData->cameraPos + offset) = *v3Pos;
+                    memcpy((u8*)pAnimCameraData->cameraPos + offset,
+                           (const u8*)v3Pos, sizeof(nlVector3));
                     i++;
                     offset += sizeof(nlVector3);
                     v3Pos++;
                 }
             }
             else
+            {
+                if (((uintptr_t)v3Pos & 3u) != 0)
+                {
+                    OSReport("Error: unaligned embedded camera position data\n");
+                    return false;
+                }
                 pAnimCameraData->cameraPos = v3Pos;
+            }
             break;
         }
         case 0x1550C:
@@ -147,14 +155,22 @@ static bool LoadAnimCameraData(nlChunk* outerChunk, nlChunk* outerEnd, cCameraDa
                 offset = 0;
                 while (i < pAnimCameraData->m_uKeyCount)
                 {
-                    *(nlVector3*)((u8*)pAnimCameraData->targetPos + offset) = *v3Pos;
+                    memcpy((u8*)pAnimCameraData->targetPos + offset,
+                           (const u8*)v3Pos, sizeof(nlVector3));
                     i++;
                     offset += sizeof(nlVector3);
                     v3Pos++;
                 }
             }
             else
+            {
+                if (((uintptr_t)v3Pos & 3u) != 0)
+                {
+                    OSReport("Error: unaligned embedded camera target data\n");
+                    return false;
+                }
                 pAnimCameraData->targetPos = v3Pos;
+            }
             break;
         }
         case 0x15511:
@@ -169,14 +185,22 @@ static bool LoadAnimCameraData(nlChunk* outerChunk, nlChunk* outerEnd, cCameraDa
                 offset = 0;
                 while (i < pAnimCameraData->m_uKeyCount)
                 {
-                    *(nlQuaternion*)((u8*)pAnimCameraData->cameraRot + offset) = *rot;
+                    memcpy((u8*)pAnimCameraData->cameraRot + offset,
+                           (const u8*)rot, sizeof(nlQuaternion));
                     i++;
                     offset += sizeof(nlQuaternion);
                     rot++;
                 }
             }
             else
+            {
+                if (((uintptr_t)rot & 3u) != 0)
+                {
+                    OSReport("Error: unaligned embedded camera rotation data\n");
+                    return false;
+                }
                 pAnimCameraData->cameraRot = rot;
+            }
             break;
         }
         case 0x1550F:
@@ -190,7 +214,7 @@ static bool LoadAnimCameraData(nlChunk* outerChunk, nlChunk* outerEnd, cCameraDa
                 offset = 0;
                 while (i < pAnimCameraData->m_uKeyCount)
                 {
-                    u32 alignField = outerChunk->m_ID & 0x7F000000;
+                    u32 alignField = outerChunk->GetChunkAlignment();
                     u32 isAligned = ((-alignField) | alignField) >> 31;
                     float* src;
                     if (isAligned != 0)
@@ -202,7 +226,8 @@ static bool LoadAnimCameraData(nlChunk* outerChunk, nlChunk* outerEnd, cCameraDa
                     {
                         src = (float*)chunkData;
                     }
-                    *(float*)((u8*)pAnimCameraData->fFOV + offset) = *(float*)((u8*)src + offset);
+                    memcpy((u8*)pAnimCameraData->fFOV + offset,
+                           (const u8*)src + offset, sizeof(float));
                     i++;
                     offset += sizeof(float);
                 }
@@ -211,6 +236,11 @@ static bool LoadAnimCameraData(nlChunk* outerChunk, nlChunk* outerEnd, cCameraDa
             {
                 float* data;
                 nlGetChunkDataAs(outerChunk, data);
+                if (((uintptr_t)data & 3u) != 0)
+                {
+                    OSReport("Error: unaligned embedded camera FOV data\n");
+                    return false;
+                }
                 pAnimCameraData->fFOV = data;
             }
             break;
@@ -225,7 +255,7 @@ static bool LoadAnimCameraData(nlChunk* outerChunk, nlChunk* outerEnd, cCameraDa
                 offset = 0;
                 while (i < pAnimCameraData->m_uKeyCount)
                 {
-                    u32 alignField = outerChunk->m_ID & 0x7F000000;
+                    u32 alignField = outerChunk->GetChunkAlignment();
                     u32 isAligned = ((-alignField) | alignField) >> 31;
                     float* src;
                     if (isAligned != 0)
@@ -237,7 +267,8 @@ static bool LoadAnimCameraData(nlChunk* outerChunk, nlChunk* outerEnd, cCameraDa
                     {
                         src = (float*)chunkData;
                     }
-                    *(float*)((u8*)pAnimCameraData->fFocalLength + offset) = *(float*)((u8*)src + offset);
+                    memcpy((u8*)pAnimCameraData->fFocalLength + offset,
+                           (const u8*)src + offset, sizeof(float));
                     i++;
                     offset += sizeof(float);
                 }
@@ -246,6 +277,11 @@ static bool LoadAnimCameraData(nlChunk* outerChunk, nlChunk* outerEnd, cCameraDa
             {
                 float* data;
                 nlGetChunkDataAs(outerChunk, data);
+                if (((uintptr_t)data & 3u) != 0)
+                {
+                    OSReport("Error: unaligned embedded camera focal-length data\n");
+                    return false;
+                }
                 pAnimCameraData->fFocalLength = data;
             }
             break;
@@ -304,7 +340,7 @@ bool cAnimCamera::LoadCameraAnimation(const char* szFilename, const char* szCame
         return false;
     }
     begin = (nlChunk*)((u8*)pData + 8);
-    end = (nlChunk*)((u8*)pData + ((nlChunk*)pData)->m_Size + 8);
+    end = (nlChunk*)((u8*)pData + ((nlChunk*)pData)->GetSize() + 8);
 
     void* mem = nlMalloc(sizeof(cCameraData), 8, false);
     pCamData = (cCameraData*)mem;

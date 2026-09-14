@@ -165,12 +165,67 @@ FEPopupMenu::~FEPopupMenu()
     FEAudio::EnableSounds(true);
 }
 
+bool FEPopupMenu::PrepareLoadFailureFallback()
+{
+    int safeOption = -1;
+
+    switch (mType)
+    {
+    case POPUP_NO_MEMCARD:
+    case POPUP_MEMCARD_CORRUPTED:
+    case POPUP_MEMCARD_WRONGFORMAT:
+    case POPUP_FILE_CORRUPTED:
+    case POPUP_MEMCARD_DAMAGED:
+    case POPUP_WRONG_DEVICE:
+    case POPUP_NOT_ENOUGH_SPACE:
+    case POPUP_NOT_ENOUGH_SPACE_CANMANAGE:
+    case POPUP_NOTSAMECARD:
+    case POPUP_MEMCARD_ASK_SAVE_NO_FILE:
+        safeOption = 1; // continue without saving/loading
+        break;
+
+    case POPUP_MEMCARD_ASK_SAVE_OVERWRITE:
+    case POPUP_MEMCARD_ASK_LOAD_OVERWRITE:
+    case POPUP_MEMCARD_CONFIRM_FORMAT:
+        safeOption = 0; // first option is the non-destructive/continue-without path
+        break;
+
+    default:
+        break;
+    }
+
+    if (safeOption < 0 || safeOption >= mPopup.numOptions)
+    {
+        OSReport("[popup] FEN load failed for popup type=%d; dismissing without callback\n",
+                 (int)mType);
+        return false;
+    }
+
+    mHighlightedOption = safeOption;
+    mRunCallBack = true;
+    OSReport("[popup] FEN load failed for memory-card popup type=%d; "
+             "using safe option=%d\n",
+             (int)mType, safeOption);
+    return true;
+}
+
 /**
  * Offset/Address/Size: 0x2F24 | 0x8009B1D0 | size: 0x6B8
  */
 void FEPopupMenu::SceneCreated()
 {
+    if (m_pFEScene == NULL || m_pFEScene->m_pFEPackage == NULL)
+    {
+        OSReport("[popup] SceneCreated without a valid FEN package\n");
+        return;
+    }
+
     FEPresentation* presentation = m_pFEScene->m_pFEPackage->GetPresentation();
+    if (presentation == NULL)
+    {
+        OSReport("[popup] SceneCreated: popup presentation is null\n");
+        return;
+    }
     int optionIndex;
     int hiddenOptionIndex;
 
@@ -179,6 +234,12 @@ void FEPopupMenu::SceneCreated()
         InlineHasher(nlStringLowerHash("Slide1")),
         InlineHasher(nlStringLowerHash("Layer")),
         InlineHasher(nlStringLowerHash("Message")));
+
+    if (pText == NULL)
+    {
+        OSReport("[popup] invalid popup_menu.fen: missing Slide1/Layer/Message\n");
+        return;
+    }
 
     pText->SetString(mPopup.pMessage->begin());
 
@@ -197,6 +258,13 @@ void FEPopupMenu::SceneCreated()
             InlineHasher(nlStringLowerHash("Slide1")),
             InlineHasher(nlStringLowerHash("Layer")),
             InlineHasher(nlStringLowerHash(optionNames[optionIndex])));
+
+        if (pText == NULL)
+        {
+            OSReport("[popup] invalid popup_menu.fen: missing Slide1/Layer/%s\n",
+                     optionNames[optionIndex]);
+            return;
+        }
 
         pText->SetString(mPopup.pOptionLabels[optionIndex]->begin());
 
@@ -248,7 +316,10 @@ void FEPopupMenu::SceneCreated()
         InlineHasher(nlStringLowerHash("Layer")),
         InlineHasher(nlStringLowerHash("highlite")));
 
-    pHighlight->SetActiveSlide("idle");
+    if (pHighlight != NULL)
+        pHighlight->SetActiveSlide("idle");
+    else
+        OSReport("[popup] invalid popup_menu.fen: missing Slide1/Layer/highlite\n");
 
     mButtons.mButtonInstance = FEFinder<TLComponentInstance, 4>::Find<TLSlide>(
         presentation->m_currentSlide,

@@ -27,6 +27,9 @@
 #include "dolphin/os/OSReset.h"
 #include "dolphin/vm/VM.h"
 #include "Game/Sys/debug.h"
+#if defined(PORT_VITA)
+#include <aurora_vita_backend.hpp>
+#endif
 
 // PAL 480i deflicker render mode (first symbol in .data)
 static GXRenderModeObj glPal480IntDf = { VI_TVMODE_PAL_INT,
@@ -150,6 +153,13 @@ void glplatFinish()
  */
 void glplatAbortFrame()
 {
+#if defined(PORT_VITA)
+    // On GameCube an aborted frame never reaches VI.  The Vita outer loop owns
+    // the actual buffer swap, so tell it not to present this partially rendered
+    // backbuffer.  Without this, FE loading/discard frames alternate with good
+    // frames and look like severe unsynchronised flashing.
+    aurora::vita::discard_present();
+#endif
     glplatFrameAllocNextFrame();
     glx_NumVirtMisses = 0;
     glx_VirtLatency = 0;

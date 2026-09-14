@@ -3,6 +3,7 @@
 
 #include "types.h"
 #include <stdint.h>
+#include <string.h>
 
 #include "NL/nlMath.h"
 
@@ -38,7 +39,12 @@ public:
     /* 0xC */ cSAnimCallback* next;
 }; // total size: 0x10
 
-class nlChunk
+// PORT: nlChunk is an on-disc 8-byte header. Child chunks are byte-packed and
+// are not guaranteed to start at a 4-byte boundary (real SKIN/retarget assets
+// do contain odd-sized siblings). Keep the type packed so even legacy direct
+// m_ID/m_Size reads cannot make GCC assume word alignment on ARM, and make the
+// accessors memcpy-based so they are safe independently of compiler choices.
+class __attribute__((packed)) nlChunk
 {
 public:
     nlChunk* GetNextChunk();
@@ -64,12 +70,16 @@ inline nlChunk* nlChunk::GetNextChunk()
 
 inline u32 nlChunk::GetSize()
 {
-    return m_Size;
+    u32 value;
+    memcpy(&value, &m_Size, sizeof(value));
+    return value;
 }
 
 inline u32 nlChunk::GetID()
 {
-    return m_ID & 0x80FFFFFF;
+    u32 value;
+    memcpy(&value, &m_ID, sizeof(value));
+    return value & 0x80FFFFFF;
 }
 
 inline nlChunk* nlChunk::GetLastChunk()
@@ -84,7 +94,9 @@ inline nlChunk* nlChunk::GetFirstChunk()
 
 inline u8 nlChunk::IsNestedChunk()
 {
-    return (m_ID & 0x80000000) != 0;
+    u32 value;
+    memcpy(&value, &m_ID, sizeof(value));
+    return (value & 0x80000000) != 0;
 }
 
 inline void* nlChunk::GetData()
@@ -104,14 +116,19 @@ inline void* nlChunk::GetUnalignedData()
 
 inline void* nlChunk::GetAlignedData()
 {
-    uintptr_t alignment = (uintptr_t)1 << (GetChunkAlignment() >> 24);
+    const u32 shift = GetChunkAlignment() >> 24;
+    if (shift == 0 || shift > 16)
+        return shift == 0 ? GetUnalignedData() : NULL;
+    uintptr_t alignment = (uintptr_t)1 << shift;
     uintptr_t addr = (uintptr_t)GetUnalignedData();
     return (void*)((addr + alignment - 1) & ~(alignment - 1));
 }
 
 inline u32 nlChunk::GetChunkAlignment()
 {
-    return m_ID & 0x7F000000;
+    u32 value;
+    memcpy(&value, &m_ID, sizeof(value));
+    return value & 0x7F000000;
 }
 
 inline bool nlChunk::IsAlignedChunk()

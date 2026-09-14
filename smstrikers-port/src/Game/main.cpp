@@ -556,6 +556,7 @@ static void DoMemCheck()
 #if defined(PORT_USE_AURORA)
 // Set by main() so the frame loop can end cleanly when the window is closed.
 static bool s_portRunning = true;
+static const char* s_portExitReason = NULL;
 
 // src/platform/input.cpp, default keyboard mapping for port 0.
 extern "C" void PortInstallKeyboardBindings(void);
@@ -680,11 +681,29 @@ static void PortPumpAuroraEvents()
     SDL_PumpEvents();
     PortFollowWindowShape();
     SceCtrlData pad = {};
-    if (sceCtrlPeekBufferPositive(0, &pad, 1) > 0
-        && (pad.buttons & (SCE_CTRL_START | SCE_CTRL_SELECT))
-            == (SCE_CTRL_START | SCE_CTRL_SELECT))
+    static unsigned int s_exitComboFrames;
+    if (sceCtrlPeekBufferPositive(0, &pad, 1) > 0)
     {
-        s_portRunning = false;
+        const bool exitCombo =
+            (pad.buttons & (SCE_CTRL_START | SCE_CTRL_SELECT))
+                == (SCE_CTRL_START | SCE_CTRL_SELECT);
+        if (exitCombo)
+        {
+            // PORT: START+SELECT used to quit on a single poll.  During FE
+            // bring-up that is far too easy to trigger while testing buttons,
+            // and looks exactly like an unexplained clean process exit.  Require
+            // roughly two seconds at 60 Hz and name the reason in the log.
+            if (++s_exitComboFrames >= 120 && s_portRunning)
+            {
+                s_portExitReason = "START+SELECT held for 2 seconds";
+                OSReport("[port] exit requested: %s\n", s_portExitReason);
+                s_portRunning = false;
+            }
+        }
+        else
+        {
+            s_exitComboFrames = 0;
+        }
     }
 #else
     // PORT: polled rather than waited for; the event below is only the fast path.
@@ -693,7 +712,10 @@ static void PortPumpAuroraEvents()
     for (const AuroraEvent* ev = aurora_update(); ev && ev->type != AURORA_NONE; ++ev)
     {
         if (ev->type == AURORA_EXIT)
+        {
+            s_portExitReason = "window close";
             s_portRunning = false;
+        }
 
         // PORT: the picture follows the window rather than the shape the window had at startup, so maximising it does not put black bars down the sides.
         if (ev->type == AURORA_WINDOW_RESIZED
@@ -1018,6 +1040,7 @@ int main(int argc, char* argv[])
         if (PortBenchRunSeconds() > 0.0
             && PortBenchElapsed() >= PortBenchRunSeconds())
         {
+            s_portExitReason = "benchmark duration reached";
             s_portRunning = false;
         }
 
@@ -1027,9 +1050,16 @@ int main(int argc, char* argv[])
             const char* whichEnv = getenv("STRIKERS_CAPTURE_FRAME");
             unsigned long which = whichEnv != NULL ? strtoul(whichEnv, NULL, 10) : 120;
             if (s_portFrame >= which)
+            {
+                s_portExitReason = "capture exit frame reached";
                 s_portRunning = false;
+            }
         }
     }
+    if (s_portExitReason == NULL && PortQuitRequested())
+        s_portExitReason = "PortQuitRequested";
+    OSReport("[port] main loop ended at frame %lu: %s\n", s_portFrame,
+             s_portExitReason != NULL ? s_portExitReason : "unknown reason");
     PortBenchReport();
 #if defined(PORT_VITA)
     aurora::vita::shutdown();

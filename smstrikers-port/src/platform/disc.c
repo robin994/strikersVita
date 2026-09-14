@@ -407,14 +407,21 @@ long port_disc_read(PortDisc* d, void* dst, size_t len, unsigned long long offse
 }
 
 // NKit is *not* a refusal, and working out why cost a wrong one first.
-static void note_nkit(const unsigned char* head, size_t got)
+static int note_nkit(const unsigned char* head, size_t got)
 {
     if (got >= 0x204 && memcmp(head + 0x200, "NKIT", 4) == 0)
+    {
         fprintf(stderr,
                 "[port] disc: NKit-processed image, the disc's padding was "
                 "removed and rebuilt.\n"
-                "[port] disc: the filesystem is complete, so it is read as an "
-                "ordinary image.\n");
+                "[port] disc: WARNING: this lightweight reader does not rebuild "
+                "legacy NKit logical offsets;\n"
+                "[port] disc: if file fingerprints or FEN headers disagree with "
+                "the FST, use a restored ISO\n"
+                "[port] disc: or an extracted files/ directory.\n");
+        return 1;
+    }
+    return 0;
 }
 
 PortDisc* port_disc_open(const char* path, char* err, size_t errsize)
@@ -465,8 +472,7 @@ PortDisc* port_disc_open(const char* path, char* err, size_t errsize)
     if (rd_be32(head + 0x1C) == GC_MAGIC)
     {
         d->kind = DISC_RAW;
-        d->name = "raw";
-        note_nkit(head, got);
+        d->name = note_nkit(head, got) ? "NKit/raw" : "raw";
         return d;
     }
 
@@ -500,7 +506,8 @@ PortDisc* port_disc_open(const char* path, char* err, size_t errsize)
                     "That image decompresses to something that is not a "
                     "GameCube disc: the disc\nmagic is missing from its header. "
                     "It is either damaged or an image of\nsomething else.");
-    note_nkit(head, sizeof head);
+    if (note_nkit(head, sizeof head) && d->kind == DISC_GCZ)
+        d->name = "NKit/GCZ";
     return d;
 }
 

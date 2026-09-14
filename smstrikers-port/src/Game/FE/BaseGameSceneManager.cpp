@@ -590,6 +590,39 @@ void BaseGameSceneManager::Pop()
     mCurrentStackDepth = (mCurrentStackDepth - 1);
 }
 
+void BaseGameSceneManager::RemoveScene(BaseSceneHandler* scene)
+{
+    if (scene == NULL)
+        return;
+
+    int sceneIndex = -1;
+    for (u32 i = 0; i < mCurrentStackDepth; ++i)
+    {
+        if (mBaseSceneHandlerStack[i] == scene)
+        {
+            sceneIndex = (int)i;
+            break;
+        }
+    }
+
+    if (sceneIndex < 0)
+        return;
+
+    // PORT: a package can fail while later scene pushes are already queued.
+    // Pop() would remove the logical top scene, not necessarily the handler
+    // whose FEN failed, so remove this exact entry and queue its exact FE pop.
+    FESceneManager::Instance()->QueueScenePop(scene);
+    for (u32 i = (u32)sceneIndex; i + 1 < mCurrentStackDepth; ++i)
+    {
+        m_sceneStack[i] = m_sceneStack[i + 1];
+        mBaseSceneHandlerStack[i] = mBaseSceneHandlerStack[i + 1];
+    }
+
+    --mCurrentStackDepth;
+    m_sceneStack[mCurrentStackDepth] = SCENE_INVALID;
+    mBaseSceneHandlerStack[mCurrentStackDepth] = NULL;
+}
+
 /**
  * Offset/Address/Size: 0x23C | 0x800957F8 | size: 0x4C
  */
