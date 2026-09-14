@@ -827,10 +827,17 @@ int main(int argc, char* argv[])
         cfg.vgl_display_buffer_count = 3;
         cfg.vgl_scratch_dynamic = true;
         cfg.vgl_scratch_stream = true;
-        cfg.texture_cache_budget = 16 * 1024 * 1024;
+        // The gameplay scene exceeds 16 MiB of resident GX textures in a
+        // single frame. Aurora's cache cannot evict textures already referenced
+        // by queued draws, so the smaller budget turns character/stadium
+        // textures into fallbacks even though the vitaGL CDRAM pool still has
+        // room. Match Aurora-Vita's normal 24 MiB cache budget.
+        cfg.texture_cache_budget = 24 * 1024 * 1024;
         cfg.stream_vertex_bytes = 2 * 1024 * 1024;
         cfg.stream_index_bytes = 512 * 1024;
         cfg.stream_slots = 3;
+        cfg.cpu_worker_threads = 2;
+        cfg.cpu_parallel_min_vertices = 512;
         cfg.wait_vblank = true;
         cfg.diagnostics = true;
         cfg.strict_unsupported = false;

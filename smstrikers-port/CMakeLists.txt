@@ -189,6 +189,7 @@ if(STRIKERS_AURORA AND STRIKERS_VITA)
         "${AURORA_VITA_ROOT}/platforms/vita/gfx/vita_telemetry.cpp"
         "${AURORA_VITA_ROOT}/platforms/vita/gfx/vita_memory_budget.cpp"
         "${AURORA_VITA_ROOT}/platforms/vita/gfx/vita_gl_util.cpp"
+        "${AURORA_VITA_ROOT}/platforms/vita/gfx/vita_cpu_workers.cpp"
         "${AURORA_VITA_ROOT}/platforms/vita/gfx/vita_texture_decode.cpp"
         "${AURORA_VITA_ROOT}/platforms/vita/gfx/vita_vertex_decode.cpp"
         "${AURORA_VITA_ROOT}/platforms/vita/gfx/vita_vertex_pipeline.cpp"
