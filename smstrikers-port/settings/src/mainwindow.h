@@ -57,10 +57,6 @@ public:
     // its own geometry answers one resize with many.
     int resizeCount() const { return m_resizes; }
 
-    // The game launched this, on a player's first run, and is waiting for it to close
-    // (include/port/firstrun.h).
-    void setFirstRun(bool firstRun);
-
 protected:
     void closeEvent(QCloseEvent* event) override;
     void resizeEvent(QResizeEvent* event) override;
@@ -142,8 +138,6 @@ private:
 
     QPushButton* m_saveButton = nullptr;
     QPushButton* m_playButton = nullptr;
-    QLabel* m_firstRunBanner = nullptr;
-    bool m_firstRun = false;
     QLabel* m_pathLabel = nullptr;
     QString m_pathText;
 

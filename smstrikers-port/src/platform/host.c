@@ -247,62 +247,13 @@ int port_setenv_default(const char* name, const char* value)
     return _putenv_s(name, value) == 0 ? 0 : -1;
 }
 
-int port_run_wait(const char* exe, const char* const* args, int* exitCode)
-{
-    // One buffer, built by hand, because CreateProcess takes a command line rather than an argv and
-    // the child's CRT splits it back apart under rules that are not "separate on spaces".
-    char cmd[4096];
-    size_t used = 0;
-    size_t i;
-    STARTUPINFOA si;
-    PROCESS_INFORMATION pi;
-    DWORD status = 0;
-
-    if (exe == NULL || *exe == '\0')
-        return -1;
-
-    {
-        const int n = _snprintf_s(cmd, sizeof cmd, _TRUNCATE, "\"%s\"", exe);
-        if (n < 0)
-            return -1;
-        used = (size_t)n;
-    }
-    for (i = 0; args != NULL && args[i] != NULL; i++)
-    {
-        const int n = _snprintf_s(cmd + used, sizeof cmd - used, _TRUNCATE,
-                                  " \"%s\"", args[i]);
-        if (n < 0)
-            return -1;
-        used += (size_t)n;
-    }
-
-    memset(&si, 0, sizeof si);
-    si.cb = sizeof si;
-    memset(&pi, 0, sizeof pi);
-
-    if (!CreateProcessA(exe, cmd, NULL, NULL, FALSE, 0, NULL, NULL, &si, &pi))
-        return -1;
-
-    WaitForSingleObject(pi.hProcess, INFINITE);
-    if (!GetExitCodeProcess(pi.hProcess, &status))
-        status = 0;
-    CloseHandle(pi.hThread);
-    CloseHandle(pi.hProcess);
-
-    if (exitCode != NULL)
-        *exitCode = (int)status;
-    return 0;
-}
-
 #else
 
 #include <dirent.h>
-#include <errno.h>
 #include <limits.h>
 #include <sched.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/wait.h>
 #include <unistd.h>
 #if defined(__APPLE__)
 #include <mach-o/dyld.h>
@@ -403,53 +354,6 @@ int port_setenv_default(const char* name, const char* value)
     if (getenv(name) != NULL)
         return 1;
     return setenv(name, value, 0) == 0 ? 0 : -1;
-}
-
-int port_run_wait(const char* exe, const char* const* args, int* exitCode)
-{
-    // fork/exec rather than system(): system() hands the string to /bin/sh, which would split a
-    // path on its spaces and read a $ or a; in one as punctuation.
-    char* argv[64];
-    const size_t cap = sizeof argv / sizeof argv[0];
-    size_t n = 0;
-    size_t i;
-    pid_t pid;
-    int status = 0;
-
-    if (exe == NULL || *exe == '\0')
-        return -1;
-
-    // execv's prototype is char* const[] for historical reasons and does not write through them;
-    // the cast is the standard one. argv[0] is the program, which is why `args` does not repeat it.
-    argv[n++] = (char*)exe;
-    for (i = 0; args != NULL && args[i] != NULL && n + 1 < cap; i++)
-        argv[n++] = (char*)args[i];
-    argv[n] = NULL;
-
-    pid = fork();
-    if (pid < 0)
-        return -1;
-    if (pid == 0)
-    {
-        execv(exe, argv);
-        // _exit, not exit: the child shares the parent's stdio buffers and atexit handlers, and
-        // running either would flush and unwind state the parent still owns.
-        _exit(127);
-    }
-
-    while (waitpid(pid, &status, 0) < 0)
-    {
-        if (errno != EINTR)
-            return -1;
-    }
-
-    if (!WIFEXITED(status))
-        return 1;
-    if (exitCode != NULL)
-        *exitCode = WEXITSTATUS(status);
-    // 127 is the child's own "execv failed" above, and is indistinguishable from a program that
-    // genuinely exited 127.
-    return WEXITSTATUS(status) == 127 ? -1 : 0;
 }
 
 #endif

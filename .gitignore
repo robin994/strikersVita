@@ -3,6 +3,7 @@ smstrikers-port/build*/
 smstrikers-port/data/
 *.iso
 smstrikers-port/extern/ffmpeg-windows-x86_64/
+smstrikers-port/extern/ffmpeg-static/
 
 /dist/
 smstrikers-port/dist/

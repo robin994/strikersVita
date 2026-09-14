@@ -139,7 +139,7 @@ Linux)
             echo "    BAD   $line"; BAD=1 ;;
         *"${HOME:-/nonexistent}"*|*/usr/local/*|*/opt/*|*linuxbrew*|*build-aur*)
             echo "    BAD   $line"; BAD=1 ;;
-        *libzstd*|*libpng*|*libfreetype*|*libsqlite3*)
+        *libzstd*|*libpng*|*libfreetype*|*libsqlite3*|*libavcodec*|*libavutil*)
             # Rejected wherever they live when the executable links them itself; libz is a system
             # copy by design.
             if grep -Fxq "$(printf '%s' "$line" | awk '{print $1}')" "$NEEDED"; then
@@ -152,7 +152,101 @@ Linux)
             echo "    ok   $line" ;;
         esac
     done < "$DEPS"
-    rm -f "$DEPS" "$NEEDED"
+    rm -f "$DEPS"
+
+    if ! command -v readelf >/dev/null 2>&1; then
+        echo "==> FAILED: readelf is not on PATH, so the ELF checks could not run" >&2
+        rm -f "$NEEDED"
+        exit 1
+    fi
+
+    ALLOWED='libc.so.6 libm.so.6 libdl.so.2 libpthread.so.0 librt.so.1 libz.so.1
+             ld-linux-x86-64.so.2 ld-linux-aarch64.so.1'
+    case "$(basename "$BIN")" in
+    strikers-settings) ALLOWED="$ALLOWED libQt6*.so.6 libstdc++.so.6 libgcc_s.so.1" ;;
+    esac
+    ALLOWED="$ALLOWED ${STRIKERS_EXTRA_NEEDED:-}"
+    SHARED_CXX=0
+    if grep -qx 'libstdc++.so.6' "$NEEDED"; then SHARED_CXX=1; fi
+    while IFS= read -r lib; do
+        [ -n "$lib" ] || continue
+        allowed=0
+        for pattern in $ALLOWED; do
+            # shellcheck disable=SC2254
+            case "$lib" in $pattern) allowed=1; break ;; esac
+        done
+        if [ "$allowed" = 1 ]; then
+            echo "    ok    NEEDED $lib"
+        else
+            echo "    BAD   NEEDED $lib: not part of the base system; link it in, or load it with dlopen"
+            BAD=1
+        fi
+    done < "$NEEDED"
+    rm -f "$NEEDED"
+
+    VERSIONS=$(readelf -V -W "$BIN" 2>/dev/null |
+        grep -oE 'Name: (GLIBC|GLIBCXX|CXXABI)_[0-9][0-9.]*' | sed 's/^Name: //' | sort -u)
+    for family in GLIBC GLIBCXX CXXABI; do
+        newest=$(printf '%s\n' "$VERSIONS" | sed -n "s/^${family}_//p" | sort -t. -k1,1n -k2,2n -k3,3n | tail -n 1)
+        [ -n "$newest" ] || continue
+        case "$family" in
+        GLIBC)   limit="${STRIKERS_MAX_GLIBC:-}" ;;
+        GLIBCXX) limit="${STRIKERS_MAX_GLIBCXX:-}" ;;
+        *)       limit="" ;;
+        esac
+        if [ -n "$limit" ] &&
+           [ "$(printf '%s\n%s\n' "$newest" "$limit" | sort -t. -k1,1n -k2,2n -k3,3n | tail -n 1)" != "$limit" ]; then
+            echo "    BAD   needs ${family}_$newest, newer than the ${family}_$limit this build promises"
+            BAD=1
+        else
+            echo "    ok    needs ${family}_$newest${limit:+ (limit $limit)}"
+        fi
+    done
+
+    STACK=$(readelf -lW "$BIN" 2>/dev/null | grep 'GNU_STACK' || true)
+    case "$STACK" in
+    "")    echo "    BAD   no GNU_STACK header, which the loader reads as an executable stack"; BAD=1 ;;
+    *RWE*) echo "    BAD   executable stack (GNU_STACK RWE); link with -Wl,-z,noexecstack"; BAD=1 ;;
+    *)     echo "    ok    stack not executable" ;;
+    esac
+
+    if readelf -d "$BIN" 2>/dev/null | grep -q 'TEXTREL'; then
+        echo "    BAD   text relocations, which SELinux refuses"
+        BAD=1
+    fi
+
+    SEARCH=$(readelf -d "$BIN" 2>/dev/null |
+        sed -n 's/.*(R\(UN\)\{0,1\}PATH).*\[\(.*\)\]/\2/p' | tr ':' '\n')
+    while IFS= read -r entry; do
+        [ -n "$entry" ] || continue
+        case "$entry" in
+        '$ORIGIN'|'$ORIGIN/'*) echo "    ok    search path $entry" ;;
+        *) echo "    BAD   search path $entry is not relative to \$ORIGIN"; BAD=1 ;;
+        esac
+    done <<EOF
+$SEARCH
+EOF
+
+    # An exported static library interposes on a driver's own copy; _Z is expected with a shared libstdc++.
+    PREFIXES='SDL_|png_|FT_|sqlite3_|av_|avcodec_|ff_|inflate|deflate|ZSTD_'
+    if [ "$SHARED_CXX" = 0 ]; then PREFIXES="$PREFIXES|_Z"; fi
+    EXPORTS=$(readelf --dyn-syms -W "$BIN" 2>/dev/null |
+        awk '$7 != "UND" && ($5 == "GLOBAL" || $5 == "WEAK") { print $8 }' |
+        grep -E "^($PREFIXES)" || true)
+    if [ -n "$EXPORTS" ]; then
+        echo "    BAD   exports symbols of a library linked into it:"
+        printf '%s\n' "$EXPORTS" | head -n 10 | sed 's/^/            /'
+        BAD=1
+    fi
+
+    if readelf -h "$BIN" 2>/dev/null | grep -q 'AArch64'; then
+        SMALL=$(readelf -lW "$BIN" 2>/dev/null |
+            awk '$1 == "LOAD" { a = $NF; sub(/^0x/, "", a); if (length(a) < 5) print $NF }')
+        if [ -n "$SMALL" ]; then
+            echo "    BAD   LOAD segments aligned below 64K ($(printf '%s' "$SMALL" | tr '\n' ' '))"
+            BAD=1
+        fi
+    fi
     ;;
 
 Windows|MINGW*|MSYS*|CYGWIN*)
@@ -162,13 +256,7 @@ Windows|MINGW*|MSYS*|CYGWIN*)
         exit 1
     fi
 
-    # Prefixes of DLLs an application must deploy itself, matched lowercased.
-    # msvcr is spelled msvcr[0-9] so it cannot also catch msvcrt.dll, which is the one
-    # name in this set that an application must NOT deploy: it is Windows' own legacy C
-    # runtime, present in System32 on every supported version, and Microsoft does not
-    # redistribute it. Qt's windeployqt brings in D3Dcompiler_47.dll, which Microsoft
-    # itself built against it, so the bare prefix failed the Windows archive by demanding
-    # a file nobody is allowed to ship. msvcr71/100/120 are redistributables and stay.
+    # msvcr[0-9], because msvcrt.dll is Windows' own and must not ship; D3Dcompiler_47.dll links it.
     APP_DEPLOYED='vcruntime|msvcp|msvcr[0-9]|concrt|mfc|vcomp'
 
     # The "is it in System32" rule needs a System32 to look in, and a cross-built archive is audited

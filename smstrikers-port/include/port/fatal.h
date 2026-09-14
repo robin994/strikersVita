@@ -14,6 +14,8 @@ extern "C" {
 // Report and exit(1). Never returns; `text` may contain newlines.
 void port_fatal(const char* title, const char* text);
 
+void port_fatal_notice(const char* title, const char* text);
+
 #ifdef __cplusplus
 }
 #endif

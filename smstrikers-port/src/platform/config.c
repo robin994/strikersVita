@@ -7,7 +7,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "port/firstrun.h"
 #include "port/host.h"
 
 // open_log moves stderr onto a file by descriptor, so the file is open before stderr is given up.
@@ -23,7 +22,6 @@
 #endif
 
 #define PORT_CONFIG_NAME "strikers.ini"
-#define PORT_CONFIG_EXAMPLE "strikers.ini.example"
 #define PORT_CONFIG_PREFIX "STRIKERS_"
 
 static char s_path[1024];
@@ -166,14 +164,8 @@ static int load_file(const char* path)
 }
 
 static int load_config(void);
-static int seed_config(const char* dir, char* path, size_t size);
 
-// STRIKERS_LOG / the `log` key: send the run's diagnostics to a file.
-// Borrow the parent's console on Windows: the executable is linked for the GUI subsystem so a
-// double-click opens no cmd window, which leaves the same binary run from a terminal, from CI or
-// under a test harness with nowhere to write. AttachConsole takes a console the parent already
-// owns and fails when there is none, so it can never create one; the streams are re-pointed by
-// hand because attaching leaves the CRT's inherited handles invalid.
+// AttachConsole never creates a console and leaves the CRT's handles invalid, so they are reopened.
 static void attach_parent_console(void)
 {
 #ifdef _WIN32
@@ -191,6 +183,12 @@ static void open_log(void)
 
     if (v == NULL || *v == '\0' || strcmp(v, "0") == 0)
         return;
+
+    if (strcmp(v, "console") == 0)
+    {
+        attach_parent_console();
+        return;
+    }
 
     if (strcmp(v, "1") == 0)
     {
@@ -246,7 +244,6 @@ int PortConfigLoad(void)
     if (s_loaded)
         return s_applied;
 
-    attach_parent_console();
     s_applied = load_config();
     // After the file, not before: `log` is a key like any other, and a player asked to turn logging
     // on will put it in strikers.ini rather than set an environment variable.
@@ -291,70 +288,6 @@ static int load_config(void)
     if (exists(s_path))
         return load_file(s_path);
 
-    // Not "there is no file", but "nobody has ever been asked".
-    if (haveDir && PortFirstRunSettings())
-    {
-        snprintf(s_path, sizeof s_path, "%s/%s", dir, PORT_CONFIG_NAME);
-        if (exists(s_path))
-            return load_file(s_path);
-        // The window was closed without saving. Write the file anyway, so the question is asked
-        // once rather than at every launch; see firstrun.h for why the file's existence is the
-        // marker and what is written.
-        if (seed_config(dir, s_path, sizeof s_path) == 0)
-            return load_file(s_path);
-    }
-
     s_path[0] = '\0';
-    return 0;
-}
-
-// Create strikers.ini in `dir` from strikers.ini.example beside it, writing the path into `path`.
-static int seed_config(const char* dir, char* path, size_t size)
-{
-    char examplePath[1024];
-    FILE* src;
-    FILE* dst;
-
-    snprintf(path, size, "%s/%s", dir, PORT_CONFIG_NAME);
-
-    dst = fopen(path, "wb");
-    if (dst == NULL)
-        return -1;
-
-    snprintf(examplePath, sizeof examplePath, "%s/%s", dir, PORT_CONFIG_EXAMPLE);
-    src = fopen(examplePath, "rb");
-    if (src != NULL)
-    {
-        char buf[4096];
-        size_t n;
-        int ok = 1;
-        while ((n = fread(buf, 1, sizeof buf, src)) > 0)
-        {
-            if (fwrite(buf, 1, n, dst) != n)
-            {
-                ok = 0;
-                break;
-            }
-        }
-        fclose(src);
-        fclose(dst);
-        if (ok)
-            return 0;
-        remove(path);
-        return -1;
-    }
-
-    // No example beside the game. Two lines, because an empty file says nothing about why it is
-    // there and this one has to survive being found by someone who did not create it.
-    fprintf(dst, "# %s: settings for the Super Mario Strikers native port.\n"
-                 "# Written on the first run. Every setting has a default; see\n"
-                 "# %s if the release shipped one, or run the settings\n"
-                 "# application beside this file.\n",
-            PORT_CONFIG_NAME, PORT_CONFIG_EXAMPLE);
-    if (fclose(dst) != 0)
-    {
-        remove(path);
-        return -1;
-    }
     return 0;
 }

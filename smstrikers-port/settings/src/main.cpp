@@ -229,13 +229,9 @@ int paths(const QString& iniPath)
 
 // `tabPath` is "2" or "2.1": the outer tab, then the inner one on the Input page.
 int screenshot(const QString& iniPath, const QString& pngPath, const QString& tabPath,
-               const QString& size, const QString& helpKey, bool expand, bool firstRun)
+               const QString& size, const QString& helpKey, bool expand)
 {
     MainWindow w;
-    // --first-run alongside --screenshot is the only way to look at the banner: the real thing is a
-    // window the game blocks on, so nothing headless can reach it, and a banner nobody has seen is
-    // a paragraph that wraps badly.
-    w.setFirstRun(firstRun);
     w.openFile(iniPath);
     w.show();
 
@@ -502,7 +498,6 @@ int selftestExtract(const QString& image)
 void usage()
 {
     out() << "usage: strikers-settings [strikers.ini] [--paths] [--selftest]\n"
-             "                         [--first-run]\n"
              "                         [--inspect image] [--extract image dir]\n"
              "                         [--selftest-extract image]\n"
              "                         [--lang xx] [--langs]\n"
@@ -514,10 +509,6 @@ void usage()
              "With no path, strikers.ini in the folder holding the game is used, and\n"
              "created on the first save from strikers.ini.example if one is there.\n"
              "\n"
-             "--first-run is passed by the game, which runs this window once when there\n"
-             "is no strikers.ini and waits for it to close. It shows an explanation and\n"
-             "turns Play into Save and Play, because the game is already running.\n"
-             "\n"
              "--lang takes de, es, fr or en and overrides the system locale. It is the\n"
              "interface language of this window only; the game's own language is the\n"
              "Language setting on the Game tab, and the two are unrelated.\n";
@@ -528,13 +519,9 @@ void usage()
 
 // Resize the window, switch every tab, open every disclosure, and report how many resize events
 // came back.
-int stressResize(const QString& iniPath, int rounds, bool firstRun)
+int stressResize(const QString& iniPath, int rounds)
 {
     MainWindow w;
-    // --first-run belongs in this test specifically: the banner is a word-wrapping label above a
-    // window that sizes itself to its content, which is the shape that produced the unbounded
-    // resize loop this whole check exists for.
-    w.setFirstRun(firstRun);
     w.openFile(iniPath);
     w.show();
     QCoreApplication::processEvents();
@@ -603,7 +590,6 @@ int main(int argc, char** argv)
     bool shotExpand = false;
     QString language;
     bool wantLanguages = false;
-    bool firstRun = false;
     QString inspectPath;
     QString extractFrom;
     QString extractTo;
@@ -646,9 +632,6 @@ int main(int argc, char** argv)
             extractFrom = args[++i];
             extractTo = args[++i];
         }
-        // Passed by the game, never by a person: see include/port/firstrun.h.
-        else if (a == QLatin1String("--first-run"))
-            firstRun = true;
         else if (a == QLatin1String("--help") || a == QLatin1String("-h"))
         {
             usage();
@@ -702,25 +685,17 @@ int main(int argc, char** argv)
         return paths(iniPath);
 
     if (stressRounds > 0)
-        return stressResize(iniPath, stressRounds, firstRun);
+        return stressResize(iniPath, stressRounds);
 
     if (wantSelftest)
         return selftest(iniPath);
 
     if (!shotPath.isEmpty())
-        return screenshot(iniPath, shotPath, shotTab, shotSize, shotHelp, shotExpand,
-                          firstRun);
+        return screenshot(iniPath, shotPath, shotTab, shotSize, shotHelp, shotExpand);
 
     MainWindow w;
     w.rememberGeometry();
-    w.setFirstRun(firstRun);
     w.openFile(iniPath);
     w.show();
-    if (firstRun)
-    {
-        // The game started this and is blocked waiting for it.
-        w.raise();
-        w.activateWindow();
-    }
     return app.exec();
 }

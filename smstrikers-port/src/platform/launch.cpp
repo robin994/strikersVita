@@ -4,6 +4,7 @@
 
 #if defined(PORT_USE_AURORA)
 
+#include "port/fatal.h"
 #include "port/texfilter.h"
 
 #include <stdio.h>
@@ -17,6 +18,37 @@
 
 namespace
 {
+
+const char* LevelName(AuroraLogLevel level)
+{
+    switch (level)
+    {
+    case LOG_DEBUG: return "debug";
+    case LOG_INFO: return "info";
+    case LOG_WARNING: return "warning";
+    case LOG_ERROR: return "error";
+    case LOG_FATAL: return "fatal";
+    default: return "unknown";
+    }
+}
+
+void AuroraLog(AuroraLogLevel level, const char* module, const char* message, unsigned int len)
+{
+    fprintf(stderr, "[%s] [%s] %.*s\n", LevelName(level), module != NULL ? module : "", (int)len, message);
+    if (level != LOG_FATAL)
+        return;
+    fflush(stderr);
+    // A box off the main thread would wait on a main thread that may never pump it.
+    if (!SDL_IsMainThread())
+        return;
+    char text[2048];
+    snprintf(text, sizeof text,
+             "The game stopped with an error it cannot recover from:\n\n  [%s] %.*s\n\n"
+             "If it names the graphics adapter, device or window, updating the graphics driver "
+             "is the first thing to try.",
+             module != NULL ? module : "", (int)len, message);
+    port_fatal_notice("Super Mario Strikers: fatal error", text);
+}
 
 // A boolean the way a person writes one. `fullscreen = yes` and `fullscreen = 1` are the same
 // statement, and refusing the first is the kind of pedantry that makes a config file worse than a
@@ -134,6 +166,8 @@ extern "C" void PortAuroraConfigure(AuroraConfig* cfg)
     SDL_SetAppMetadata(cfg->appName != NULL ? cfg->appName : "Super Mario Strikers",
                        NULL, "org.smstrikers.port");
     SDL_SetAppMetadataProperty(SDL_PROP_APP_METADATA_TYPE_STRING, "game");
+
+    cfg->logCallback = AuroraLog;
 
     // Fullscreen at startup. F11 and the debug menu's System tab already toggle it at runtime
     // through SDL, but a player who wants fullscreen wants it before the game has drawn anything,

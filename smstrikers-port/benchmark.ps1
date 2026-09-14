@@ -2,7 +2,6 @@ param([int]$Seconds = 60)
 Set-Location $PSScriptRoot
 
 $log = Join-Path $PSScriptRoot 'benchmark.log'
-$env:STRIKERS_FIRST_RUN         = '0'
 $env:STRIKERS_BENCHMARK         = '1'
 $env:STRIKERS_BENCHMARK_SECONDS = "$Seconds"
 $env:STRIKERS_LOG               = $log

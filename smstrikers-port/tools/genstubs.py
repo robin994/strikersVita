@@ -69,11 +69,7 @@ HOST_CXX = re.compile(
     r")")
 
 
-# The same judgement as HOST_CXX, in the other C++ ABI. clang-cl targets the MSVC ABI; it has to, to
-# link against the Windows CRT; so on Windows the mangled names are MSVC-decorated
-# (`?method@Class@@QEAAXXZ`) and not an Itanium `_Z ` in sight.
-# type_info's vtable is vcruntime's and _com_issue_error is comsupp's, both linked through the CRT
-# headers' default-library directives rather than from anything in the build tree.
+# HOST_CXX for clang-cl's MSVC ABI; type_info and _com_issue_error arrive through CRT default libraries.
 HOST_CXX_MSVC = re.compile(r"@std@@|^\?\?(?:2|3|_U|_V)@|type_info@@|^\?_com_issue_error@@")
 
 

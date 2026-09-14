@@ -550,11 +550,6 @@ Anything under Advanced is left alone: those are not this window&apos;s to reset
 La section Avancé n&apos;est pas touchée&#x202f;: ce n&apos;est pas à cette fenêtre de la réinitialiser. Rien n&apos;est écrit tant que vous n&apos;avez pas appuyé sur Enregistrer.</translation>
     </message>
     <message>
-        <location filename="../src/mainwindow.cpp" line="1219"/>
-        <source>Save these settings and let the game carry on starting.</source>
-        <translation>Enregistrer ces réglages et laisser le jeu continuer à démarrer.</translation>
-    </message>
-    <message>
         <location filename="../src/mainwindow.cpp" line="1227"/>
         <source>Save and start %1.</source>
         <translation>Enregistrer et lancer %1.</translation>
@@ -568,21 +563,6 @@ La section Avancé n&apos;est pas touchée&#x202f;: ce n&apos;est pas à cette f
         <location filename="../src/mainwindow.cpp" line="1259"/>
         <source>Could not start %1.</source>
         <translation>Impossible de lancer %1.</translation>
-    </message>
-    <message>
-        <location filename="../src/mainwindow.cpp" line="1273"/>
-        <source>Super Mario Strikers is starting for the first time and is waiting on this window. Nothing here has to be changed, every setting already has a sensible default. Save and Play when you are done, or just close this window; you can open it again at any time.</source>
-        <translation>Super Mario Strikers démarre pour la première fois et attend cette fenêtre. Rien n&apos;est à modifier ici, chaque réglage a déjà une valeur par défaut raisonnable. Cliquez sur « Enregistrer et jouer » quand vous avez terminé, ou fermez simplement cette fenêtre ; vous pourrez la rouvrir à tout moment.</translation>
-    </message>
-    <message>
-        <location filename="../src/mainwindow.cpp" line="1277"/>
-        <source>Super Mario Strikers is starting for the first time and is waiting on this window. It needs your copy of the game: choose your disc image below, then Save and Play. Every other setting already has a sensible default.</source>
-        <translation>Super Mario Strikers démarre pour la première fois et attend cette fenêtre. Il lui faut votre exemplaire du jeu : choisissez votre image disque ci-dessous, puis cliquez sur « Enregistrer et jouer ». Tous les autres réglages ont déjà une valeur par défaut raisonnable.</translation>
-    </message>
-    <message>
-        <location filename="../src/mainwindow.cpp" line="1287"/>
-        <source>Save and Play</source>
-        <translation>Enregistrer et jouer</translation>
     </message>
     <message>
         <location filename="../src/mainwindow.cpp" line="1308"/>

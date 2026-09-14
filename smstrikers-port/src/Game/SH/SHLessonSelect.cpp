@@ -401,12 +401,8 @@ void SetTickerLesson(int lesson)
     }
 
     BaseSceneHandler* scene = OverlayManager::Instance()->GetScene(OVERLAY_LESSON_TICKER);
-    if (scene != 0)
-    {
-        scene = (BaseSceneHandler*)((char*)scene - 4);
-    }
-
-    ticker = (NSNMessengerScene*)(void*)scene;
+    // PORT: was `scene - 4`, the console's size for FEIMessenger's vtable pointer; it is 8 here.
+    ticker = static_cast<NSNMessengerScene*>(scene);
     if (ticker == 0)
     {
         return;

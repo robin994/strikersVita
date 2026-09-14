@@ -110,17 +110,14 @@
 # data = C:/games/strikers/files
 # data = C:/games/strikers/Super Mario Strikers.iso
 
-# Send everything the game reports to a file instead of the terminal.
+# Where the game's reports go: 1 for strikers-log.txt beside it, a file path, or console.
 # log = 1
+# log = console
 
 # The console's own language setting, which only a European disc reads.
 # language = german
 
 [game]
-# The settings window on a first run. When there is no strikers.ini at all, the game opens this
-# window once before it starts and waits for it, which is how anyone finds out these settings exist.
-# first_run = 0
-
 # Which disc the data came from, when the data cannot say: the id is read from sys/boot.bin
 # beside `files` or from an image's first bytes, and an extraction of `files` alone is taken
 # as the USA disc. usa, europe or japan, or a disc id (G4QE01, G4QP01, G4QJ01).

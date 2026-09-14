@@ -1,7 +1,6 @@
 #!/bin/sh
 cd "$(dirname "$0")" || exit 1
 
-STRIKERS_FIRST_RUN=0 \
 STRIKERS_BENCHMARK=1 \
 STRIKERS_BENCHMARK_SECONDS="${1:-60}" \
 STRIKERS_BENCH_RECORD=benchmark-frames.csv \

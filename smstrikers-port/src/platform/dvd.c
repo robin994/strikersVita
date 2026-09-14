@@ -424,6 +424,8 @@ void DVDInit(void)
         if (n < (int)sizeof msg)
             snprintf(msg + n, sizeof msg - (size_t)n,
                      "\nTo fix this, either:\n"
+                     "  * choose it on the Game tab of the settings app beside "
+                     "the game, or\n"
                      "  * put your disc image, or the extracted disc's `files` "
                      "folder, next to the\n    game, or\n"
                      "  * set the `data` key in strikers.ini (beside the game) "

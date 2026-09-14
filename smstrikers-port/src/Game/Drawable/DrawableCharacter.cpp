@@ -18,6 +18,7 @@ void Replayable(SaveFrame& frame, char typeId, cPoseNode*& poseNode);
 #include "Game/Drawable/DrawableCharacter.h"
 #include "Game/Character.h"
 #include "Game/Player.h"
+#include "Game/Ball.h"
 #include "Game/Team.h"
 #include "Game/AI/HeadTrack.h"
 #include "Game/PoseAccumulator.h"
@@ -267,6 +268,18 @@ void DrawableCharacter::Grab(cCharacter& character)
     else
     {
         *mPoseAccumulator = *character.m_pPoseAccumulator;
+    }
+
+    // at extreme resolution and aspect ratio the goalie isn't drawn
+    if (character.m_eClassType == GOALIE && !(character.m_v3Position.x * g_pBall->m_v3Position.x > 0.0f))
+    {
+        nlMatrix4 identityMatrix;
+        identityMatrix.SetIdentity();
+        mPoseAccumulator->Pose(*character.m_pPoseTree, identityMatrix);
+        mPoseAccumulator->MultNodeMatrices(&character.m_m4WorldMatrix);
+        mBip01Position = *(nlVector3*)&mPoseAccumulator->GetNodeMatrix(character.m_nBip01JointIndex_0xA4).e2[3];
+        mHeadPosition = *(nlVector3*)&mPoseAccumulator->GetNodeMatrix(character.m_nHeadJointIndex).e2[3];
+        mHeight = mBip01Position.z;
     }
 
     EffectsTexturing* tex = character.m_pEffectsTexturing;

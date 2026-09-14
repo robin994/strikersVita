@@ -38,6 +38,11 @@ set -- -S . -B "$BUILD" -G "$GENERATOR" \
     -DAURORA_CACHE_USE_ZSTD=OFF \
     -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded
 
+# Aurora's prebuilt Dawn needs a newer glibc than the one a Linux release is built against.
+if [ "$(uname -s)" = Linux ]; then
+    set -- "$@" -DAURORA_DAWN_PROVIDER=vendor
+fi
+
 if [ -n "${CMAKE_TOOLCHAIN_FILE:-}" ]; then
     set -- "$@" -DCMAKE_TOOLCHAIN_FILE="$CMAKE_TOOLCHAIN_FILE"
 else

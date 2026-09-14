@@ -240,6 +240,16 @@ static CharDialogueSFXInfo charDialogueSFXInfo[11] = {
     { 0x1A, 0x00 }, // 26, 0
 };
 
+static int DialogueGroupEnd(s32 baseIndex, s32 numRandom)
+{
+    const s32 end = baseIndex + numRandom;
+    if (end < (s32)(sizeof(charDialogueSFX) / sizeof(charDialogueSFX[0])))
+    {
+        return (int)charDialogueSFX[end];
+    }
+    return (int)charDialogueSFX[end - 1] + 1;
+}
+
 static Audio::eCharSFX charFootstepSFX[2][5] = {
     {
         Audio::CHARSFX_RUN_01,
@@ -523,7 +533,7 @@ unsigned long cCharacterSFX::PlayRandomCharDialogue(CharDialogueType dType, PosU
         }
     }
 
-    for (int i = charDialogueSFX[baseIndex]; i < (int)charDialogueSFX[baseIndex + numRandom]; i++)
+    for (int i = charDialogueSFX[baseIndex]; i < DialogueGroupEnd(baseIndex, numRandom); i++)
     {
         mCharSFX[i].m_unk_0x40 = false;
     }
@@ -649,7 +659,7 @@ uintptr_t cCharacterSFX::PlayRandomCharDialogue(CharDialogueType dType, Audio::S
         }
     }
 
-    for (int i = charDialogueSFX[baseIndex]; i < (int)charDialogueSFX[baseIndex + numRandom]; i++)
+    for (int i = charDialogueSFX[baseIndex]; i < DialogueGroupEnd(baseIndex, numRandom); i++)
     {
         mCharSFX[i].m_unk_0x40 = false;
     }

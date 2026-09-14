@@ -548,24 +548,26 @@ bool glplatLoadTextureBundle(const char* filename)
  */
 static bool glxParseTextureBundle(const char* filedata)
 {
-    const int numTextures = *(int*)(filedata + 4);
+    const u32 numTextures = port_be32(filedata + 4);
     const glTexBundleDict* dict = (glTexBundleDict*)(filedata + 0x20);
     const char* textureData = (char*)dict + (numTextures * 0x10);
 
-    for (int i = 0; i < numTextures; i++)
+    for (u32 i = 0; i < numTextures; i++)
     {
-        GXTextureHeader* currentTextureHeader = (GXTextureHeader*)(textureData + dict[i].offset);
+        const u32 hash = port_be32(&dict[i].hash);
+        const u32 fileSize = port_be32(&dict[i].fileSize);
+        GXTextureHeader* currentTextureHeader = (GXTextureHeader*)(textureData + port_be32(&dict[i].offset));
 
         if (glxTextureLoad_cb == NULL)
         {
-            glplatTextureAdd(dict[i].hash, currentTextureHeader, dict[i].fileSize);
+            glplatTextureAdd(hash, currentTextureHeader, fileSize);
         }
         else
         {
-            unsigned long newHash = glxTextureLoad_cb(dict[i].hash);
+            unsigned long newHash = glxTextureLoad_cb(hash);
             if (newHash != -1 && glTextureLoad(newHash) != 0)
             {
-                glplatTextureReplace(newHash, currentTextureHeader, dict[i].fileSize);
+                glplatTextureReplace(newHash, currentTextureHeader, fileSize);
             }
         }
     }

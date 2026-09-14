@@ -576,8 +576,7 @@ unsigned short SidelineExplodableManager::GetDrawableFragmentFromPool()
     {
         nlListRemoveStart(&sUnusedDrawableFragments.m_pStart, &sUnusedDrawableFragments.m_pEnd);
         handle = node->mID;
-        *(u32*)node = *(u32*)&DrawableFragmentHandleNode::sDrawableFragmentHandleNodePool.m_FreeList;
-        DrawableFragmentHandleNode::sDrawableFragmentHandleNodePool.m_FreeList = (SlotPoolEntry*)node;
+        DrawableFragmentHandleNode::sDrawableFragmentHandleNodePool.Free(node);
     }
     return handle;
 }

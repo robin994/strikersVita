@@ -124,16 +124,22 @@ else
 fi
 cp "$BENCHMARK" "$OUT/"
 
+if [ "$WINDOWS" = "0" ] && [ "$(uname -s)" = Linux ]; then
+    cp assets/linux/51-gamecube-adapter.rules "$OUT/"
+fi
+
 # The licence texts the program is redistributed under: ODE's BSD, the decompilation's CC0, the
 # eCos files' GPL, and MusyX's own, renamed so the archive's notices are one flat set.
 cp LICENSE-BSD.TXT LICENSE-CC0.txt LICENSE-GPL-2.0.txt "$OUT/"
 cp extern/musyx/LICENSE "$OUT/LICENSE-MUSYX.txt"
 
-# FFmpeg's licence travels with FFmpeg: the DLLs on Windows, the bundled dylibs on macOS.
 FFMPEG_SHIPPED=0
 for _lib in "$OUT"/av*.[Dd][Ll][Ll] "$OUT"/libav*.dylib "$OUT"/libav*.so*; do
     if [ -f "$_lib" ]; then FFMPEG_SHIPPED=1; fi
 done
+if grep -qE '^STRIKERS_FFMPEG_AVCODEC:FILEPATH=.*\.(a|lib)$' "$BUILD/CMakeCache.txt" 2>/dev/null; then
+    FFMPEG_SHIPPED=1
+fi
 if [ "$FFMPEG_SHIPPED" = 1 ]; then
     cp LICENSE-LGPL-2.1.txt "$OUT/"
     echo "==> included LICENSE-LGPL-2.1.txt (FFmpeg libraries are in this archive)"
@@ -147,25 +153,19 @@ else
     echo "==> no initial_pipeline_cache.db in $BUILD"
 fi
 
-# The settings app is a separate Qt project, bundled when QT_PREFIX or the default prefix has Qt and
-# skipped when it does not.
-# Required, and SETTINGS=0 to say otherwise: the game runs this app on a first launch and waits for
-# it, so an archive without it is not a smaller product but an incomplete one.
 SETTINGS="${SETTINGS:-1}"
 QT_PREFIX="${QT_PREFIX:-${QT_ROOT_DIR:-}}"
 if [ -z "$QT_PREFIX" ] && [ -d /opt/homebrew/opt/qt ]; then
     QT_PREFIX=/opt/homebrew/opt/qt
 fi
-# Forward slashes first: install-qt-action exports a native Windows path, CMake takes it as a -D
-# value, and CMake reads a backslash as the start of an escape sequence -- \a and \s are not valid
-# ones, so the configure dies before it looks for Qt. `tr` because this script is /bin/sh.
+# Forward slashes: CMake reads install-qt-action's backslashes as escapes and dies before finding Qt.
 QT_PREFIX=$(printf '%s' "$QT_PREFIX" | tr '\\' '/')
 SETTINGS_ARTEFACT=""
 if [ "$SETTINGS" = 1 ] && { [ -z "$QT_PREFIX" ] || [ ! -d "$QT_PREFIX" ]; }; then
     echo "package.sh: no Qt found, so strikers-settings cannot be built." >&2
-    echo "  The game runs it on a first launch and waits for it, so an archive" >&2
-    echo "  without it is incomplete. Point QT_PREFIX at a Qt 6 prefix, or pass" >&2
-    echo "  SETTINGS=0 to package without it deliberately." >&2
+    echo "  It is where a player chooses the disc and changes settings, so an" >&2
+    echo "  archive without it is incomplete. Point QT_PREFIX at a Qt 6 prefix," >&2
+    echo "  or pass SETTINGS=0 to package without it deliberately." >&2
     exit 1
 fi
 if [ "$SETTINGS" = 1 ]; then
@@ -201,10 +201,7 @@ if [ "$SETTINGS" = 1 ]; then
         # without Qt.
         "$QT_PREFIX/bin/macdeployqt" "$OUT/strikers-settings.app" -always-overwrite >/dev/null 2>&1
         codesign --force --deep -s - "$OUT/strikers-settings.app" 2>/dev/null || true
-        # The executable inside the bundle, not the bundle: the check after the archive is
-        # made is a whole-line match against the listing, and tar writes a directory as
-        # "strikers-settings.app/" with a trailing slash. A regular file is the same string
-        # in both checks, and is the thing worth checking anyway.
+        # The bundle's executable: tar lists the directory with a trailing slash, which the check misses.
         SETTINGS_ARTEFACT="strikers-settings.app/Contents/MacOS/strikers-settings"
     else
         cp "$SETTINGS_BUILD/strikers-settings" "$OUT/"
@@ -219,11 +216,7 @@ fi
 # The copy in dist/, once everything is in it: the game, and the settings app where it is a plain
 # executable or a bundle's main executable.
 ./tools/check-runtime-deps.sh "$OUT/$(basename "$BIN")" "$OUT"
-# The name that was actually bundled, rather than the three it might have been.
-# Guessing broke on Windows: MSYS's POSIX layer resolves a stat of "foo" to
-# "foo.exe" when only the latter exists, so `[ -f "$OUT/strikers-settings" ]`
-# was true, and the unsuffixed path it then passed to llvm-readobj -- a native
-# Windows program, with no such rule -- did not exist.
+# The name actually bundled: MSYS resolves "foo" to foo.exe, and llvm-readobj does not.
 if [ -n "$SETTINGS_ARTEFACT" ]; then
     ./tools/check-runtime-deps.sh "$OUT/$SETTINGS_ARTEFACT" "$OUT"
 fi

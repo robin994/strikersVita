@@ -150,33 +150,6 @@ MainWindow::MainWindow(QWidget* parent)
     outer->setContentsMargins(0, 0, 0, 0);
     outer->setSpacing(0);
 
-    // Hidden unless the game put this window here (setFirstRun).
-    {
-        const QPalette pal = palette();
-        QColor ground = pal.color(QPalette::Base);
-        ground.setAlpha(255);
-        const QColor ink = pal.color(QPalette::Text);
-
-        m_firstRunBanner = new QLabel;
-        m_firstRunBanner->setObjectName(QStringLiteral("firstRunBanner"));
-        m_firstRunBanner->setWordWrap(true);
-        // Plain text, because the string is translated and a translator is not an author of markup.
-        m_firstRunBanner->setTextFormat(Qt::PlainText);
-        m_firstRunBanner->setStyleSheet(
-            QStringLiteral("#firstRunBanner { background: rgb(%1,%2,%3);"
-                           " color: rgb(%4,%5,%6);"
-                           " border-bottom: 1px solid rgba(%4,%5,%6,60);"
-                           " padding: 12px 20px; }")
-                .arg(ground.red())
-                .arg(ground.green())
-                .arg(ground.blue())
-                .arg(ink.red())
-                .arg(ink.green())
-                .arg(ink.blue()));
-        m_firstRunBanner->hide();
-        outer->addWidget(m_firstRunBanner);
-    }
-
     m_tabs = new SettingsTabs;
     m_tabs->addTab(buildDisplayTab(), tr("Display"));
     m_tabs->addTab(buildAudioTab(), tr("Audio"));
@@ -1210,16 +1183,6 @@ void MainWindow::onResetAll()
 
 void MainWindow::updatePlayButton()
 {
-    if (m_firstRun)
-    {
-        // Nothing to look for: the game is the process that started this window and is sitting in
-        // PortConfigLoad waiting for it to close.
-        m_playButton->setEnabled(true);
-        m_playButton->setToolTip(
-            tr("Save these settings and let the game carry on starting."));
-        return;
-    }
-
     QString reason;
     const QString exe = AppPaths::findGame(AppPaths::archiveRoot(), &reason);
     m_playButton->setEnabled(!exe.isEmpty());
@@ -1230,18 +1193,12 @@ void MainWindow::updatePlayButton()
 
 void MainWindow::onPlay()
 {
-    // On a first run the game is already running, it is what started this window, and it resumes
-    // the moment this process exits.
-    QString exe;
-    if (!m_firstRun)
+    QString reason;
+    const QString exe = AppPaths::findGame(AppPaths::archiveRoot(), &reason);
+    if (exe.isEmpty())
     {
-        QString reason;
-        exe = AppPaths::findGame(AppPaths::archiveRoot(), &reason);
-        if (exe.isEmpty())
-        {
-            QMessageBox::warning(this, tr("Play"), reason);
-            return;
-        }
+        QMessageBox::warning(this, tr("Play"), reason);
+        return;
     }
 
     QString error;
@@ -1253,49 +1210,13 @@ void MainWindow::onPlay()
     }
     setDirty(false);
 
-    if (!m_firstRun && !QProcess::startDetached(exe, {}, QFileInfo(exe).absolutePath()))
+    if (!QProcess::startDetached(exe, {}, QFileInfo(exe).absolutePath()))
     {
         QMessageBox::critical(this, tr("Play"),
                               tr("Could not start %1.").arg(QDir::toNativeSeparators(exe)));
         return;
     }
     close();
-}
-
-void MainWindow::setFirstRun(bool firstRun)
-{
-    m_firstRun = firstRun;
-
-    const bool haveDisc = !qEnvironmentVariableIsEmpty("STRIKERS_DATA")
-                          || !AppPaths::findDataBesideGame(AppPaths::archiveRoot()).isEmpty();
-    m_firstRunBanner->setText(
-        haveDisc
-            ? tr("Super Mario Strikers is starting for the first time and is waiting "
-                 "on this window. Nothing here has to be changed, every setting "
-                 "already has a sensible default. Save and Play when you are done, or "
-                 "just close this window; you can open it again at any time.")
-            : tr("Super Mario Strikers is starting for the first time and is waiting "
-                 "on this window. It needs your copy of the game: choose your disc "
-                 "image below, then Save and Play. Every other setting already has a "
-                 "sensible default."));
-    m_firstRunBanner->setVisible(firstRun);
-    if (firstRun && !haveDisc)
-        m_tabs->setCurrentIndex(m_gameTab);
-
-    // "Play" is a promise this window cannot keep on a first run: the game is already playing, or
-    // will be a moment after this closes.
-    m_playButton->setText(firstRun ? tr("Save and Play") : tr("Play"));
-    m_playButton->setDefault(firstRun);
-    m_saveButton->setDefault(!firstRun);
-    updatePlayButton();
-
-    // The banner is a widget the window was not measured with.
-    if (firstRun)
-    {
-        adjustSize();
-        resize(qMax(width(), 620), height());
-        fitToCurrentTab();
-    }
 }
 
 void MainWindow::onChooseImage()

@@ -73,9 +73,6 @@ __attribute__((constructor)) static void port_install_crash_handler(void)
 // SetUnhandledExceptionFilter for what the CPU raises, signal(SIGABRT) for abort() and assert(),
 // and _set_invalid_parameter_handler for the CRT's own checks.
 
-// SetErrorMode goes with them, or a fault raises a modal WER dialog and a headless run hangs rather
-// than fails.
-
 // Symbolisation needs a PDB, which is why CMakeLists.txt adds /Z7 and /DEBUG; without one this
 // still prints module+offset.
 
@@ -87,6 +84,7 @@ __attribute__((constructor)) static void port_install_crash_handler(void)
 
 static CRITICAL_SECTION port_sym_lock;
 static LONG port_crash_reported = 0;
+static int port_headless = 0;
 
 static void port_print_stack(CONTEXT* ctx)
 {
@@ -234,7 +232,7 @@ static LONG WINAPI port_exception_filter(EXCEPTION_POINTERS* info)
 
     LeaveCriticalSection(&port_sym_lock);
 
-    return EXCEPTION_EXECUTE_HANDLER;
+    return port_headless ? EXCEPTION_EXECUTE_HANDLER : EXCEPTION_CONTINUE_SEARCH;
 }
 
 static void port_abort_handler(int sig)
@@ -274,7 +272,16 @@ __attribute__((constructor)) static void port_install_crash_handler(void)
 
     InitializeCriticalSection(&port_sym_lock);
 
-    SetErrorMode(SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX);
+    // Read from the environment only: this runs before main, so strikers.ini is not loaded yet.
+    {
+        const char* e = getenv("STRIKERS_NO_MESSAGEBOX");
+        port_headless = e != NULL && *e != '\0' && e[0] != '0';
+    }
+    if (port_headless)
+    {
+        SetErrorMode(SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX);
+        _set_abort_behavior(0, _WRITE_ABORT_MSG | _CALL_REPORTFAULT);
+    }
 
     SymSetOptions(SYMOPT_DEFERRED_LOADS | SYMOPT_LOAD_LINES | SYMOPT_UNDNAME);
     SymInitialize(GetCurrentProcess(), NULL, TRUE);
@@ -282,8 +289,6 @@ __attribute__((constructor)) static void port_install_crash_handler(void)
     SetUnhandledExceptionFilter(port_exception_filter);
     signal(SIGABRT, port_abort_handler);
     _set_invalid_parameter_handler(port_invalid_parameter);
-
-    _set_abort_behavior(0, _WRITE_ABORT_MSG | _CALL_REPORTFAULT);
 }
 
 #endif // !_WIN32

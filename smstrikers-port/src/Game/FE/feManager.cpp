@@ -195,11 +195,8 @@ void FrontEnd::Update(float fTimeDelta)
             {
                 EnterMenuState(MET_PAUSE);
                 scene = nlSingleton<OverlayManager>::Instance()->GetScene(OVERLAY_LESSON_TICKER);
-                if (scene != NULL)
-                {
-                    scene = (BaseSceneHandler*)((char*)scene - 4);
-                }
-                ((NSNMessengerScene*)(void*)scene)->EnableScrolling(true);
+                // PORT: was `scene - 4`, the console's size for FEIMessenger's vtable pointer; it is 8 here.
+                static_cast<NSNMessengerScene*>(scene)->EnableScrolling(true);
                 SetTickerLesson(-1);
                 m_lastTaskState = 2;
                 m_feStatePrevious = eFE_INGAME;

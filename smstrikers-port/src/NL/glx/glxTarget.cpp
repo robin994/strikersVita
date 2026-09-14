@@ -24,7 +24,7 @@ static bool glx_SharedLock = false;
 /**
  * Offset/Address/Size: 0x890 | 0x801C2F6C | size: 0x8
  */
-u32 glx_GetSharedMemory()
+uintptr_t glx_GetSharedMemory()
 {
     return glx_SharedMemory;
 }

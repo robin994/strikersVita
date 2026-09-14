@@ -40,26 +40,28 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install toolchain (Linux)
-        if: runner.os == 'Linux'
-        working-directory: smstrikers-port
-        run: ./tools/install-linux-deps.sh
-
-      - name: Install Rust (linux-arm64 only)
-        if: matrix.name == 'linux-arm64'
-        uses: dtolnay/rust-toolchain@stable
-
       - name: Install toolchain (Windows)
         if: runner.os == 'Windows'
         run: choco install -y ninja llvm
 
+      - name: Install MSYS2 for ffmpeg's configure (Windows)
+        if: runner.os == 'Windows'
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MSYS
+          update: false
+          install: make diffutils tar xz curl
+          path-type: inherit
+
+      - name: Build ffmpeg (Windows)
+        if: runner.os == 'Windows'
+        working-directory: smstrikers-port
+        shell: msys2 {0}
+        run: ./tools/build-ffmpeg.sh
+
       - name: Install toolchain (macOS)
         if: runner.os == 'macOS'
         run: brew install ninja ffmpeg
-
-      - name: Install ffmpeg (Linux)
-        if: runner.os == 'Linux'
-        run: sudo apt-get install -y --no-install-recommends libavcodec-dev libavutil-dev
 
       - name: Install Qt (settings app)
         if: runner.os != 'Linux'
@@ -70,31 +72,45 @@ jobs:
 
       - name: Install Qt (Linux)
         if: runner.os == 'Linux'
-        run: sudo apt-get install -y --no-install-recommends qt6-base-dev
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends qt6-base-dev
       - name: Point package.sh at the distro Qt (Linux)
         if: runner.os == 'Linux'
         run: echo "QT_PREFIX=/usr" >> "$GITHUB_ENV"
+      - name: Set the glibc ceiling (Linux)
+        if: runner.os == 'Linux'
+        run: echo "STRIKERS_MAX_GLIBC=2.35" >> "$GITHUB_ENV"
 
       - name: Tool tests
         working-directory: smstrikers-port
         shell: bash
-        # Seconds, and nothing to build first. They guard the two failures that
-        # are silent: a stub written over a real host symbol, and a disc image
-        # whose file table names `../x` and so writes outside the extraction
-        # directory.
         run: |
           python3 tools/test_genstubs.py
           python3 tools/test_extract_disc.py
 
       - name: Configure
+        if: runner.os != 'Linux'
         working-directory: smstrikers-port
         shell: bash
         run: ./tools/configure.sh build-aur Release
 
       - name: Build
+        if: runner.os != 'Linux'
         working-directory: smstrikers-port
         shell: bash
         run: ./tools/rebuild.sh build-aur
+
+      - name: Configure and build (Linux, in Ubuntu 22.04)
+        if: runner.os == 'Linux'
+        run: |
+          docker run --rm -v "$GITHUB_WORKSPACE:$GITHUB_WORKSPACE" \
+            -w "$GITHUB_WORKSPACE/smstrikers-port" ubuntu:22.04 sh -c '
+              set -e
+              export DEBIAN_FRONTEND=noninteractive
+              ./tools/install-linux-deps.sh
+              ./tools/build-ffmpeg.sh
+              ./tools/configure.sh build-aur Release
+              ./tools/rebuild.sh build-aur
+              chown -R '"$(id -u):$(id -g)"' .'
 
       - name: Package
         working-directory: smstrikers-port
@@ -149,6 +165,8 @@ jobs:
             The player instructions are included in the archive.
 
             These are experimental builds for macOS arm64, Linux x86-64,
-            Linux arm64 and Windows x86-64. Windows builds omit movie playback.
+            Linux arm64 and Windows x86-64.
+            Linux builds need glibc 2.35 or newer: Ubuntu 22.04, Debian 12,
+            Fedora 36, current SteamOS, or anything later.
             Verify downloads against SHA256SUMS. Test the packaged builds
             before publishing this draft.

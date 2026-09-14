@@ -484,11 +484,7 @@ target_link_libraries(strikers PRIVATE port_flags)
 if(WIN32)
     target_sources(strikers PRIVATE assets/icon/strikers.rc)
 
-    # The GUI subsystem, so a double-click opens the game and not a console window behind it.
-    # /ENTRY:mainCRTStartup with it because that subsystem normally implies WinMain and
-    # src/Game/main.cpp defines main(argc, argv); naming the console CRT's startup keeps main() as
-    # the entry point and changes only the header field. Output still has somewhere to go:
-    # src/platform/config.c attaches the parent's console, and STRIKERS_LOG writes a file.
+    # /ENTRY:mainCRTStartup keeps main() as the entry point of a GUI-subsystem executable.
     set_target_properties(strikers PROPERTIES WIN32_EXECUTABLE TRUE)
     if(MSVC)
         target_link_options(strikers PRIVATE /ENTRY:mainCRTStartup)
@@ -504,8 +500,7 @@ if(APPLE)
         LINK_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/assets/macos/Info.plist")
 endif()
 
-# ffmpeg, for THP video: libavcodec and libavutil only, since THPSimple walks the container. Without
-# it the movies are skipped and their sound with them. Found by pkg-config or STRIKERS_FFMPEG_ROOT.
+# ffmpeg, for THP video: keep it disabled on Vita; desktop may use the upstream static build.
 if(STRIKERS_VITA)
     option(STRIKERS_FFMPEG "Decode THP movies with libavcodec" OFF)
 else()
@@ -513,10 +508,12 @@ else()
 endif()
 set(STRIKERS_FFMPEG_ROOT "" CACHE PATH
     "An unpacked ffmpeg (include/, lib/, and bin/ on Windows), for hosts with no pkg-config")
+set(_ff_static "${CMAKE_CURRENT_SOURCE_DIR}/extern/ffmpeg-static")
 
 if(STRIKERS_FFMPEG)
     find_package(PkgConfig QUIET)
-    if(PKG_CONFIG_FOUND)
+    if(PKG_CONFIG_FOUND AND NOT STRIKERS_FFMPEG_ROOT AND NOT DEFINED ENV{STRIKERS_FFMPEG_ROOT}
+       AND NOT EXISTS "${_ff_static}/lib/libavcodec.a" AND NOT EXISTS "${_ff_static}/lib/avcodec.lib")
         if(APPLE AND EXISTS "/opt/homebrew/opt/ffmpeg/lib/pkgconfig")
             set(ENV{PKG_CONFIG_PATH}
                 "/opt/homebrew/opt/ffmpeg/lib/pkgconfig:$ENV{PKG_CONFIG_PATH}")
@@ -541,6 +538,7 @@ elseif(STRIKERS_FFMPEG)
     if(DEFINED ENV{STRIKERS_FFMPEG_ROOT})
         list(APPEND _ff_roots "$ENV{STRIKERS_FFMPEG_ROOT}")
     endif()
+    list(APPEND _ff_roots "${_ff_static}")
     list(APPEND _ff_roots "${CMAKE_CURRENT_SOURCE_DIR}/extern/ffmpeg-windows-x86_64")
     if(APPLE)
         list(APPEND _ff_roots "/opt/homebrew/opt/ffmpeg")
@@ -587,9 +585,22 @@ elseif(STRIKERS_FFMPEG)
         target_include_directories(strikers_platform PRIVATE "${STRIKERS_FFMPEG_INCLUDE_DIR}")
         target_link_libraries(strikers PRIVATE
             "${STRIKERS_FFMPEG_AVCODEC}" "${STRIKERS_FFMPEG_AVUTIL}")
+        string(FIND "${STRIKERS_FFMPEG_AVCODEC}" "${_ff_static}/" _ff_static_at)
+        if(STRIKERS_FFMPEG_AVCODEC MATCHES "\\.a$" OR _ff_static_at EQUAL 0)
+            set(_ff_is_static TRUE)
+        else()
+            set(_ff_is_static FALSE)
+        endif()
+        if(_ff_is_static AND WIN32)
+            target_link_libraries(strikers PRIVATE bcrypt)
+        elseif(_ff_is_static)
+            # A static libavcodec leaves its libm and thread references for the executable to resolve.
+            find_package(Threads REQUIRED)
+            target_link_libraries(strikers PRIVATE m Threads::Threads)
+        endif()
         message(STATUS "THP movies: libavcodec ${_ff_version} (${STRIKERS_FFMPEG_AVCODEC})")
 
-        if(WIN32)
+        if(WIN32 AND NOT _ff_is_static)
             # An import library is not a runtime: linking avcodec.lib without avcodec-NN.dll beside
             # it does not start. Copied at build time, and package.sh takes the same files. These
             # three, from avcodec's import table.
@@ -617,7 +628,8 @@ elseif(STRIKERS_FFMPEG)
                         "found, by pkg-config or otherwise; the game will build without "
                         "movies, and without their audio. Install ffmpeg's development "
                         "files (brew install ffmpeg, apt install libavcodec-dev "
-                        "libavutil-dev), or run tools/fetch-ffmpeg-windows.sh, or point "
+                        "libavutil-dev), or run tools/build-ffmpeg.sh or "
+                        "tools/fetch-ffmpeg-windows.sh, or point "
                         "-DSTRIKERS_FFMPEG_ROOT at an unpacked one, or pass "
                         "-DSTRIKERS_FFMPEG=OFF to say this is intended.")
     endif()
@@ -665,6 +677,8 @@ elseif(NOT MSVC AND NOT STRIKERS_VITA)
     set(_local_ops "${CMAKE_CURRENT_BINARY_DIR}/local-operators.map")
     file(WRITE "${_local_ops}" "{ local: _Znw*; _Zna*; _ZdlPv*; _ZdaPv*; };\n")
     target_link_options(strikers PRIVATE "-Wl,--version-script=${_local_ops}")
+    # A bundled libstdc++ breaks Mesa's LLVM, so it is linked in; glibc 2.41 refuses executable stacks.
+    target_link_options(strikers PRIVATE -static-libstdc++ -static-libgcc -Wl,-z,noexecstack)
 endif()
 
 if(STRIKERS_AURORA AND NOT STRIKERS_VITA)

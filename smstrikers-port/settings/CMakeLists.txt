@@ -79,8 +79,7 @@ set_target_properties(strikers-settings PROPERTIES
   WIN32_EXECUTABLE ON
   MACOSX_BUNDLE ${STRIKERS_SETTINGS_BUNDLE}
   MACOSX_BUNDLE_GUI_IDENTIFIER "org.smstrikers.settings"
-  # CFBundleName is the only name a player sees; the target name below stays strikers-settings,
-  # because package.sh, apppaths.cpp and the game's first-run launch all find the application by it.
+  # package.sh and apppaths.cpp find the app by its target name, so only the bundle name changes.
   MACOSX_BUNDLE_BUNDLE_NAME "Super Mario Strikers Settings"
   MACOSX_BUNDLE_ICON_FILE settings.icns
 )
@@ -137,10 +136,7 @@ if(Qt6LinguistTools_FOUND)
                    "left as they are, do not commit what this build produces.")
   endif()
 
-  # OUTPUT_LOCATION on the .ts files, not QM_OUTPUT_DIRECTORY, which only Qt 6.9 and later know.
-  # QM_FILES_OUTPUT_VARIABLE, not RESOURCE_PREFIX: the latter makes each .qm alias relative to the
-  # build directory, so aiming at the source tree doubles the path and every load fails silently in
-  # English.
+  # OUTPUT_LOCATION works before Qt 6.9; RESOURCE_PREFIX doubles the .qm path and no translation loads.
   set_source_files_properties(${STRIKERS_SETTINGS_TS} PROPERTIES OUTPUT_LOCATION "${STRIKERS_QM_DIR}")
   qt_add_translations(strikers-settings
     TS_FILES ${STRIKERS_SETTINGS_TS}

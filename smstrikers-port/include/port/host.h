@@ -38,10 +38,6 @@ int port_scan_dir(const char* path,
                   void (*visit)(void* user, const char* name),
                   void* user);
 
-// Run `exe` and wait for it to finish, with `args`; a NULL-terminated array that does NOT repeat
-// the program name, and no shell anywhere in the middle.
-int port_run_wait(const char* exe, const char* const* args, int* exitCode);
-
 // The port's allocation region: bytes handed out by the bump allocator against the size it
 // reserved.
 void port_region_stats(size_t* used, size_t* total);
