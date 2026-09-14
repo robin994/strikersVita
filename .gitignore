@@ -12,7 +12,7 @@ smstrikers-port/dist/
 *.ppm
 *.pyc
 __pycache__/
-
+extracted/
 .vscode/
 
 
