@@ -160,7 +160,14 @@ void glx_ClearZBuffer()
         // PORT: the frame is PortLogicalFrameWidth() wide, not 640, and the half-size destination follows it.
         GXSetTexCopySrc(0, 0, (u16)PortLogicalFrameWidth(), 0x1C0);
         GXSetTexCopyDst((u16)(PortLogicalFrameWidth() / 2), 0xE0, (_GXTexFmt)0x28, 1);
+#if defined(PORT_VITA)
+        // clearz_mem is scratch storage and is never sampled. On Vita a real
+        // GXCopyTex here forces an expensive EFB capture/conversion every frame;
+        // only the clear side effect is required.
+        GXVitaClearEfb();
+#else
         GXCopyTex(clearz_mem, 1);
+#endif
         gxSetColourUpdate(colorUpdate);
         gxSetAlphaUpdate(alphaUpdate);
         gxRestoreZMode();
@@ -221,7 +228,11 @@ void glx_ShadowTextureGrab()
     // PORT: this is the frame clear; the frame is PortLogicalFrameWidth() wide, not 640.
     GXSetTexCopySrc(0, 0, (u16)PortLogicalFrameWidth(), 448);
     GXSetTexCopyDst((u16)(PortLogicalFrameWidth() / 2), 224, (_GXTexFmt)0x28, true);
+#if defined(PORT_VITA)
+    GXVitaClearEfb();
+#else
     GXCopyTex(clearz_mem, true);
+#endif
 
     gxSetColourUpdate(colorUpdate);
     gxSetAlphaUpdate(alphaUpdate);
