@@ -447,7 +447,7 @@ if(STRIKERS_VITA)
     # MusyX is intentionally kept off port_flags, but it still exchanges enums
     # and enum-containing structures with the game runtime.  Match the 32-bit
     # GameCube enum ABI used by every other Vita object.
-    target_compile_options(strikers_musyx PRIVATE -w -std=gnu11 -fno-short-enums)
+    target_compile_options(strikers_musyx PRIVATE -w -std=gnu11 -fshort-wchar -fno-short-enums)
 else()
     target_compile_options(strikers_musyx PRIVATE -fdeclspec -w -std=gnu11)
 endif()

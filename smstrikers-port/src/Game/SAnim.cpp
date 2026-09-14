@@ -5,7 +5,6 @@ extern "C" int port_region_owns(const void*);
 #include "NL/nlWare.h"
 #include "dolphin/os.h"
 #include "port/endian.h"
-extern "C" unsigned long port_bmd_swap_headers(void*, unsigned long);
 #include "Game/PoseAccumulator.h"
 
 #include "NL/nlMemory.h"
@@ -15,22 +14,12 @@ extern "C" unsigned long port_bmd_swap_headers(void*, unsigned long);
 #pragma inline_max_size(0x10000)
 #pragma inline_max_total_size(0x10000)
 
-static inline void* nlGetChunkDataSAnim(nlChunk* chunk)
+static bool SAnimReadNext(const u8** cursor, const u8* end, PortBEChunkView* view)
 {
-    u32 alignField = chunk->m_ID & 0x7F000000;
-    u32 isAligned = ((-alignField) | alignField) >> 31;
-    if (isAligned != 0)
-    {
-        u32 alignment = 1u << (alignField >> 24);
-        uintptr_t addr = (uintptr_t)chunk + alignment;
-        u32 mask = alignment - 1;
-        addr = (addr + 7) & ~(uintptr_t)mask;
-        return (void*)addr;
-    }
-    return (void*)((u8*)chunk + 8);
+    if (!port_be_chunk_read(*cursor, end, view)) return false;
+    *cursor = view->next;
+    return true;
 }
-
-#define nlGetNextChunk(chunk) ((nlChunk*)((u8*)(chunk) + (chunk)->m_Size + 8))
 
 #pragma inline_depth(8)
 #pragma inline_max_size(0x10000)
@@ -40,24 +29,34 @@ static inline void* nlGetChunkDataSAnim(nlChunk* chunk)
  */
 cSAnim* cSAnim::Initialize(nlChunk* pChunk)
 {
-    // PORT: big-endian, the extent included; a tree bmd_endian.c refuses would be walked out of bounds.
-    if (port_bmd_swap_headers(pChunk, port_be32(&pChunk->m_Size) + 8) == 0)
+    if (pChunk == NULL)
+        return NULL;
+
+    const u8* root = (const u8*)pChunk;
+    const u32 rootSize = port_be32(root + 4);
+    const u8* rootEnd = root + sizeof(nlChunk) + rootSize;
+    PortBEChunkView rootView;
+    if (!port_be_chunk_read(root, rootEnd, &rootView) || rootView.next != rootEnd ||
+        !IsValidChunkID(rootView.id & 0x80FFFFFFu))
     {
-        OSReport("Error: SANIM chunk is not a well-formed chunk tree\n");
+        OSReport("Error: SANIM root is not a well-formed BE chunk\n");
         return NULL;
     }
 
-    nlChunk* chunkA = (nlChunk*)((u8*)pChunk + 8);
-    nlChunk* end = nlGetNextChunk(pChunk);
-    nlChunk* chunkB;
-
-    cSAnim* pRetval;
+    const u8* cursor = root + sizeof(nlChunk);
+    PortBEChunkView chunk;
+    if (!SAnimReadNext(&cursor, rootEnd, &chunk) || chunk.payload_len < 0x48)
     {
-        // PORT: cSAnim is 0x48 on disc and sizeof(cSAnim) here, ten pointer fields, all wider.
-        const u8* disc = (const u8*)nlGetChunkDataSAnim(chunkA);
-        pRetval = (cSAnim*)nlMalloc(sizeof(cSAnim), 8, false);
-        memset(pRetval, 0, sizeof(cSAnim));
-        // PORT: cIdentifier keeps the name hash at disc 0x04, and every inventory lookup is by that value.
+        OSReport("Error: truncated SANIM header\n");
+        return NULL;
+    }
+
+    cSAnim* pRetval = (cSAnim*)nlMalloc(sizeof(cSAnim), 8, false);
+    if (pRetval == NULL)
+        return NULL;
+    memset(pRetval, 0, sizeof(cSAnim));
+    {
+        const u8* disc = chunk.payload;
         pRetval->m_uHashID = port_be32(disc + 0x04);
         pRetval->m_nNumKeys = port_be32(disc + 0x08);
         pRetval->m_nNumNodes = port_be32(disc + 0x0C);
@@ -66,106 +65,177 @@ cSAnim* cSAnim::Initialize(nlChunk* pChunk)
         pRetval->m_fLinearSpeed = port_bef32(disc + 0x40);
         pRetval->m_nHierarchySignature = port_be32(disc + 0x44);
     }
-    pRetval->m_pCallbackList = NULL;
-
-    chunkB = nlGetNextChunk(chunkA);
-    pRetval->m_szName = (const char*)nlGetChunkDataSAnim(chunkB);
-
-    chunkA = nlGetNextChunk(chunkB);
+    if (pRetval->m_nNumNodes > 0x10000u || pRetval->m_nNumKeys > 0x100000u ||
+        pRetval->m_nNumMorphChannels > 0x10000u || pRetval->m_nNumRootKeys > 0x100000u)
     {
-        // PORT: allocated, not overlaid, on-disc entries are 4 bytes each.
-        const u32 nNodes = pRetval->m_nNumNodes;
-        pRetval->m_pRotKeys = nlMalloc(nNodes * sizeof(void*), 8, false);
-        memset(pRetval->m_pRotKeys, 0, nNodes * sizeof(void*));
-
-        chunkB = nlGetNextChunk(chunkA);
-        pRetval->m_pTransKeys = (PackedTrans**)nlMalloc(nNodes * sizeof(void*), 8, false);
-        memset(pRetval->m_pTransKeys, 0, nNodes * sizeof(void*));
-
-        chunkA = nlGetNextChunk(chunkB);
-        pRetval->m_pScaleKeys = (PackedScale**)nlMalloc(nNodes * sizeof(void*), 8, false);
-        memset(pRetval->m_pScaleKeys, 0, nNodes * sizeof(void*));
+        OSReport("Error: unreasonable SANIM counts nodes=%lu keys=%lu morphs=%lu roots=%lu\n",
+                 (unsigned long)pRetval->m_nNumNodes,
+                 (unsigned long)pRetval->m_nNumKeys,
+                 (unsigned long)pRetval->m_nNumMorphChannels,
+                 (unsigned long)pRetval->m_nNumRootKeys);
+        return NULL;
     }
 
-    chunkB = nlGetNextChunk(chunkA);
-    pRetval->m_pRootRot = (unsigned short*)nlGetChunkDataSAnim(chunkB);
-    if (pRetval->m_pRootRot != NULL)
+    if (!SAnimReadNext(&cursor, rootEnd, &chunk) || chunk.payload_len == 0 ||
+        memchr(chunk.payload, '\0', chunk.payload_len) == NULL)
     {
-        unsigned short* pRot = (unsigned short*)pRetval->m_pRootRot;
+        OSReport("Error: SANIM name chunk is missing/truncated\n");
+        return NULL;
+    }
+    pRetval->m_szName = (const char*)chunk.payload;
+
+    /* These three serialized 4-byte pointer tables are placeholders on GC.
+       Vita rebuilds native pointer arrays instead of overlaying them. */
+    PortBEChunkView rotTable, transTable, scaleTable;
+    if (!SAnimReadNext(&cursor, rootEnd, &rotTable) ||
+        !SAnimReadNext(&cursor, rootEnd, &transTable) ||
+        !SAnimReadNext(&cursor, rootEnd, &scaleTable) ||
+        pRetval->m_nNumNodes > rotTable.payload_len / 4 ||
+        pRetval->m_nNumNodes > transTable.payload_len / 4 ||
+        pRetval->m_nNumNodes > scaleTable.payload_len / 4)
+    {
+        OSReport("Error: SANIM node pointer tables are truncated\n");
+        return NULL;
+    }
+
+    const u32 nNodes = pRetval->m_nNumNodes;
+    pRetval->m_pRotKeys = nlMalloc((nNodes ? nNodes : 1) * sizeof(void*), 8, false);
+    pRetval->m_pTransKeys = (PackedTrans**)nlMalloc((nNodes ? nNodes : 1) * sizeof(void*), 8, false);
+    pRetval->m_pScaleKeys = (PackedScale**)nlMalloc((nNodes ? nNodes : 1) * sizeof(void*), 8, false);
+    if (pRetval->m_pRotKeys == NULL || pRetval->m_pTransKeys == NULL ||
+        pRetval->m_pScaleKeys == NULL)
+        return NULL;
+    memset(pRetval->m_pRotKeys, 0, nNodes * sizeof(void*));
+    memset(pRetval->m_pTransKeys, 0, nNodes * sizeof(void*));
+    memset(pRetval->m_pScaleKeys, 0, nNodes * sizeof(void*));
+
+    if (!SAnimReadNext(&cursor, rootEnd, &chunk) ||
+        pRetval->m_nNumRootKeys > chunk.payload_len / sizeof(u16))
+    {
+        OSReport("Error: SANIM root rotation table is truncated\n");
+        return NULL;
+    }
+    if (pRetval->m_nNumRootKeys != 0)
+    {
+        pRetval->m_pRootRot = (unsigned short*)nlMalloc(
+            pRetval->m_nNumRootKeys * sizeof(unsigned short), 8, false);
+        if (pRetval->m_pRootRot == NULL)
+            return NULL;
         for (u32 k = 0; k < pRetval->m_nNumRootKeys; k++)
-            pRot[k] = port_be16(&pRot[k]);
+            pRetval->m_pRootRot[k] = port_be16(chunk.payload + k * sizeof(u16));
     }
 
-    chunkA = nlGetNextChunk(chunkB);
-    pRetval->m_pRootTrans = (nlVector3*)nlGetChunkDataSAnim(chunkA);
-    if (pRetval->m_pRootTrans != NULL)
+    if (!SAnimReadNext(&cursor, rootEnd, &chunk) ||
+        pRetval->m_nNumRootKeys > chunk.payload_len / sizeof(nlVector3))
     {
-        // nlVector3 is three floats per root key.
-        port_be32_array(pRetval->m_pRootTrans, pRetval->m_nNumRootKeys * 3);
+        OSReport("Error: SANIM root translation table is truncated\n");
+        return NULL;
+    }
+    if (pRetval->m_nNumRootKeys != 0)
+    {
+        pRetval->m_pRootTrans = (nlVector3*)nlMalloc(
+            pRetval->m_nNumRootKeys * sizeof(nlVector3), 8, false);
+        if (pRetval->m_pRootTrans == NULL)
+            return NULL;
+        for (u32 k = 0; k < pRetval->m_nNumRootKeys; k++)
+        {
+            const u8* v = chunk.payload + k * sizeof(nlVector3);
+            pRetval->m_pRootTrans[k].x = port_bef32(v + 0);
+            pRetval->m_pRootTrans[k].y = port_bef32(v + 4);
+            pRetval->m_pRootTrans[k].z = port_bef32(v + 8);
+        }
     }
 
     u32 nodeIndex = 0;
-    u32 type;
-    nlChunk* nodeChunk = nlGetNextChunk(chunkA);
-
-    while (nodeChunk != end && ((type = nodeChunk->m_ID & 0x80FFFFFF) == 0x80017100 || type == 0x1001))
+    PortBEChunkView nodeChunk;
+    while (cursor < rootEnd)
     {
-        if (type == 0x80017100)
+        const u8* nodeRaw = cursor;
+        if (!SAnimReadNext(&cursor, rootEnd, &nodeChunk))
         {
-            int nNodeIndex = nodeIndex;
-            nlChunk* subChunk = (nlChunk*)((u8*)nodeChunk + 8);
-            nlChunk* subEnd = nlGetNextChunk(nodeChunk);
-
-            while (subChunk != subEnd)
-            {
-                u32 subType = subChunk->m_ID & 0x80FFFFFF;
-                // PORT: the keys stay in the file buffer, same widths either side, but their contents are big-endian.
-                u8* pKeyData = (u8*)nlGetChunkDataSAnim(subChunk);
-                unsigned long uKeyBytes =
-                    (unsigned long)((u8*)nlGetNextChunk(subChunk) - pKeyData);
-
-                if (subType == 0x17101)
-                {
-                    // One u16 angle per key, or a quaternion as four s16; 16-bit either way.
-                    port_be16_array(pKeyData, uKeyBytes / 2);
-                    ((void**)pRetval->m_pRotKeys)[nNodeIndex] = (void*)pKeyData;
-                }
-                else if (subType == 0x17102)
-                {
-                    port_be32_array(pKeyData, uKeyBytes / 4);   // PackedTrans: three floats
-                    pRetval->m_pTransKeys[nNodeIndex] = (PackedTrans*)pKeyData;
-                }
-                else if (subType == 0x17103)
-                {
-                    port_be16_array(pKeyData, uKeyBytes / 2);   // PackedScale: three s16
-                    pRetval->m_pScaleKeys[nNodeIndex] = (PackedScale*)pKeyData;
-                }
-
-                subChunk = nlGetNextChunk(subChunk);
-            }
-
-            nodeIndex++;
+            OSReport("Error: SANIM node/morph chunk is truncated\n");
+            return NULL;
+        }
+        const u32 type = nodeChunk.id & 0x80FFFFFFu;
+        if (type != 0x80017100u && type != 0x1001u)
+        {
+            cursor = nodeRaw;
+            break;
+        }
+        if (type == 0x1001u)
+            continue;
+        if (nodeIndex >= nNodes)
+        {
+            OSReport("Error: SANIM has more node chunks than declared\n");
+            return NULL;
         }
 
-        nodeChunk = nlGetNextChunk(nodeChunk);
+        const u8* subCursor;
+        const u8* subEnd;
+        if (!port_be_chunk_children(&nodeChunk, &subCursor, &subEnd))
+            return NULL;
+        while (subCursor < subEnd)
+        {
+            PortBEChunkView sub;
+            if (!SAnimReadNext(&subCursor, subEnd, &sub))
+                return NULL;
+            const u32 subType = sub.id & 0x80FFFFFFu;
+            const unsigned long bytes = sub.payload_len;
+            if (subType == 0x17101u)
+            {
+                if ((bytes & 1u) != 0) return NULL;
+                u8* host = (u8*)nlMalloc(bytes ? bytes : 2, 8, false);
+                if (host == NULL) return NULL;
+                for (unsigned long o = 0; o < bytes; o += 2)
+                {
+                    const u16 v = port_be16(sub.payload + o);
+                    memcpy(host + o, &v, sizeof v);
+                }
+                ((void**)pRetval->m_pRotKeys)[nodeIndex] = host;
+            }
+            else if (subType == 0x17102u)
+            {
+                if ((bytes & 3u) != 0) return NULL;
+                u8* host = (u8*)nlMalloc(bytes ? bytes : 4, 8, false);
+                if (host == NULL) return NULL;
+                for (unsigned long o = 0; o < bytes; o += 4)
+                {
+                    const u32 v = port_be32(sub.payload + o);
+                    memcpy(host + o, &v, sizeof v);
+                }
+                pRetval->m_pTransKeys[nodeIndex] = (PackedTrans*)host;
+            }
+            else if (subType == 0x17103u)
+            {
+                if ((bytes & 1u) != 0) return NULL;
+                u8* host = (u8*)nlMalloc(bytes ? bytes : 2, 8, false);
+                if (host == NULL) return NULL;
+                for (unsigned long o = 0; o < bytes; o += 2)
+                {
+                    const u16 v = port_be16(sub.payload + o);
+                    memcpy(host + o, &v, sizeof v);
+                }
+                pRetval->m_pScaleKeys[nodeIndex] = (PackedScale*)host;
+            }
+        }
+        nodeIndex++;
+    }
+    if (nodeIndex != nNodes)
+    {
+        OSReport("Error: SANIM declared %lu node(s) but serialized %lu\n",
+                 (unsigned long)nNodes, (unsigned long)nodeIndex);
+        return NULL;
     }
 
-    nlVector3* rootTrans = pRetval->m_pRootTrans;
-    nlVector3 v3PosStart;
-    nlVector3 v3PosEnd;
-
-    if (rootTrans != NULL)
+    if (pRetval->m_pRootTrans != NULL)
     {
+        nlVector3 v3PosStart;
+        nlVector3 v3PosEnd;
         pRetval->GetRootTrans(0.0f, &v3PosStart);
         pRetval->GetRootTrans(1.0f, &v3PosEnd);
-
-        float dist = nlSqrt(
-            nlGetLengthSquared3D(
-                v3PosEnd.x - v3PosStart.x,
-                v3PosEnd.y - v3PosStart.y,
-                v3PosEnd.z - v3PosStart.z),
-            true);
-
+        float dist = nlSqrt(nlGetLengthSquared3D(
+            v3PosEnd.x - v3PosStart.x, v3PosEnd.y - v3PosStart.y,
+            v3PosEnd.z - v3PosStart.z), true);
         pRetval->m_fLinearSpeed = dist / ((float)pRetval->m_nNumKeys / 30.0f);
     }
     else
@@ -173,25 +243,49 @@ cSAnim* cSAnim::Initialize(nlChunk* pChunk)
         pRetval->m_fLinearSpeed = 0.0f;
     }
 
-    pRetval->m_pNumMorphKeys = (const unsigned int*)nlGetChunkDataSAnim(nodeChunk);
-    // PORT: plain u32 tables in the file buffer.
-    port_be32_array((void*)pRetval->m_pNumMorphKeys, pRetval->m_nNumMorphChannels);
+    if (!SAnimReadNext(&cursor, rootEnd, &nodeChunk) ||
+        pRetval->m_nNumMorphChannels > nodeChunk.payload_len / 4)
+        return NULL;
+    u32* counts = (u32*)nlMalloc(
+        (pRetval->m_nNumMorphChannels ? pRetval->m_nNumMorphChannels : 1) * sizeof(u32), 8, false);
+    if (counts == NULL) return NULL;
+    for (u32 i = 0; i < pRetval->m_nNumMorphChannels; i++)
+        counts[i] = port_be32(nodeChunk.payload + i * 4);
+    pRetval->m_pNumMorphKeys = counts;
 
-    nodeChunk = nlGetNextChunk(nodeChunk);
-    pRetval->m_nMorphIds = (const unsigned int*)nlGetChunkDataSAnim(nodeChunk);
-    port_be32_array((void*)pRetval->m_nMorphIds, pRetval->m_nNumMorphChannels);
+    if (!SAnimReadNext(&cursor, rootEnd, &nodeChunk) ||
+        pRetval->m_nNumMorphChannels > nodeChunk.payload_len / 4)
+        return NULL;
+    u32* ids = (u32*)nlMalloc(
+        (pRetval->m_nNumMorphChannels ? pRetval->m_nNumMorphChannels : 1) * sizeof(u32), 8, false);
+    if (ids == NULL) return NULL;
+    for (u32 i = 0; i < pRetval->m_nNumMorphChannels; i++)
+        ids[i] = port_be32(nodeChunk.payload + i * 4);
+    pRetval->m_nMorphIds = ids;
 
-    nodeChunk = nlGetNextChunk(nodeChunk);
-    pRetval->m_pMorphKeys = (unsigned char*)nlGetChunkDataSAnim(nodeChunk);
+    if (!SAnimReadNext(&cursor, rootEnd, &nodeChunk))
+        return NULL;
+    unsigned long required = 0;
+    for (u32 i = 0; i < pRetval->m_nNumMorphChannels; i++)
+    {
+        const u32 count = pRetval->m_pNumMorphKeys[i];
+        if (required > nodeChunk.payload_len || count > nodeChunk.payload_len - required)
+            return NULL;
+        required += count;
+    }
+    pRetval->m_pMorphKeys = (unsigned char*)nodeChunk.payload;
 
-    nodeChunk = nlGetNextChunk(nodeChunk);
-    pRetval->m_pNodeProperties = (const unsigned int*)nlGetChunkDataSAnim(nodeChunk);
-    port_be32_array((void*)pRetval->m_pNodeProperties, pRetval->m_nNumNodes);
+    if (!SAnimReadNext(&cursor, rootEnd, &nodeChunk) || nNodes > nodeChunk.payload_len / 4)
+        return NULL;
+    u32* props = (u32*)nlMalloc((nNodes ? nNodes : 1) * sizeof(u32), 8, false);
+    if (props == NULL) return NULL;
+    for (u32 i = 0; i < nNodes; i++)
+        props[i] = port_be32(nodeChunk.payload + i * 4);
+    pRetval->m_pNodeProperties = props;
 
     PortMorphWatchRegister(pRetval, &pRetval->m_pNumMorphKeys, "m_pNumMorphKeys");
     PortMorphWatchRegister(pRetval, &pRetval->m_pMorphKeys, "m_pMorphKeys");
     PortMorphWatchRegister(pRetval, &pRetval->m_nMorphIds, "m_nMorphIds");
-
     return pRetval;
 }
 #pragma inline_depth()

@@ -23,6 +23,7 @@
 #include "NL/gl/glRenderList.h"
 #include "NL/gl/glTexture.h"
 #include "NL/glx/glxTexture.h"
+#include "dolphin/os.h"
 
 extern SoundPropAccessor* gpBIRDOSoundPropAccessor;
 extern SoundPropAccessor* gpDAISYSoundPropAccessor;
@@ -225,8 +226,16 @@ void CharacterLoadingGuts(tCharacterTemplate* pCharacterTemplate, const tCharact
     glModel* pRigidCharacterModel = glLoadModel(charTemplateInfo.szModelFilename, NULL);
     glModel* pBlendCharacterModel = glLoadModel(charTemplateInfo.szBlendedModelFilename, NULL);
 
-    pCharacterTemplate->nCharacterModelID[0] = pRigidCharacterModel->id;
-    pCharacterTemplate->nCharacterModelID[1] = pBlendCharacterModel->id;
+    pCharacterTemplate->nCharacterModelID[0] =
+        pRigidCharacterModel != NULL ? pRigidCharacterModel->id : 0;
+    pCharacterTemplate->nCharacterModelID[1] =
+        pBlendCharacterModel != NULL ? pBlendCharacterModel->id : 0;
+    if (pRigidCharacterModel == NULL || pBlendCharacterModel == NULL)
+    {
+        OSReport("[character] model load failed class=%d rigid=%s (%p) blend=%s (%p)\n",
+                 (int)cc, charTemplateInfo.szModelFilename, (void*)pRigidCharacterModel,
+                 charTemplateInfo.szBlendedModelFilename, (void*)pBlendCharacterModel);
+    }
 
     pCharacterTemplate->pHierarchyInventory = new (nlMalloc(sizeof(cInventory<cSHierarchy>), 8, false)) cInventory<cSHierarchy>();
     pCharacterTemplate->pHierarchyInventory->AddFile((char*)charTemplateInfo.szHierarchyFilename);
@@ -234,8 +243,15 @@ void CharacterLoadingGuts(tCharacterTemplate* pCharacterTemplate, const tCharact
     if (!bForViewer)
     {
         CharacterPhysicsData* pPhys = new (nlMalloc(sizeof(CharacterPhysicsData), 8, false)) CharacterPhysicsData();
+        pPhys->physicsElementCount = 0;
+        pPhys->pPhysicsElements = NULL;
         pCharacterTemplate->pPhysicsData = pPhys;
-        LoadCharacterPhysicsElements(charTemplateInfo.szPhysicsFilename, (CharacterPhysicsData*)pCharacterTemplate->pPhysicsData);
+        if (!LoadCharacterPhysicsElements(charTemplateInfo.szPhysicsFilename,
+                                          (CharacterPhysicsData*)pCharacterTemplate->pPhysicsData))
+        {
+            OSReport("[character] physics disabled for %s after rejecting %s\n",
+                     charTemplateInfo.szCharName, charTemplateInfo.szPhysicsFilename);
+        }
     }
     else
     {

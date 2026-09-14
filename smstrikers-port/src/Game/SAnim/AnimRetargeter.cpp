@@ -6,7 +6,6 @@
 #include "NL/nlWare.h"
 #include "dolphin/os.h"
 #include "port/endian.h"
-extern "C" unsigned long port_bmd_swap_headers(void*, unsigned long);
 
 static inline AnimRetarget* GetAnimRetargetWithSignature_ARL(AnimRetargetList* list, const cSAnim* anim)
 {
@@ -29,19 +28,12 @@ static inline AnimRetarget* GetAnimRetargetWithSignature_ARL(AnimRetargetList* l
     return result;
 }
 
-static inline void* GetChunkData_ARL(nlChunk* chunk)
+static bool ARLReadNext(const u8** cursor, const u8* end, PortBEChunkView* view)
 {
-    u32 alignField = chunk->m_ID & 0x7F000000;
-
-    if (((-alignField) | alignField) >> 31)
-    {
-        alignField = 1u << (alignField >> 24);
-        uintptr_t result = (uintptr_t)chunk + alignField;
-        result = (result + 7) & ~(uintptr_t)(alignField - 1);
-        return (void*)result;
-    }
-
-    return (void*)((u8*)chunk + 8);
+    if (!port_be_chunk_read(*cursor, end, view))
+        return false;
+    *cursor = view->next;
+    return true;
 }
 
 /**
@@ -49,56 +41,83 @@ static inline void* GetChunkData_ARL(nlChunk* chunk)
  */
 AnimRetargetList* AnimRetargetList::Initialize(nlChunk* chunkData)
 {
-    // PORT: host order first, the extent read big-endian; a refused tree would be walked out of bounds.
-    if (port_bmd_swap_headers(chunkData, port_be32(&chunkData->m_Size) + 8) == 0)
+    if (chunkData == NULL)
+        return NULL;
+
+    const u8* root = (const u8*)chunkData;
+    const u32 rootSize = port_be32(root + 4);
+    const u8* rootEnd = root + sizeof(nlChunk) + rootSize;
+    PortBEChunkView rootView;
+    if (!port_be_chunk_read(root, rootEnd, &rootView) || rootView.next != rootEnd ||
+        !IsValidChunkID(rootView.id & 0x80FFFFFFu))
     {
-        OSReport("Error: retarget chunk is not a well-formed chunk tree\n");
+        OSReport("Error: retarget root is not a well-formed BE chunk\n");
         return NULL;
     }
 
-    nlChunk* chunk = (nlChunk*)((u8*)chunkData + 8);
+    const u8* cursor = root + sizeof(nlChunk);
+    PortBEChunkView header;
+    if (!ARLReadNext(&cursor, rootEnd, &header) || header.payload_len < 0x0C)
+        return NULL;
 
-    // PORT: allocated, not overlaid, AnimRetargetList is 0x10 on disc and wider here, and it gets written through below.
     AnimRetargetList* data =
         (AnimRetargetList*)nlMalloc(sizeof(AnimRetargetList), 8, false);
+    if (data == NULL)
+        return NULL;
     memset(data, 0, sizeof(AnimRetargetList));
+    data->m_uHashID = port_be32(header.payload + 0x04);
+    data->m_NumAnimRetargets = (long)(s32)port_be32(header.payload + 0x08);
+    if (data->m_NumAnimRetargets < 0 || data->m_NumAnimRetargets > 0x10000)
+        return NULL;
+
+    PortBEChunkView container;
+    if (!ARLReadNext(&cursor, rootEnd, &container) ||
+        (container.id & 0x80FFFFFFu) != 0x80017106u)
+        return NULL;
+
+    const u8* childCursor;
+    const u8* childEnd;
+    if (!port_be_chunk_children(&container, &childCursor, &childEnd))
+        return NULL;
+
+    PortBEChunkView records;
+    if (!ARLReadNext(&childCursor, childEnd, &records) ||
+        (records.id & 0x80FFFFFFu) != 0x17107u ||
+        (unsigned long)data->m_NumAnimRetargets > records.payload_len / 0x0C)
+        return NULL;
+
+    const s32 n = (s32)data->m_NumAnimRetargets;
+    data->m_pAnimRetarget = (AnimRetarget*)nlMalloc(
+        (n > 0 ? n : 1) * sizeof(AnimRetarget), 8, false);
+    if (data->m_pAnimRetarget == NULL)
+        return NULL;
+    for (s32 j = 0; j < n; ++j)
     {
-        const u8* disc = (const u8*)GetChunkData_ARL(chunk);
-        data->m_uHashID = port_be32(disc + 0x04);
-        data->m_NumAnimRetargets = (long)(s32)port_be32(disc + 0x08);
+        const u8* rec = records.payload + j * 0x0C;
+        data->m_pAnimRetarget[j].m_TargetHierarchySignature = port_be32(rec + 0x00);
+        data->m_pAnimRetarget[j].m_NumBones = (long)(s32)port_be32(rec + 0x04);
+        data->m_pAnimRetarget[j].m_pMap = NULL;
+        if (data->m_pAnimRetarget[j].m_NumBones < 0 ||
+            data->m_pAnimRetarget[j].m_NumBones > 0x10000)
+            return NULL;
     }
 
-    nlChunk* nextChunk = (nlChunk*)((u8*)chunk + chunk->m_Size + 0x10);
-
-    // PORT: AnimRetarget is 0xC on disc, two words and a pointer, so the array is rebuilt rather than pointed at.
+    for (s32 i = 0; i < n; ++i)
     {
-        const u8* disc = (const u8*)GetChunkData_ARL(nextChunk);
-        const s32 n = (s32)data->m_NumAnimRetargets;
-        data->m_pAnimRetarget = (AnimRetarget*)nlMalloc(
-            (n > 0 ? n : 1) * sizeof(AnimRetarget), 8, false);
-        for (s32 j = 0; j < n; j++)
-        {
-            data->m_pAnimRetarget[j].m_TargetHierarchySignature =
-                port_be32(disc + j * 0xC + 0x00);
-            data->m_pAnimRetarget[j].m_NumBones =
-                (long)(s32)port_be32(disc + j * 0xC + 0x04);
-            data->m_pAnimRetarget[j].m_pMap = NULL;
-        }
-    }
-
-    nlChunk* mapChunk;
-    s32 i = 0;
-
-    while (i < data->m_NumAnimRetargets)
-    {
-        mapChunk = (nlChunk*)((u8*)nextChunk + nextChunk->m_Size + 8);
-        nextChunk = mapChunk;
-        signed short* nextMap = (signed short*)GetChunkData_ARL(mapChunk);
-
-        // PORT: the map stays where it is, 16 bits either way, but its contents are big-endian.
-        port_be16_array(nextMap, mapChunk->m_Size / 2);
-        data->m_pAnimRetarget[i].m_pMap = nextMap;
-        i++;
+        PortBEChunkView map;
+        if (!ARLReadNext(&childCursor, childEnd, &map) ||
+            (map.id & 0x80FFFFFFu) != 0x17108u)
+            return NULL;
+        const unsigned long nBones = (unsigned long)data->m_pAnimRetarget[i].m_NumBones;
+        if (nBones > map.payload_len / sizeof(s16))
+            return NULL;
+        signed short* hostMap = (signed short*)nlMalloc(
+            (nBones ? nBones : 1) * sizeof(s16), 8, false);
+        if (hostMap == NULL)
+            return NULL;
+        for (unsigned long j = 0; j < nBones; ++j)
+            hostMap[j] = (s16)port_be16(map.payload + j * sizeof(s16));
+        data->m_pAnimRetarget[i].m_pMap = hostMap;
     }
 
     return data;

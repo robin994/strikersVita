@@ -62,6 +62,34 @@ static unsigned char* aligned64(void)
 int main(void)
 {
     {
+        unsigned char chunk[32];
+        PortBEChunkView view;
+        const unsigned char* childBegin;
+        const unsigned char* childEnd;
+        memset(chunk, 0, sizeof chunk);
+        put32(chunk + 0, 0x80018000u);
+        put32(chunk + 4, 24);
+        put32(chunk + 8, 0x18001u);
+        put32(chunk + 12, 16);
+        put32(chunk + 16, 0x11223344u);
+        check(port_be_chunk_read(chunk, chunk + sizeof chunk, &view) &&
+                  view.id == 0x80018000u && view.size == 24 &&
+                  view.raw == chunk && view.next == chunk + 32,
+              "BE view: reads a root without mutating it");
+        check(port_be32(chunk) == 0x80018000u && port_be32(chunk + 4) == 24,
+              "BE view: serialized header remains big-endian");
+        check(port_be_chunk_children(&view, &childBegin, &childEnd) &&
+                  childBegin == chunk + 8 && childEnd == chunk + 32,
+              "BE view: exposes the exact nested child range");
+        check(port_be_chunk_read(childBegin, childEnd, &view) &&
+                  view.id == 0x18001u && view.payload_len == 16 &&
+                  port_be32(view.payload) == 0x11223344u,
+              "BE view: nested payload is decoded on demand");
+        check(!port_be_chunk_read(chunk + 8, chunk + 23, &view),
+              "BE view: child extending past its parent is rejected");
+    }
+
+    {
         unsigned char chunk[24];
         unsigned long len = 99;
         memset(chunk, 0, sizeof chunk);
@@ -271,14 +299,13 @@ int main(void)
         
     }
 
-    // The SKIN chunk arrives with its headers already in host order; the model pass did those.
+    // SKIN conversion now receives a private copy of the untouched big-endian chunk.
     {
         unsigned char* buf = exact(24);
-        uint32_t v;
-        v = 0x1B008;                      memcpy(buf, &v, 4);
-        v = 16;                           memcpy(buf + 4, &v, 4);
-        v = (16u << 24) | 0x1B00E;        memcpy(buf + 8, &v, 4);
-        v = 8;                            memcpy(buf + 12, &v, 4);
+        put32(buf + 0, 0x8001B008u);
+        put32(buf + 4, 16);
+        put32(buf + 8, (16u << 24) | 0x1B00E);
+        put32(buf + 12, 8);
         buf[16] = 0; buf[17] = 1;
         check(port_skin_swap(buf) == 0, "skin: a child aligned past its end refuses the chunk");
         check(buf[16] == 0 && buf[17] == 1, "skin: ...and its payload is left alone");
@@ -287,11 +314,10 @@ int main(void)
 
     {
         unsigned char* buf = aligned64();
-        uint32_t v;
-        v = 0x1B008;                      memcpy(buf, &v, 4);
-        v = 32;                           memcpy(buf + 4, &v, 4);
-        v = (3u << 24) | 0x1B00E;         memcpy(buf + 8, &v, 4);
-        v = 24;                           memcpy(buf + 12, &v, 4);
+        put32(buf + 0, 0x8001B008u);
+        put32(buf + 4, 32);
+        put32(buf + 8, (3u << 24) | 0x1B00E);
+        put32(buf + 12, 24);
         buf[16] = 0; buf[17] = 1;
         buf[38] = 0; buf[39] = 2;
         check(port_skin_swap(buf) == 1, "skin: a well-formed chunk is converted");

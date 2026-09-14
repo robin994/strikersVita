@@ -50,11 +50,13 @@ static void skin_swap_payload(uint8_t* data, uint32_t size, uint32_t type)
     }
 }
 
-// outerChunk is the 0x1B008 chunk, headers already in host order. Returns payloads converted;
-// 0 means a child is sized or aligned past its end and the chunk is not to be read.
+// Convert a copied raw big-endian 0x1B008 SKIN chunk into a retained host-order copy.
+// The source .glg stays immutable; glx_MakeSkinMesh parses this copy with
+// unaligned-safe host-order reads rather than relying on native struct alignment.
 unsigned long port_skin_swap(void* outerChunk)
 {
     uint8_t* base = (uint8_t*)outerChunk;
+    uint32_t outerId;
     uint32_t outerSize;
     uint8_t* p;
     uint8_t* end;
@@ -63,29 +65,41 @@ unsigned long port_skin_swap(void* outerChunk)
     if (outerChunk == NULL)
         return 0;
 
-    memcpy(&outerSize, base + 4, 4);
+    outerId = port_be32(base + 0);
+    outerSize = port_be32(base + 4);
+    if ((outerId & ~0x7F000000u) != 0x8001B008u)
+        return 0;
     p = base + 8;
     end = p + outerSize;
 
-    while (p + 8 <= end)
+    /* Publish the outer header in host order only in this private copy. */
+    memcpy(base + 0, &outerId, 4);
+    memcpy(base + 4, &outerSize, 4);
+
+    while (p < end)
     {
         uint32_t id, size;
         uint8_t* data;
         unsigned long len;
 
-        memcpy(&id, p, 4);
-        memcpy(&size, p + 4, 4);
+        if ((unsigned long)(end - p) < 8)
+            return 0;
+        id = port_be32(p + 0);
+        size = port_be32(p + 4);
         if (size > (uint32_t)(end - p - 8) || ((id & 0x7F000000u) >> 24) > 16)
             return 0;
 
-        // The payload length, not the chunk size: the alignment padding is inside the size.
         data = port_chunk_payload(p, id, size, &len);
         if (data == NULL)
             return 0;
         skin_swap_payload(data, (uint32_t)len, id & ~0x7F000000u);
+
+        /* Publish only this private child header in host order. */
+        memcpy(p + 0, &id, 4);
+        memcpy(p + 4, &size, 4);
         n++;
         p += 8 + size;
     }
 
-    return n;
+    return p == end ? n : 0;
 }
