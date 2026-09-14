@@ -4,6 +4,8 @@
 #include "NL/nlDebug.h"
 #include "NL/nlMemory.h"
 
+#include <string.h>
+
 /**
  * Offset/Address/Size: 0x68C | 0x802137D4 | size: 0x4C
  */
@@ -18,46 +20,100 @@ InterpreterCore::InterpreterCore(unsigned int size)
  */
 InterpreterCore::~InterpreterCore()
 {
+    if (m_Header != NULL)
+    {
+        nlFree(m_Header);
+        m_Header = NULL;
+    }
     nlFree(m_StackSegment);
 }
 
 /**
  * Offset/Address/Size: 0x5A4 | 0x802136EC | size: 0x88
  */
-void InterpreterCore::LoadByteCode(void* data)
+bool InterpreterCore::LoadByteCode(const void* data, unsigned long size)
 {
-    // PORT: the on-disc header is 0x24 bytes (five u32s plus four 4-byte pointer slots patched in at load) and is big-endian. sizeof() is 56 here.
+    static const unsigned long kDiskHeaderSize = 0x24;
+    if (data == NULL || size < kDiskHeaderSize)
+        return false;
+
+    const u8* raw = (const u8*)data;
+    const u32 signature = port_be32(raw + 0x00);
+    const u32 numFunctions = port_be32(raw + 0x04);
+    const u32 dataSegmentSize = port_be32(raw + 0x08);
+    const u32 codeSegmentSize = port_be32(raw + 0x0C);
+    const u32 stringSegmentSize = port_be32(raw + 0x10);
+
+    if ((dataSegmentSize & 3u) != 0 || (codeSegmentSize & 1u) != 0)
+        return false;
+
+    const u64 functionBytes64 = (u64)numFunctions * sizeof(FunctionEntryPoint);
+    const u64 diskSize64 = (u64)kDiskHeaderSize + functionBytes64 +
+                                dataSegmentSize + codeSegmentSize + stringSegmentSize;
+    if (functionBytes64 > 0xFFFFFFFFu || diskSize64 > size)
+        return false;
+
+    const unsigned long functionBytes = (unsigned long)functionBytes64;
+    const u8* rawFunctions = raw + kDiskHeaderSize;
+    const u8* rawData = rawFunctions + functionBytes;
+    const u8* rawCode = rawData + dataSegmentSize;
+    const u8* rawStrings = rawCode + codeSegmentSize;
+
+    u32 previousHash = 0;
+    for (u32 i = 0; i < numFunctions; ++i)
     {
-        const u8* raw = (const u8*)data;
-        // PORT: one per load. Several interpreters are alive at once.
-        ByteCodeHeader& s_header =
-            *(ByteCodeHeader*)nlMalloc(sizeof(ByteCodeHeader), 8, false);
-
-        s_header.signature = port_be32(raw + 0x00);
-        s_header.numFunctions = port_be32(raw + 0x04);
-        s_header.dataSegmentSize = port_be32(raw + 0x08);
-        s_header.codeSegmentSize = port_be32(raw + 0x0C);
-        s_header.stringSegmentSize = port_be32(raw + 0x10);
-
-        u8* body = (u8*)data + 0x24;      // on-disc header size, not sizeof()
-        s_header.m_FunctionTable = (FunctionEntryPoint*)body;
-        // {hash, offset} pairs: same 8 bytes either way, so swap in place.
-        port_be32_array(body, (unsigned long)s_header.numFunctions * 2);
-
-        s_header.m_DataSegment =
-            (u32*)(s_header.m_FunctionTable + s_header.numFunctions);
-        port_be32_array(s_header.m_DataSegment, s_header.dataSegmentSize / 4);
-
-        s_header.m_CodeSegment =
-            (u16*)((u8*)s_header.m_DataSegment + s_header.dataSegmentSize);
-        // The instruction stream is 16-bit, Step() reads `*m_IP`, so it swaps as halfwords, not words.
-        port_be16_array(s_header.m_CodeSegment, s_header.codeSegmentSize / 2);
-
-        s_header.m_StringSegment =
-            (u8*)s_header.m_CodeSegment + s_header.codeSegmentSize;
-
-        m_Header = &s_header;
+        const u32 hash = port_be32(rawFunctions + i * sizeof(FunctionEntryPoint));
+        const u32 offset = port_be32(rawFunctions + i * sizeof(FunctionEntryPoint) + 4);
+        if (offset >= codeSegmentSize || (offset & 1u) != 0)
+            return false;
+        if (i != 0 && hash < previousHash)
+            return false;
+        previousHash = hash;
     }
+
+    const u64 hostSize64 = (u64)sizeof(ByteCodeHeader) + functionBytes64 +
+                                dataSegmentSize + codeSegmentSize + stringSegmentSize;
+    if (hostSize64 > 0xFFFFFFFFu)
+        return false;
+
+    u8* host = (u8*)nlMalloc((unsigned long)hostSize64, 8, false);
+    if (host == NULL)
+        return false;
+
+    ByteCodeHeader* header = (ByteCodeHeader*)host;
+    u8* cursor = host + sizeof(ByteCodeHeader);
+    header->signature = signature;
+    header->numFunctions = numFunctions;
+    header->dataSegmentSize = dataSegmentSize;
+    header->codeSegmentSize = codeSegmentSize;
+    header->stringSegmentSize = stringSegmentSize;
+    header->m_FunctionTable = (FunctionEntryPoint*)cursor;
+
+    for (u32 i = 0; i < numFunctions; ++i)
+    {
+        header->m_FunctionTable[i].hash =
+            port_be32(rawFunctions + i * sizeof(FunctionEntryPoint));
+        header->m_FunctionTable[i].offset =
+            port_be32(rawFunctions + i * sizeof(FunctionEntryPoint) + 4);
+    }
+    cursor += functionBytes;
+
+    header->m_DataSegment = (u32*)cursor;
+    for (u32 i = 0; i < dataSegmentSize / 4; ++i)
+        header->m_DataSegment[i] = port_be32(rawData + i * 4);
+    cursor += dataSegmentSize;
+
+    header->m_CodeSegment = (u16*)cursor;
+    for (u32 i = 0; i < codeSegmentSize / 2; ++i)
+        header->m_CodeSegment[i] = port_be16(rawCode + i * 2);
+    cursor += codeSegmentSize;
+
+    header->m_StringSegment = cursor;
+    memcpy(header->m_StringSegment, rawStrings, stringSegmentSize);
+
+    if (m_Header != NULL)
+        nlFree(m_Header);
+    m_Header = header;
 
     m_SP = m_StackSegment;
     m_SavedSP = m_SP;
@@ -65,6 +121,7 @@ void InterpreterCore::LoadByteCode(void* data)
     m_BP = m_SP;
 
     m_RunState = 0;
+    return true;
 }
 
 /**
@@ -72,7 +129,11 @@ void InterpreterCore::LoadByteCode(void* data)
  */
 void InterpreterCore::CallFunction(unsigned long hash)
 {
+    if (m_Header == NULL)
+        return;
     FunctionEntryPoint* fnc_ptr = (FunctionEntryPoint*)nlBSearch<FunctionEntryPoint, u32>(hash, m_Header->m_FunctionTable, m_Header->numFunctions);
+    if (fnc_ptr == NULL)
+        return;
     m_IP = (u16*)((u8*)m_Header->m_CodeSegment + fnc_ptr->offset);
 
     m_SP = m_StackSegment;
@@ -102,6 +163,8 @@ void InterpreterCore::CallFunction(unsigned long hash)
  */
 void InterpreterCore::CallFunctionAt(unsigned long offset)
 {
+    if (m_Header == NULL || offset >= m_Header->codeSegmentSize || (offset & 1u) != 0)
+        return;
     m_IP = (u16*)((u8*)m_Header->m_CodeSegment + offset);
     m_SP = m_StackSegment;
     m_SavedSP = m_SP;
@@ -130,6 +193,8 @@ void InterpreterCore::CallFunctionAt(unsigned long offset)
  */
 bool InterpreterCore::FunctionExists(unsigned long hash)
 {
+    if (m_Header == NULL)
+        return false;
     FunctionEntryPoint* pEntry;
     ByteCodeHeader* pHeader;
 

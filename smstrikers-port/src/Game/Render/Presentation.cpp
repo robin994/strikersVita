@@ -94,7 +94,7 @@ Presentation::Presentation()
     mGoalQuality = HIGHLIGHT_QUALITY_EMPTY;
     unsigned long fileSize = 0;
     void* byteCode = nlLoadEntireFile("art/presentation/presentation.byte_code", &fileSize, 0x20, AllocateStart);
-    LoadByteCode(byteCode);
+    LoadByteCode(byteCode, fileSize);
     nlStrNCpy<char>(mCurrentFunction, idleFun, 64);
     mIsAllowedToSkip[0] = true;
     mIsAllowedToSkip[1] = true;

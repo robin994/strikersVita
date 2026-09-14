@@ -33,7 +33,7 @@ public:
     /* 0x08 */ virtual ~InterpreterCore();
     /* 0x0C */ virtual void DoFunctionCall(unsigned int) = 0;
 
-    void LoadByteCode(void* data);
+    bool LoadByteCode(const void* data, unsigned long size);
     void CallFunction(unsigned long hash);
     void CallFunctionAt(unsigned long offset);
     bool FunctionExists(unsigned long hash);

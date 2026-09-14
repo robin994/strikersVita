@@ -44,6 +44,8 @@ public:
 u8 AnimTagScriptInterpreter::SetupAnimationTriggers(const char* TriggerFileName, cInventory<cSAnim>* pAnimInventory)
 {
     BinaryTriggerFile file(TriggerFileName);
+    if (file.m_pFileData == NULL)
+        return 0;
 
     for (nlListIterator<cSAnim*> iterator = pAnimInventory->Begin(); iterator.IsValid(); iterator.Next())
     {
@@ -72,9 +74,23 @@ u8 AnimTagScriptInterpreter::SetupAnimationTriggers(const char* TriggerFileName,
         }
     }
 
-    m_ppBytecode[m_BytecodeCount] = nlMalloc(file.m_FileSize - ((uintptr_t)((u8*)file.m_pFileData + file.m_pFileData->BytecodeOffset) - (uintptr_t)file.m_pFileData), 8, false);
-    memcpy(m_ppBytecode[m_BytecodeCount], (u8*)file.m_pFileData + file.m_pFileData->BytecodeOffset, file.m_FileSize - ((uintptr_t)((u8*)file.m_pFileData + file.m_pFileData->BytecodeOffset) - (uintptr_t)file.m_pFileData));
-    LoadByteCode(m_ppBytecode[m_BytecodeCount]);
+    const unsigned long bytecodeSize = file.m_FileSize - file.m_pFileData->BytecodeOffset;
+    m_ppBytecode[m_BytecodeCount] = nlMalloc(bytecodeSize, 8, false);
+    if (m_ppBytecode[m_BytecodeCount] == NULL)
+    {
+        nlFree(file.m_pFileData);
+        return 0;
+    }
+    memcpy(m_ppBytecode[m_BytecodeCount],
+           (u8*)file.m_pFileData + file.m_pFileData->BytecodeOffset,
+           bytecodeSize);
+    if (!LoadByteCode(m_ppBytecode[m_BytecodeCount], bytecodeSize))
+    {
+        nlFree(m_ppBytecode[m_BytecodeCount]);
+        m_ppBytecode[m_BytecodeCount] = NULL;
+        nlFree(file.m_pFileData);
+        return 0;
+    }
     m_BytecodeCount++;
 
     nlFree(file.m_pFileData);

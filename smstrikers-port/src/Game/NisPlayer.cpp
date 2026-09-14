@@ -134,7 +134,7 @@ NisPlayer::NisPlayer()
 
     unsigned long fileSize = 0;
     byteCode = nlLoadEntireFile("art/presentation/nis_triggers.byte_code", &fileSize, 0x20, AllocateStart);
-    LoadByteCode(byteCode);
+    LoadByteCode(byteCode, fileSize);
     mCamera.m_LetManagerDoUpdate = false;
     mCamera.m_bCyclic = false;
 }

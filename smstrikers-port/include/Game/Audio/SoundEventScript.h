@@ -15,7 +15,7 @@ public:
         pByteCode = NULL;
         unsigned long fileSize = 0;
         pByteCode = nlLoadEntireFile("audio/soundevents.byte_code", &fileSize, 0x20, AllocateStart);
-        LoadByteCode(pByteCode);
+        LoadByteCode(pByteCode, fileSize);
     }
     /* 0x0C */ virtual void DoFunctionCall(unsigned int func);
 
