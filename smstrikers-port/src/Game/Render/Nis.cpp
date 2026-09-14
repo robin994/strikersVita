@@ -2,7 +2,6 @@
 #include "NL/nlWare.h"
 #include "dolphin/os.h"
 #include "port/endian.h"
-extern "C" unsigned long port_cam_swap(void*, unsigned long);
 #include "NL/vmath.h"
 #include "Game/ReplayManager.h"
 #include "Game/NisPlayer.h"
@@ -59,14 +58,21 @@ Nis::Nis(NisHeader& header, char* data, int size)
         mCharacterControllers[i] = NULL;
         mBallId[i] = -1;
     }
-    nlChunk* chunk = (nlChunk*)data;
-    nlChunk* end = (nlChunk*)(data + size);
+    const u8* cursor = (const u8*)data;
+    const u8* end = cursor + size;
     int numAnimations = 0;
-    while (chunk != end)
+    while (cursor < end)
     {
-        // PORT: the file is big-endian and each animation converts its own subtree, so read the header rather than trusting it.
-        const u32 uChunkID = port_be32(&chunk->m_ID) & 0x80FFFFFF;
-        const u32 uChunkSize = port_be32(&chunk->m_Size);
+        PortBEChunkView chunkView;
+        if (!port_be_chunk_read(cursor, end, &chunkView))
+        {
+            OSReport("Error: malformed NIS chunk stream at offset %lu/%d\n",
+                     (unsigned long)(cursor - (const u8*)data), size);
+            break;
+        }
+        cursor = chunkView.next;
+        const u32 uChunkID = chunkView.id & 0x80FFFFFFu;
+        nlChunk* chunk = (nlChunk*)chunkView.raw;
 
         if (uChunkID == 0x80017000)
         {
@@ -110,21 +116,18 @@ Nis::Nis(NisHeader& header, char* data, int size)
         }
         if (uChunkID == 0x80015501)
         {
-            // PORT: nothing else owns these; a chunk the converter refuses would be walked out of bounds.
-            if (port_cam_swap(chunk, uChunkSize + 8) == 0)
+            BasicString<char, Detail::TempStringAllocator> name = Format(BasicString<char, Detail::TempStringAllocator>("{0}_{1}"), mHeader->name, mNumCameras);
+            if (!cAnimCamera::LoadCameraAnimation((nlChunk*)(chunkView.raw + 8),
+                                                  (nlChunk*)chunkView.next,
+                                                  name.c_str(), false))
             {
                 OSReport("Error: NIS camera %lu is not well-formed; skipped\n", (unsigned long)mNumCameras);
             }
             else
             {
-                BasicString<char, Detail::TempStringAllocator> name = Format(BasicString<char, Detail::TempStringAllocator>("{0}_{1}"), mHeader->name, mNumCameras);
-                nlChunk* cameraBegin = (nlChunk*)((char*)chunk + 8);
-                nlChunk* cameraEnd = (nlChunk*)((char*)chunk + uChunkSize + 8);
-                cAnimCamera::LoadCameraAnimation(cameraBegin, cameraEnd, name.c_str(), false);
                 mNumCameras++;
             }
         }
-        chunk = (nlChunk*)((char*)chunk + uChunkSize + 8);
     }
 }
 

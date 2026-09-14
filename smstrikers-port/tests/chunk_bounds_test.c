@@ -8,7 +8,7 @@
 
 #include "port/endian.h"
 
-unsigned long port_cam_swap(void* data, unsigned long size);
+unsigned long port_cam_validate(const void* data, unsigned long size);
 unsigned long port_wld_swap(void* data, unsigned long size);
 unsigned long port_phys_swap(void* data, unsigned long size);
 unsigned long port_skin_swap(void* outerChunk);
@@ -108,7 +108,7 @@ int main(void)
         put32(buf + 8, (16u << 24) | 0x15508);
         put32(buf + 12, 8);
         put32(buf + 16, 1);
-        check(port_cam_swap(buf, 24) == 0, "cam: a chunk aligned past its end refuses the file");
+        check(port_cam_validate(buf, 24) == 0, "cam: a chunk aligned past its end refuses the file");
         check(buf[16] == 0 && buf[19] == 1, "cam: ...and its payload is left alone");
         free(buf);
     }
@@ -119,7 +119,7 @@ int main(void)
         put32(buf + 4, 8);
         put32(buf + 8, 0x15508);
         put32(buf + 12, 0);
-        check(port_cam_swap(buf, 16) == 0, "cam: an empty key-count chunk refuses the file");
+        check(port_cam_validate(buf, 16) == 0, "cam: an empty key-count chunk refuses the file");
         free(buf);
     }
 
@@ -132,7 +132,7 @@ int main(void)
         put32(buf + 16, 2);
         put32(buf + 20, 0x15509);
         put32(buf + 24, 12);
-        check(port_cam_swap(buf, 40) == 0, "cam: a key array shorter than the count refuses the file");
+        check(port_cam_validate(buf, 40) == 0, "cam: a key array shorter than the count refuses the file");
         put32(buf, 0x15501);
         put32(buf + 4, 32);
         put32(buf + 8, 0x15508);
@@ -140,7 +140,7 @@ int main(void)
         put32(buf + 16, 1);
         put32(buf + 20, 0x15509);
         put32(buf + 24, 12);
-        check(port_cam_swap(buf, 40) == 3, "cam: a key array holding the count's keys is accepted");
+        check(port_cam_validate(buf, 40) == 3, "cam: a key array holding the count's keys is accepted");
         free(buf);
     }
 
@@ -150,7 +150,7 @@ int main(void)
         put32(buf + 4, 24);
         put32(buf + 8, 0x15509);
         put32(buf + 12, 16);
-        check(port_cam_swap(buf, 32) == 0, "cam: a file with no key count refuses");
+        check(port_cam_validate(buf, 32) == 0, "cam: a file with no key count refuses");
         free(buf);
     }
 
@@ -160,7 +160,7 @@ int main(void)
         put32(buf + 4, 16);
         put32(buf + 8, 0x15508);
         put32(buf + 12, 4000);
-        check(port_cam_swap(buf, 24) == 0, "cam: a chunk sized past the buffer refuses the file");
+        check(port_cam_validate(buf, 24) == 0, "cam: a chunk sized past the buffer refuses the file");
         free(buf);
     }
 
@@ -171,8 +171,8 @@ int main(void)
         put32(buf + 8, (127u << 24) | 0x15508);
         put32(buf + 12, 8);
         put32(buf + 16, 1);
-        check(port_cam_swap(buf, 24) == 0, "cam: a 127 alignment exponent refuses the file");
-        check(buf[19] == 1, "cam: ...and converts nothing");
+        check(port_cam_validate(buf, 24) == 0, "cam: a 127 alignment exponent refuses the file");
+        check(buf[19] == 1, "cam: ...and leaves source bytes untouched");
         free(buf);
     }
 
@@ -189,9 +189,9 @@ int main(void)
         put32(buf + 28, 24);
         for (i = 0; i < 6; i++)
             put32(buf + 32 + i * 4, i + 1);
-        check(port_cam_swap(buf, 56) == 3, "cam: a well-formed file converts its chunks");
-        check(host32(buf + 32) == 1 && host32(buf + 52) == 6,
-              "cam: the aligned payload is in host order to the chunk's end");
+        check(port_cam_validate(buf, 56) == 3, "cam: a well-formed file validates its chunks");
+        check(port_be32(buf + 32) == 1 && port_be32(buf + 52) == 6,
+              "cam: validation keeps the aligned payload big-endian and immutable");
         
     }
 
@@ -268,7 +268,7 @@ int main(void)
         put32(buf + 16, 0x40000000u);
         put32(buf + 20, 0x15509);
         put32(buf + 24, 12);
-        check(port_cam_swap(buf, 40) == 0, "cam: a count whose byte product would wrap still refuses");
+        check(port_cam_validate(buf, 40) == 0, "cam: a count whose byte product would wrap still refuses");
         free(buf);
     }
 
