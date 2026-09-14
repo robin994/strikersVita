@@ -308,8 +308,9 @@ GLSkinMesh* glx_MakeSkinMesh(nlChunk* outerChunk, glModel* models)
             if (chunkSize < 8)
                 return fail();
             {
-                const u32 packetIndex = port_be32(data + 0);
-                const u32 numPackets = port_be32(data + 4);
+                // Serialized order is packet count first, then packet index.
+                const u32 numPackets = port_be32(data + 0);
+                const u32 packetIndex = port_be32(data + 4);
                 if (numPackets == 0 || packetIndex >= numPackets ||
                     (mesh->stitchArray != NULL && mesh->numPackets != (int)numPackets))
                     return fail();

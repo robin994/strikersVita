@@ -37,8 +37,11 @@ static int skin_validate_payload(const uint8_t* data, uint32_t size, uint32_t ty
         if (size < 8)
             return 0;
         {
-            const uint32_t packetIndex = port_be32(data + 0);
-            const uint32_t numPackets = port_be32(data + 4);
+            // Serialized order is packet count first, then packet index.
+            // The original loader passed data[1] as packetIndex and data[0]
+            // as numPackets to AppendStitchingInfo().
+            const uint32_t numPackets = port_be32(data + 0);
+            const uint32_t packetIndex = port_be32(data + 4);
             return numPackets != 0 && packetIndex < numPackets;
         }
 

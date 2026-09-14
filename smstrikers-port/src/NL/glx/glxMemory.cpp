@@ -268,6 +268,21 @@ bool glxVitaReserveResourceArena()
              reserved >> 10, target >> 10, s_vitaResourceSegmentCount);
     return true;
 }
+
+bool glxVitaResourceArenaOwns(const void* p)
+{
+    const uintptr_t addr = (uintptr_t)p;
+    if (addr == 0)
+        return false;
+
+    for (int i = 0; i < s_vitaResourceSegmentCount; ++i)
+    {
+        const VitaResourceSegment& segment = s_vitaResourceSegments[i];
+        if (addr >= segment.base && addr - segment.base < segment.size)
+            return true;
+    }
+    return false;
+}
 #endif
 
 /**

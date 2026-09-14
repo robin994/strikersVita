@@ -1,4 +1,5 @@
 #include "port/region.h"  // PORT: one binary, three discs
+#include "port/host.h"
 #include "types.h"
 #include "NL/nlBind.h"
 #include "NL/nlFunction.h"
@@ -756,6 +757,18 @@ static void PortPumpAuroraEvents()
 
 int main(int argc, char* argv[])
 {
+#if defined(PORT_VITA)
+    // Keep the Vita diagnostics on the memory card. stderr is deliberately
+    // unbuffered so the last useful line survives a crash or forced exit.
+    char vitaLogDir[64];
+    (void)port_executable_dir(vitaLogDir, sizeof vitaLogDir);
+    if (freopen("ux0:data/strikersVita/runtime.log", "w", stderr) != NULL)
+    {
+        setvbuf(stderr, NULL, _IONBF, 0);
+        fprintf(stderr, "[vita] runtime log started\n");
+    }
+#endif
+
     // PORT: strikers.ini -> environment, before anything reads one.
     {
         const int applied = PortConfigLoad();

@@ -334,10 +334,23 @@ int main(void)
         put32(buf + 4, 16);
         put32(buf + 8, 0x1B010u);
         put32(buf + 12, 8);
-        put32(buf + 16, 3); // packet index
-        put32(buf + 20, 3); // packet count
+        put32(buf + 16, 3); // packet count
+        put32(buf + 20, 3); // packet index
         check(port_skin_validate(buf, 24) == 0,
               "skin: stitching refuses packet index equal to packet count");
+        free(buf);
+    }
+
+    {
+        unsigned char* buf = exact(24);
+        put32(buf + 0, 0x8001B008u);
+        put32(buf + 4, 16);
+        put32(buf + 8, 0x1B010u);
+        put32(buf + 12, 8);
+        put32(buf + 16, 3); // packet count
+        put32(buf + 20, 1); // packet index
+        check(port_skin_validate(buf, 24) == 2,
+              "skin: stitching accepts serialized count/index order");
         free(buf);
     }
 

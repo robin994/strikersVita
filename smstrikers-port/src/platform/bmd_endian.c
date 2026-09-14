@@ -6,6 +6,7 @@
 // size in payload bytes excluding the header.
 
 #include <stdint.h>
+#include <stddef.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -92,9 +93,11 @@ unsigned long port_bmd_stream_count(unsigned long chunkSize)
     return chunkSize / BMD_DISC_STREAM_SIZE;
 }
 
-#pragma pack(push, 1)
-// Mirrors glStateBundle; on disc its last two fields are 4 bytes each, not 8.
-typedef struct
+// Host mirrors used as the conversion destination.  These intentionally do
+// not mirror the packed GameCube byte layout: port_bmd_convert_* reads the
+// serialized offsets explicitly.  In particular the u64 texture state must
+// stay 8-byte aligned on ARM.
+typedef struct __attribute__((aligned(8)))
 {
     uint64_t texturestate;
     uint32_t materialstate;
@@ -127,13 +130,20 @@ typedef struct
     uint8_t beData;    // host-only; see glModelStream in NL/gl/glUserData.h
     uint32_t dataSize; // host-only; the loader fills it in at relocation
 } PortStream;
-#pragma pack(pop)
 
-_Static_assert(sizeof(PortStateBundle) == (sizeof(uintptr_t) == 4 ? 54 : 82),
+_Static_assert(sizeof(PortStateBundle) == (sizeof(uintptr_t) == 4 ? 56 : 88),
                "PortStateBundle must match glStateBundle");
-_Static_assert(sizeof(PortPacket) == (sizeof(uintptr_t) == 4 ? 74 : 114),
+_Static_assert(_Alignof(PortStateBundle) >= 8,
+               "PortStateBundle texturestate must be 8-byte aligned");
+_Static_assert(offsetof(PortStateBundle, texturestate) == 0,
+               "PortStateBundle texturestate offset changed");
+_Static_assert(sizeof(PortPacket) == (sizeof(uintptr_t) == 4 ? 80 : 128),
                "PortPacket must match glModelPacket");
-_Static_assert(sizeof(PortStream) == (sizeof(uintptr_t) == 4 ? 11 : 15),
+_Static_assert(_Alignof(PortPacket) >= 8 && (sizeof(PortPacket) % 8) == 0,
+               "PortPacket array stride must preserve u64 alignment");
+_Static_assert(offsetof(PortPacket, state) == (sizeof(uintptr_t) == 4 ? 16 : 32),
+               "PortPacket state offset changed unexpectedly");
+_Static_assert(sizeof(PortStream) == (sizeof(uintptr_t) == 4 ? 12 : 16),
                "PortStream must match glModelStream");
 
 void port_bmd_convert_packets(void* dst, const void* src, unsigned long count)

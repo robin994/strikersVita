@@ -24,6 +24,7 @@ void* glplatResourceAlloc(unsigned long size, eGLMemory memType);
 bool glxInitMemory();
 #if defined(STRIKERS_VITA)
 bool glxVitaReserveResourceArena();
+bool glxVitaResourceArenaOwns(const void* p);
 #endif
 void glx_FreeMemory1(const char* filename);
 void glx_FreeMemory0();

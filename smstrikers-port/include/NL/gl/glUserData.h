@@ -37,31 +37,28 @@ struct GLViewportUserData
     /* 0x0C */ uintptr_t projection;   // PORT: a matrix handle
 }; // total size: 0x10
 
-#pragma pack(push)
-#pragma pack(1)
 struct glModelStream
 {
-    /* 0x0 */ uintptr_t address;
-    /* 0x4 */ u8 id;
-    /* 0x5 */ u8 stride;
+    uintptr_t address;
+    u8 id;
+    u8 stride;
     // PORT: host-only. 1 = the array is big-endian, i.e. it lives inside a model file.
     u8 beData;
     // PORT: host-only. How many bytes of array there are at `address`, or 0 if nobody knows.
     u32 dataSize;
-}; // total size: 0x6 on disc
+}; // serialized stream records are still 0x06 bytes; the host copy is aligned/padded
 
-struct glModelPacket // size: 0x4A
+struct glModelPacket
 {
-    /* 0x00 */ uintptr_t userData;
-    /* 0x04 */ uintptr_t indexBuffer;
-    /* 0x08 */ u16 numVertices;
-    /* 0x0A */ u8 primType;
-    /* 0x0B */ u8 numStreams;
-    /* 0x0C */ glModelStream* streams;
-    /* 0x10 */ glStateBundle state;
-    /* 0x46 */ u32 materialset;
-}; // total size: 0x4A
-#pragma pack(pop)
+    uintptr_t userData;
+    uintptr_t indexBuffer;
+    u16 numVertices;
+    u8 primType;
+    u8 numStreams;
+    glModelStream* streams;
+    glStateBundle state;
+    u32 materialset;
+}; // serialized packet records are still 0x4A bytes; see bmd_endian.c
 
 bool glUserHasType(eGLUserData type, const glModelPacket* pPacket);
 void glUserDetach(eGLUserData type, glModelPacket* pPacket);

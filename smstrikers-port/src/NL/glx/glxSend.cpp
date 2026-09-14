@@ -1118,7 +1118,15 @@ static inline void glx_SwitchTexture(const glModelPacket* p)
             if (pTex == NULL || pTex->m_bMissingTexture)
             {
                 // PORT: this is the quiet one. The fallback usually resolves, so the frame draws the error texture and nothing says why.
+                // Missing model textures are especially destructive on Vita because the
+                // fallback alternates global/white and global/magenta. Keep the existing
+                // opt-in probe on desktop, but always report the bounded unique set on
+                // hardware builds while the native renderer is under active bring-up.
+#if defined(PORT_VITA)
+                static const bool bProbe = true;
+#else
                 static const bool bProbe = getenv("STRIKERS_PROBE_TEX") != NULL;
+#endif
                 if (bProbe)
                 {
                     static unsigned long fbSeen[64];
@@ -2441,6 +2449,62 @@ static void glx_DrawPacket(const glModelPacket* packet)
             }
         }
     }
+
+#if defined(PORT_VITA)
+    {
+        const bool is3DProgram = p->state.program == prog_3d_unlit
+            || p->state.program == prog_3d_unlit_2x
+            || p->state.program == prog_3d_pointlit
+            || p->state.program == prog_3d_pointlit_dirt
+            || p->state.program == prog_3d_crowd
+            || p->state.program == prog_3d_crowd_lit;
+        if (is3DProgram)
+        {
+            static unsigned n3DLogged = 0;
+            const bool isDl = p->indexBuffer != 0 && dlIsDisplayList(p->indexBuffer);
+            const int raster8 = p->indexBuffer != 0
+                ? (int)glGetRasterState(p->state.raster, (eGLState)8)
+                : -1;
+            const char* route = "direct";
+            if (p->indexBuffer != 0)
+            {
+                if (glx_NumIndices == 0)
+                    route = "display-list/no-indexed-streams";
+                else if (glx_CompiledDraw && glx_NumIndices == p->numStreams && isDl)
+                    route = "display-list/compiled";
+                else if (glx_AllowUncompiledDraws && raster8 != 1)
+                    route = "immediate-fallback";
+                else
+                    route = "SKIPPED";
+            }
+
+            if (n3DLogged < 32 || route[0] == 'S')
+            {
+                if (n3DLogged < 64)
+                {
+                    ++n3DLogged;
+                    OSReport("[vita3d] f=%lu prog=%u prim=%u verts=%u streams=%u "
+                             "gxidx=%lu idx=%p dl=%d dlsz=%lu raster8=%d route=%s\n",
+                             (unsigned long)glGetCurrentFrame(),
+                             (unsigned)p->state.program, (unsigned)p->primType,
+                             (unsigned)p->numVertices, (unsigned)p->numStreams,
+                             (unsigned long)glx_NumIndices, (void*)p->indexBuffer,
+                             isDl ? 1 : 0,
+                             isDl ? (unsigned long)dlGetSize(p->indexBuffer) : 0ul,
+                             raster8, route);
+                    for (unsigned s = 0; p->streams != NULL && s < p->numStreams && s < 8; ++s)
+                    {
+                        const glModelStream* st = &p->streams[s];
+                        OSReport("[vita3d]   s%u id=%u stride=%u be=%u size=%u addr=%p\n",
+                                 s, (unsigned)st->id, (unsigned)st->stride,
+                                 (unsigned)st->beData, (unsigned)st->dataSize,
+                                 (void*)st->address);
+                    }
+                }
+            }
+        }
+    }
+#endif
 
     if (p->indexBuffer == 0)
     {

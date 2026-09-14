@@ -16,6 +16,7 @@ extern "C" int port_region_owns(const void*);  // src/platform/memalloc.cpp
 #include "NL/nlFileGC.h"
 #include "NL/gl/glTexture.h"
 #include "NL/gl/glMemory.h"
+#include "NL/glx/glxMemory.h"
 #include "NL/gc/gcSwizzler.h"
 #include "dolphin/gx/GXTexture.h"
 #include "Game/GL/GLInventory.h"
@@ -233,7 +234,11 @@ PlatTexture* glx_GetTex(uintptr_t handle, bool bMissingFatal, bool bAllowGrids)
     int index;
 
     // PORT: was `(handle & 0xFF000000) + 0x80000000 == 0`, cached MEM1 in the console memory map.
-    if (port_region_owns((const void*)handle))
+    bool directPointer = port_region_owns((const void*)handle) != 0;
+#if defined(STRIKERS_VITA)
+    directPointer = directPointer || glxVitaResourceArenaOwns((const void*)handle);
+#endif
+    if (directPointer)
     {
         // PORT: and `*(unsigned long*)handle` read four bytes on console and reads eight here.
         if (*(const u32*)handle == 0x50544558)
