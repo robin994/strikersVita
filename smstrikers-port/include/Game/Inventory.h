@@ -48,8 +48,9 @@ public:
                 break;
             }
 
-            // Save the step before Initialize(): hierarchy/animation loaders
-            // endian-convert this chunk tree in place.
+            // Save the serialized step before Initialize(). Host parsers may
+            // retain/decode this chunk, but traversal remains driven by the
+            // immutable GameCube header rather than any host representation.
             const unsigned long step = uSize + sizeof(nlChunk);
 
             if (T::IsValidChunkID(rawID & 0x80FFFFFF))

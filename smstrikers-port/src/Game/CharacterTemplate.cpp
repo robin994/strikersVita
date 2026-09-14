@@ -226,17 +226,13 @@ void CharacterLoadingGuts(tCharacterTemplate* pCharacterTemplate, const tCharact
     glModel* pRigidCharacterModel = glLoadModel(charTemplateInfo.szModelFilename, NULL);
     glModel* pBlendCharacterModel = glLoadModel(charTemplateInfo.szBlendedModelFilename, NULL);
 
-    // PORT: malformed/unsupported BMD data must not turn into a null + 4 data
-    // abort here. Keep loading the non-render state so the BMD validator can
-    // report the exact offending chunk instead of hiding it behind a crash.
     pCharacterTemplate->nCharacterModelID[0] =
         pRigidCharacterModel != NULL ? pRigidCharacterModel->id : 0;
     pCharacterTemplate->nCharacterModelID[1] =
         pBlendCharacterModel != NULL ? pBlendCharacterModel->id : 0;
     if (pRigidCharacterModel == NULL || pBlendCharacterModel == NULL)
     {
-        OSReport("[character] model load failed class=%d rigid=%s (%p) blend=%s (%p); "
-                 "rendering disabled for missing model(s)\n",
+        OSReport("[character] model load failed class=%d rigid=%s (%p) blend=%s (%p)\n",
                  (int)cc, charTemplateInfo.szModelFilename, (void*)pRigidCharacterModel,
                  charTemplateInfo.szBlendedModelFilename, (void*)pBlendCharacterModel);
     }
@@ -247,10 +243,6 @@ void CharacterLoadingGuts(tCharacterTemplate* pCharacterTemplate, const tCharact
     if (!bForViewer)
     {
         CharacterPhysicsData* pPhys = new (nlMalloc(sizeof(CharacterPhysicsData), 8, false)) CharacterPhysicsData();
-        // PORT: CharacterPhysicsData has no constructor for these fields. If a
-        // malformed/truncated .cph is rejected, leaving them uninitialized makes
-        // the next AddBoneVolumes walk arbitrary memory. An invalid physics file
-        // therefore degrades to zero bone volumes instead of a later ARM abort.
         pPhys->physicsElementCount = 0;
         pPhys->pPhysicsElements = NULL;
         pCharacterTemplate->pPhysicsData = pPhys;
@@ -322,11 +314,6 @@ static char* GetCharacterTriggerFileName(eCharacterClass cc)
     return (char*)g_GoalieTemplateInfo.szTriggerFilename;
 }
 
-// PORT: hierarchy bundles used by characters contain one logical hierarchy.
-// The on-disc cIdentifier hash does not always match the lookup string after
-// conversion, but passing a failed lookup through to cPoseAccumulator turns a
-// harmless name mismatch into a null+8 ARM data abort. Prefer the named item;
-// if the inventory contains exactly one hierarchy, that item is unambiguous.
 /**
  * Offset/Address/Size: 0x1ABC | 0x80013DA4 | size: 0x240
  */

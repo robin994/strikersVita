@@ -1,5 +1,6 @@
-// Byte-swap pass for BMD models: glxLoadModel walks the file in place, so the chunk tree is
-// converted before it sees it and payloads per type as it reaches them.
+// Immutable validator plus host-layout conversion helpers for BMD models.
+// The serialized GameCube chunk tree stays big-endian; runtime loaders decode
+// format-defined fields into host-owned structures instead of rewriting it.
 
 // nlChunk header: u32 ID, type in the low 24 bits and payload alignment in bits 24..30, then u32
 // size in payload bytes excluding the header.
@@ -9,8 +10,6 @@
 #include <string.h>
 
 #include "port/endian.h"
-
-void OSReport(const char* msg, ...);
 
 static int chunk_is_container(uint32_t type)
 {
@@ -30,70 +29,48 @@ static int chunk_is_container(uint32_t type)
     // Animation retargeting (.rtg), from AnimRetargetList::IsValidChunkID
     case 0x17104:  // retarget list: the list, the retarget array, then one
                    // bone-map chunk per retarget
-    case 0x17106:  // retarget entries container: 0x17107 record + 0x17108 map pairs
         return 1;
     default:
         return 0;
     }
 }
 
-// Adds the chunks converted to *n. Returns 0 on a chunk sized past its container, an aligned
-// payload past the chunk's own end (GetData applies the id's alignment), or a tree deeper than
-// any real file; the game's own walk would read past the buffer on any of them.
-static int swap_range(uint8_t* base, uint8_t* p, uint8_t* end, int depth, unsigned long* n)
+// Adds validated chunks to *n. Container children start immediately after the
+// nlChunk header, matching the original format grammar; alignment applies to
+// leaf payload access, not to where nested child headers begin.
+static int validate_range(const uint8_t* p, const uint8_t* end,
+                          int depth, unsigned long* n)
 {
     if (depth > 8)
-    {
-        OSReport("[bmd] invalid tree: depth=%d offset=%#lx\n",
-                 depth, (unsigned long)(p - base));
         return 0;
-    }
 
-    while (p + 8 <= end)
+    while (p < end)
     {
-        uint32_t id = port_be32(p);
-        uint32_t size = port_be32(p + 4);
-        unsigned long len;
-        const uint32_t remaining = (uint32_t)(end - p - 8);
-        const unsigned shift = (id & 0x7F000000u) >> 24;
+        PortBEChunkView view;
 
-        if (size > remaining)
-        {
-            OSReport("[bmd] invalid chunk: offset=%#lx depth=%d id=%#x size=%#x "
-                     "remaining=%#x align=2^%u reason=size\n",
-                     (unsigned long)(p - base), depth, id, size, remaining, shift);
+        if (!port_be_chunk_read(p, end, &view))
             return 0;
-        }
 
-        if (port_chunk_payload(p, id, size, &len) == NULL)
-        {
-            OSReport("[bmd] invalid chunk: offset=%#lx depth=%d id=%#x size=%#x "
-                     "remaining=%#x align=2^%u reason=payload-alignment\n",
-                     (unsigned long)(p - base), depth, id, size, remaining, shift);
-            return 0;
-        }
-
-        memcpy(p, &id, 4);          // now in host order for the loader
-        memcpy(p + 4, &size, 4);
         (*n)++;
 
-        if (chunk_is_container(id & 0x00FFFFFFu)
-            && !swap_range(base, p + 8, p + 8 + size, depth + 1, n))
+        if (chunk_is_container(view.id & 0x00FFFFFFu)
+            && !validate_range(view.raw + 8, view.next, depth + 1, n))
             return 0;
 
-        p += 8 + size;
+        p = view.next;
     }
-    return 1;
+    return p == end;
 }
 
-// Called before anything inspects a chunk-format asset; serves .sanim too, same nlChunk layout.
-// Returns the number of chunks converted; 0 means the tree is not to be walked.
-unsigned long port_bmd_swap_headers(void* data, unsigned long size)
+// Test/debug validator for nlChunk-format assets that share this container
+// grammar. Returns the number of chunks observed, zero on malformed input.
+unsigned long port_bmd_validate(const void* data, unsigned long size)
 {
     unsigned long n = 0;
     if (data == NULL || size < 8)
         return 0;
-    return swap_range((uint8_t*)data, (uint8_t*)data, (uint8_t*)data + size, 0, &n) ? n : 0;
+    return validate_range((const uint8_t*)data,
+                          (const uint8_t*)data + size, 0, &n) ? n : 0;
 }
 
 // Packet and stream conversion: these records hold 4-byte disc pointers and 8-byte host ones, so

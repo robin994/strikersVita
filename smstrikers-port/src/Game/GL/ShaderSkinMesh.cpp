@@ -51,6 +51,9 @@ ShaderSkinMesh::~ShaderSkinMesh()
     delete[] morphNumDeltas;
     delete[] morphData;
     delete[] morphIDs;
+    if (softwareVertices != NULL)
+        nlFree(softwareVertices);
+    softwareVertices = NULL;
 
     if (boneMaps != nullptr)
     {
@@ -63,12 +66,29 @@ ShaderSkinMesh::~ShaderSkinMesh()
 
     if (skinPairs != nullptr)
     {
+        SkinPairList* current = skinPairs->m_next;
+        for (;;)
+        {
+            SkinPairList* next = current->m_next;
+            if (current->pairs != NULL)
+                nlFree(current->pairs);
+            current->pairs = NULL;
+            if (current == skinPairs)
+                break;
+            current = next;
+        }
         nlDeleteRing<SkinPairList>(&skinPairs);
     }
 
     if (stitchArray != nullptr)
     {
-        delete[] stitchArray;
+        for (int i = 0; i < numPackets; ++i)
+        {
+            if (stitchArray[i] != NULL)
+                nlFree(stitchArray[i]);
+        }
+        nlFree(stitchArray);
+        stitchArray = NULL;
     }
 }
 
@@ -81,8 +101,12 @@ void ShaderSkinMesh::SetMorphIDs(const u32* ids)
     {
         delete[] morphIDs;
     }
+    morphIDs = NULL;
+    if (numMorphs <= 0)
+        return;
     morphIDs = (u32*)nlMalloc(numMorphs * sizeof(u32), 8, false);
-    memcpy(morphIDs, ids, numMorphs * sizeof(u32));
+    if (morphIDs != NULL)
+        memcpy(morphIDs, ids, numMorphs * sizeof(u32));
 }
 
 /**
@@ -290,22 +314,23 @@ void ShaderSkinMesh::PrepareToRender(unsigned long flags, const nlMatrix4* pMatr
 void ShaderSkinMesh::AppendSkinPairList(int numPairs, const SkinPair* pairs)
 {
     SkinPairList* node = (SkinPairList*)nlMalloc(sizeof(SkinPairList), 8, false);
+    if (node == nullptr)
+        return;
 
-    if (node != nullptr)
-    {
-        node->pairs = nullptr;
-        node->m_next = nullptr;
-    }
+    node->pairs = nullptr;
+    node->m_next = nullptr;
 
     node->num = numPairs;
 
-    if (numPairs == 0)
+    if (numPairs > 0)
     {
-        node->pairs = nullptr;
-    }
-    else
-    {
-        node->pairs = (SkinPair*)pairs;
+        node->pairs = (SkinPair*)nlMalloc(numPairs * sizeof(SkinPair), 8, false);
+        if (node->pairs == NULL)
+        {
+            nlFree(node);
+            return;
+        }
+        memcpy(node->pairs, pairs, numPairs * sizeof(SkinPair));
     }
 
     nlRingAddEnd<SkinPairList>(&skinPairs, node);
@@ -316,8 +341,18 @@ void ShaderSkinMesh::AppendSkinPairList(int numPairs, const SkinPair* pairs)
  */
 void ShaderSkinMesh::SetSoftwareVertices(int num, const SkinVertex* skinVertices)
 {
+    if (softwareVertices != NULL)
+        nlFree(softwareVertices);
+    softwareVertices = NULL;
     numSoftwareVerts = num;
-    softwareVertices = (SkinVertex*)skinVertices;
+    if (num > 0)
+    {
+        softwareVertices = (SkinVertex*)nlMalloc(num * sizeof(SkinVertex), 8, false);
+        if (softwareVertices != NULL)
+            memcpy(softwareVertices, skinVertices, num * sizeof(SkinVertex));
+        else
+            numSoftwareVerts = 0;
+    }
 }
 
 /**
@@ -327,14 +362,31 @@ void ShaderSkinMesh::AppendStitchingInfo(int packetIndex, int _numPackets, int n
 {
     if (stitchArray == NULL)
     {
+        if (_numPackets <= 0 || packetIndex < 0 || packetIndex >= _numPackets)
+            return;
         numPackets = _numPackets;
         stitchArray = (unsigned char**)nlMalloc(numPackets * sizeof(unsigned char*), 8, false);
+        if (stitchArray == NULL)
+        {
+            numPackets = 0;
+            return;
+        }
         memset(stitchArray, 0, numPackets * sizeof(unsigned char*));
+    }
+    else if (_numPackets != numPackets || packetIndex < 0 || packetIndex >= numPackets)
+    {
+        return;
     }
 
     if (num > 0)
     {
-        stitchArray[packetIndex] = (unsigned char*)pIndices;
+        unsigned char* copy = (unsigned char*)nlMalloc(num, 8, false);
+        if (copy == NULL)
+            return;
+        memcpy(copy, pIndices, num);
+        if (stitchArray[packetIndex] != NULL)
+            nlFree(stitchArray[packetIndex]);
+        stitchArray[packetIndex] = copy;
     }
 }
 
@@ -446,8 +498,12 @@ void ShaderSkinMesh::SetMorphNumDeltas(const u32* numDeltas)
     {
         delete[] morphNumDeltas;
     }
+    morphNumDeltas = NULL;
+    if (numMorphs <= 0)
+        return;
     morphNumDeltas = (u32*)nlMalloc(numMorphs * sizeof(u32), 8, false);
-    memcpy(morphNumDeltas, numDeltas, numMorphs * sizeof(u32));
+    if (morphNumDeltas != NULL)
+        memcpy(morphNumDeltas, numDeltas, numMorphs * sizeof(u32));
 }
 
 /**
@@ -459,6 +515,10 @@ void ShaderSkinMesh::SetMorphDeltas(int numDeltas, const MorphDelta* p)
     {
         delete[] morphData;
     }
+
+    morphData = NULL;
+    if (numDeltas <= 0)
+        return;
 
     unsigned int largestBlock = nlVirtualLargestBlock();
     unsigned long size = numDeltas * sizeof(MorphDelta);
@@ -474,5 +534,6 @@ void ShaderSkinMesh::SetMorphDeltas(int numDeltas, const MorphDelta* p)
     }
 
     morphData = newData;
-    memcpy(morphData, p, size);
+    if (morphData != NULL)
+        memcpy(morphData, p, size);
 }

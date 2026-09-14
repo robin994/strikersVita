@@ -8,11 +8,11 @@
 
 #include "port/endian.h"
 
-unsigned long port_cam_swap(void* data, unsigned long size);
-unsigned long port_wld_swap(void* data, unsigned long size);
-unsigned long port_phys_swap(void* data, unsigned long size);
-unsigned long port_skin_swap(void* outerChunk);
-unsigned long port_bmd_swap_headers(void* data, unsigned long size);
+unsigned long port_cam_validate(const void* data, unsigned long size);
+unsigned long port_wld_validate(const void* data, unsigned long size);
+unsigned long port_phys_validate(const void* data, unsigned long size);
+unsigned long port_skin_validate(const void* outerChunk, unsigned long size);
+unsigned long port_bmd_validate(const void* data, unsigned long size);
 
 static int failures;
 
@@ -108,7 +108,7 @@ int main(void)
         put32(buf + 8, (16u << 24) | 0x15508);
         put32(buf + 12, 8);
         put32(buf + 16, 1);
-        check(port_cam_swap(buf, 24) == 0, "cam: a chunk aligned past its end refuses the file");
+        check(port_cam_validate(buf, 24) == 0, "cam: a chunk aligned past its end refuses the file");
         check(buf[16] == 0 && buf[19] == 1, "cam: ...and its payload is left alone");
         free(buf);
     }
@@ -119,7 +119,7 @@ int main(void)
         put32(buf + 4, 8);
         put32(buf + 8, 0x15508);
         put32(buf + 12, 0);
-        check(port_cam_swap(buf, 16) == 0, "cam: an empty key-count chunk refuses the file");
+        check(port_cam_validate(buf, 16) == 0, "cam: an empty key-count chunk refuses the file");
         free(buf);
     }
 
@@ -132,7 +132,7 @@ int main(void)
         put32(buf + 16, 2);
         put32(buf + 20, 0x15509);
         put32(buf + 24, 12);
-        check(port_cam_swap(buf, 40) == 0, "cam: a key array shorter than the count refuses the file");
+        check(port_cam_validate(buf, 40) == 0, "cam: a key array shorter than the count refuses the file");
         put32(buf, 0x15501);
         put32(buf + 4, 32);
         put32(buf + 8, 0x15508);
@@ -140,7 +140,7 @@ int main(void)
         put32(buf + 16, 1);
         put32(buf + 20, 0x15509);
         put32(buf + 24, 12);
-        check(port_cam_swap(buf, 40) == 3, "cam: a key array holding the count's keys is accepted");
+        check(port_cam_validate(buf, 40) == 3, "cam: a key array holding the count's keys is accepted");
         free(buf);
     }
 
@@ -150,7 +150,7 @@ int main(void)
         put32(buf + 4, 24);
         put32(buf + 8, 0x15509);
         put32(buf + 12, 16);
-        check(port_cam_swap(buf, 32) == 0, "cam: a file with no key count refuses");
+        check(port_cam_validate(buf, 32) == 0, "cam: a file with no key count refuses");
         free(buf);
     }
 
@@ -160,7 +160,7 @@ int main(void)
         put32(buf + 4, 16);
         put32(buf + 8, 0x15508);
         put32(buf + 12, 4000);
-        check(port_cam_swap(buf, 24) == 0, "cam: a chunk sized past the buffer refuses the file");
+        check(port_cam_validate(buf, 24) == 0, "cam: a chunk sized past the buffer refuses the file");
         free(buf);
     }
 
@@ -171,8 +171,8 @@ int main(void)
         put32(buf + 8, (127u << 24) | 0x15508);
         put32(buf + 12, 8);
         put32(buf + 16, 1);
-        check(port_cam_swap(buf, 24) == 0, "cam: a 127 alignment exponent refuses the file");
-        check(buf[19] == 1, "cam: ...and converts nothing");
+        check(port_cam_validate(buf, 24) == 0, "cam: a 127 alignment exponent refuses the file");
+        check(buf[19] == 1, "cam: ...and leaves source bytes untouched");
         free(buf);
     }
 
@@ -189,9 +189,9 @@ int main(void)
         put32(buf + 28, 24);
         for (i = 0; i < 6; i++)
             put32(buf + 32 + i * 4, i + 1);
-        check(port_cam_swap(buf, 56) == 3, "cam: a well-formed file converts its chunks");
-        check(host32(buf + 32) == 1 && host32(buf + 52) == 6,
-              "cam: the aligned payload is in host order to the chunk's end");
+        check(port_cam_validate(buf, 56) == 3, "cam: a well-formed file validates its chunks");
+        check(port_be32(buf + 32) == 1 && port_be32(buf + 52) == 6,
+              "cam: validation keeps the aligned payload big-endian and immutable");
         
     }
 
@@ -202,7 +202,7 @@ int main(void)
         put32(buf + 8, (16u << 24) | 0x19003);
         put32(buf + 12, 8);
         put32(buf + 16, 1);
-        check(port_wld_swap(buf, 24) == 0, "wld: a record aligned past its end refuses the file");
+        check(port_wld_validate(buf, 24) == 0, "wld: a record aligned past its end refuses the file");
         check(buf[19] == 1, "wld: ...and its payload is left alone");
         free(buf);
     }
@@ -215,14 +215,14 @@ int main(void)
         put32(buf + 12, 16);
         put32(buf + 16, (16u << 24) | 0x1D001);
         put32(buf + 20, 8);
-        check(port_wld_swap(buf, 32) == 0, "wld: a bad chunk inside the physics block refuses the file");
+        check(port_wld_validate(buf, 32) == 0, "wld: a bad chunk inside the physics block refuses the file");
         put32(buf, 0x19000);
         put32(buf + 4, 24);
         put32(buf + 8, 0x1D000);
         put32(buf + 12, 16);
         put32(buf + 16, (16u << 24) | 0x1D001);
         put32(buf + 20, 8);
-        check(port_phys_swap(buf + 8, 24) == 0, "phys: the same block as a file of its own is refused");
+        check(port_phys_validate(buf + 8, 24) == 0, "phys: the same block as a file of its own is refused");
         free(buf);
     }
 
@@ -234,14 +234,16 @@ int main(void)
         put32(buf + 12, 16);
         put32(buf + 16, (127u << 24) | 0x1B00Eu);
         put32(buf + 20, 8);
-        check(port_bmd_swap_headers(buf, 32) == 0, "bmd: an alignment exponent the loader cannot shift by refuses the tree");
+        check(port_bmd_validate(buf, 32) == 0, "bmd: an alignment exponent the loader cannot shift by refuses the tree");
         put32(buf, 0x8001B000u);
         put32(buf + 4, 24);
         put32(buf + 8, 0x8001B008u);
         put32(buf + 12, 16);
         put32(buf + 16, (3u << 24) | 0x1B00Eu);
         put32(buf + 20, 8);
-        check(port_bmd_swap_headers(buf, 32) == 3, "bmd: an 8-byte alignment is accepted");
+        check(port_bmd_validate(buf, 32) == 3, "bmd: an 8-byte alignment is accepted");
+        check(port_be32(buf) == 0x8001B000u && port_be32(buf + 8) == 0x8001B008u,
+              "bmd: validation keeps nested headers big-endian and immutable");
         free(buf);
     }
 
@@ -251,12 +253,12 @@ int main(void)
         put32(buf + 4, 20);
         put32(buf + 8, (5u << 24) | 0x1B004u);
         put32(buf + 12, 12);
-        check(port_bmd_swap_headers(buf, 28) == 0, "bmd: an aligned payload past the chunk's end refuses the tree");
+        check(port_bmd_validate(buf, 28) == 0, "bmd: an aligned payload past the chunk's end refuses the tree");
         put32(buf, 0x8001B000u);
         put32(buf + 4, 40);
         put32(buf + 8, (5u << 24) | 0x1B004u);
         put32(buf + 12, 32);
-        check(port_bmd_swap_headers(buf, 48) == 2, "bmd: an aligned payload inside the chunk is accepted");
+        check(port_bmd_validate(buf, 48) == 2, "bmd: an aligned payload inside the chunk is accepted");
     }
 
     {
@@ -268,7 +270,7 @@ int main(void)
         put32(buf + 16, 0x40000000u);
         put32(buf + 20, 0x15509);
         put32(buf + 24, 12);
-        check(port_cam_swap(buf, 40) == 0, "cam: a count whose byte product would wrap still refuses");
+        check(port_cam_validate(buf, 40) == 0, "cam: a count whose byte product would wrap still refuses");
         free(buf);
     }
 
@@ -278,12 +280,12 @@ int main(void)
         put32(buf + 4, 16);
         put32(buf + 8, 0x1B002);
         put32(buf + 12, 4000);
-        check(port_bmd_swap_headers(buf, 24) == 0, "bmd: a chunk sized past its container refuses the tree");
+        check(port_bmd_validate(buf, 24) == 0, "bmd: a chunk sized past its container refuses the tree");
         put32(buf, 0x8001B100u);
         put32(buf + 4, 16);
         put32(buf + 8, 0x1B002);
         put32(buf + 12, 8);
-        check(port_bmd_swap_headers(buf, 24) == 2, "bmd: a well-formed tree reports its chunk count");
+        check(port_bmd_validate(buf, 24) == 2, "bmd: a well-formed tree reports its chunk count");
         free(buf);
     }
 
@@ -294,70 +296,77 @@ int main(void)
         put32(buf + 8, (3u << 24) | 0x19001);
         put32(buf + 12, 16);
         put32(buf + 16, 7);
-        check(port_wld_swap(buf, 32) == 2, "wld: a well-formed file converts its chunks");
-        check(host32(buf + 16) == 7, "wld: the aligned count is in host order");
+        check(port_wld_validate(buf, 32) == 2, "wld: a well-formed file validates its chunks");
+        check(port_be32(buf + 16) == 7, "wld: validation keeps the count big-endian and immutable");
         
     }
 
-    // SKIN conversion now receives a private copy of the untouched big-endian chunk.
+    // SKIN remains serialized big-endian; validation must never mutate it.
     {
         unsigned char* buf = exact(24);
-        put32(buf + 0, 0x1B008);
+        put32(buf + 0, 0x8001B008u);
         put32(buf + 4, 16);
         put32(buf + 8, (16u << 24) | 0x1B00E);
         put32(buf + 12, 8);
         buf[16] = 0; buf[17] = 1;
-        check(port_skin_swap(buf) == 0, "skin: a child aligned past its end refuses the chunk");
+        check(port_skin_validate(buf, 24) == 0, "skin: a child aligned past its end refuses the chunk");
         check(buf[16] == 0 && buf[17] == 1, "skin: ...and its payload is left alone");
         free(buf);
     }
 
     {
         unsigned char* buf = aligned64();
-        put32(buf + 0, 0x1B008);
+        put32(buf + 0, 0x8001B008u);
         put32(buf + 4, 32);
         put32(buf + 8, (3u << 24) | 0x1B00E);
         put32(buf + 12, 24);
         buf[16] = 0; buf[17] = 1;
         buf[38] = 0; buf[39] = 2;
-        check(port_skin_swap(buf) == 1, "skin: a well-formed chunk is converted");
-        check(buf[16] == 1 && buf[17] == 0 && buf[38] == 2 && buf[39] == 0,
-              "skin: the pairs are in host order to the chunk's end");
+        check(port_skin_validate(buf, 40) == 2, "skin: a well-formed chunk validates");
+        check(buf[16] == 0 && buf[17] == 1 && buf[38] == 0 && buf[39] == 2,
+              "skin: validation keeps pair data big-endian and immutable");
         
     }
 
     {
-        // Retarget files nest the actual record/map chunks inside 0x17106.
-        // Keep this shape covered: leaving those child headers big-endian made
-        // AnimRetargetList treat a 12-byte 0x17107 record as 0x0C000000 bytes.
-        unsigned char buf[0x34];
-        uint32_t v;
-        memset(buf, 0, sizeof buf);
+        unsigned char* buf = exact(24);
+        put32(buf + 0, 0x8001B008u);
+        put32(buf + 4, 16);
+        put32(buf + 8, 0x1B010u);
+        put32(buf + 12, 8);
+        put32(buf + 16, 3); // packet index
+        put32(buf + 20, 3); // packet count
+        check(port_skin_validate(buf, 24) == 0,
+              "skin: stitching refuses packet index equal to packet count");
+        free(buf);
+    }
 
-        v = 0x80017104; put32(buf + 0x00, v);
-        v = 0x2C;       put32(buf + 0x04, v);
-        v = 0x80017106; put32(buf + 0x08, v);
-        v = 0x24;       put32(buf + 0x0C, v);
-        v = 0x00017107; put32(buf + 0x10, v);
-        v = 0x0C;       put32(buf + 0x14, v);
-        v = 0x0F4BE30D; put32(buf + 0x18, v);
-        v = 0x00000004; put32(buf + 0x1C, v);
-        v = 0x00000000; put32(buf + 0x20, v);
-        v = 0x00017108; put32(buf + 0x24, v);
-        v = 0x08;       put32(buf + 0x28, v);
-        buf[0x2C] = 0; buf[0x2D] = 1;
-        buf[0x2E] = 0; buf[0x2F] = 2;
-        buf[0x30] = 0; buf[0x31] = 3;
-        buf[0x32] = 0; buf[0x33] = 4;
+    {
+        unsigned char* buf = exact(100);
+        put32(buf + 0, 0x8001B008u);
+        put32(buf + 4, 92);
+        put32(buf + 8, 0x1B00Cu);
+        put32(buf + 12, 84);
+        put32(buf + 16, 9); // more morphs than morphWeights[8]
+        put32(buf + 20, 1);
+        check(port_skin_validate(buf, 100) == 0,
+              "skin: morph table refuses more than eight morph channels");
+        free(buf);
+    }
 
-        check(port_bmd_swap_headers(buf, sizeof buf) == 4,
-              "retarget: nested 0x17106 child headers are converted");
-        memcpy(&v, buf + 0x14, 4);
-        check(v == 0x0C,
-              "retarget: 0x17107 size is host-order after conversion");
-        memcpy(&v, buf + 0x28, 4);
-        check(v == 0x08,
-              "retarget: 0x17108 size is host-order after conversion");
+    {
+        unsigned char* buf = exact(48);
+        put32(buf + 0, 0x8001B008u);
+        put32(buf + 4, 40);
+        put32(buf + 8, 0x1B00Cu);
+        put32(buf + 12, 32);
+        put32(buf + 16, 0); // num morphs
+        put32(buf + 20, 1); // one base vertex
+        put32(buf + 24, 1); // one delta
+        put32(buf + 40, 1); // delta index == numBaseVerts: OOB
+        check(port_skin_validate(buf, 48) == 0,
+              "skin: morph delta index must stay inside base vertex array");
+        free(buf);
     }
 
     if (failures)

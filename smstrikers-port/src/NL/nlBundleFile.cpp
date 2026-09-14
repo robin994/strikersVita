@@ -4,7 +4,30 @@
 #include <stdlib.h>
 #include "NL/nlMemory.h"
 #include "NL/nlString.h"
+#include <stdint.h>
 #include <string.h>
+
+static bool BundleFileRange(u32 blockNumber, u32 sectorSize, u32 length,
+                            unsigned int fileSize, unsigned int* offsetOut)
+{
+    if (sectorSize == 0)
+        return false;
+
+    const uint64_t offset = (uint64_t)blockNumber * (uint64_t)sectorSize;
+    if (offset > fileSize || (uint64_t)length > (uint64_t)fileSize - offset)
+        return false;
+
+    if (offsetOut != NULL)
+        *offsetOut = (unsigned int)offset;
+    return true;
+}
+
+static void BundleFileAsyncFailure(void* buffer, FileReadAsyncCallback callback,
+                                   uintptr_t userParam)
+{
+    if (callback != NULL)
+        callback(buffer, 0, userParam);
+}
 
 /**
  * Offset/Address/Size: 0x0 | 0x801E85CC | size: 0xD4
@@ -12,9 +35,23 @@
 void BundleFile::ReadFileAsync(unsigned long hash, void* buffer, unsigned long size, FileReadAsyncCallback callback, uintptr_t userParam)
 {
     u32 index = FindHashIndex(hash);
+    if (index >= m_pHeader->nNumFiles)
+    {
+        BundleFileAsyncFailure(buffer, callback, userParam);
+        return;
+    }
+
+    BundleFileDirectoryEntry* entry = &m_pDirectory[index];
+    if (size > entry->m_length)
+    {
+        OSReport("[bundle] async read exceeds entry: hash=%08lX requested=%lu length=%u\n",
+                 hash, size, entry->m_length);
+        BundleFileAsyncFailure(buffer, callback, userParam);
+        return;
+    }
+
     m_pReadCallback = callback;
     m_readUserParam = userParam;
-    BundleFileDirectoryEntry* entry = &m_pDirectory[index];
     nlSeek(m_pFile, entry->m_blockNumber * m_pHeader->nSectorSize, 0);
     nlReadAsync(m_pFile, buffer, size, &cbFileReadAsyncCallback, (uintptr_t)this);
 }
@@ -25,9 +62,23 @@ void BundleFile::ReadFileAsync(unsigned long hash, void* buffer, unsigned long s
 void BundleFile::ReadFileAsync(const char* filename, void* buffer, unsigned long size, FileReadAsyncCallback callback, uintptr_t userParam)
 {
     const u32 index = FindHashIndex(HashFilename(filename));
+    if (index >= m_pHeader->nNumFiles)
+    {
+        BundleFileAsyncFailure(buffer, callback, userParam);
+        return;
+    }
+
+    BundleFileDirectoryEntry* entry = &m_pDirectory[index];
+    if (size > entry->m_length)
+    {
+        OSReport("[bundle] async read exceeds entry: file=%s requested=%lu length=%u\n",
+                 filename, size, entry->m_length);
+        BundleFileAsyncFailure(buffer, callback, userParam);
+        return;
+    }
+
     m_pReadCallback = callback;
     m_readUserParam = userParam;
-    BundleFileDirectoryEntry* entry = &m_pDirectory[index];
     nlSeek(m_pFile, entry->m_blockNumber * m_pHeader->nSectorSize, 0);
     nlReadAsync(m_pFile, buffer, size, &cbFileReadAsyncCallback, (uintptr_t)this);
 }
@@ -45,7 +96,16 @@ void BundleFile::LoadFile(const char* filename, void* pBuffer)
  */
 void BundleFile::ReadFileByIndex(unsigned long index, void* buffer, unsigned long size)
 {
+    if (index >= m_pHeader->nNumFiles)
+        return;
+
     BundleFileDirectoryEntry* entry = &m_pDirectory[index];
+    if (size < entry->m_length)
+    {
+        OSReport("[bundle] destination too small: index=%lu capacity=%lu length=%u\n",
+                 index, size, entry->m_length);
+        return;
+    }
     nlSeek(m_pFile, entry->m_blockNumber * m_pHeader->nSectorSize, 0);
     nlRead(m_pFile, buffer, entry->m_length);
 }
@@ -56,7 +116,16 @@ void BundleFile::ReadFileByIndex(unsigned long index, void* buffer, unsigned lon
 void BundleFile::ReadFile(unsigned long hash, void* buffer, unsigned long size)
 {
     u32 index = FindHashIndex(hash);
+    if (index >= m_pHeader->nNumFiles)
+        return;
+
     BundleFileDirectoryEntry* entry = &m_pDirectory[index];
+    if (size < entry->m_length)
+    {
+        OSReport("[bundle] destination too small: hash=%08lX capacity=%lu length=%u\n",
+                 hash, size, entry->m_length);
+        return;
+    }
     nlSeek(m_pFile, entry->m_blockNumber * m_pHeader->nSectorSize, 0);
     nlRead(m_pFile, buffer, entry->m_length);
 }
@@ -66,7 +135,7 @@ void BundleFile::ReadFile(unsigned long hash, void* buffer, unsigned long size)
  */
 void BundleFile::ReadFile(const char* filename, void* pBuffer, unsigned long size)
 {
-    LoadFile(HashFilename(filename), pBuffer);
+    ReadFile(HashFilename(filename), pBuffer, size);
 }
 
 /**
@@ -137,7 +206,7 @@ void BundleFile::Close()
 
     if ((uintptr_t)m_pDirectory != NULL)
     {
-        delete[] m_pDirectory;
+        nlFree(m_pDirectory);
         m_pDirectory = NULL;
     }
 }
@@ -152,15 +221,76 @@ bool BundleFile::Open(const char* filename)
     {
         return 0;
     }
-    nlRead(m_pFile, m_pHeader, 0x10);
-    // PORT: four big-endian u32s, all four used before anything else runs.
-    port_be32_array(m_pHeader, 4);
+    const unsigned int bundleFileSize = nlFileSize(m_pFile, NULL);
+    if (bundleFileSize < sizeof(BundleFileHeader))
+    {
+        OSReport("[bundle] '%s' is truncated: %u bytes\n", filename, bundleFileSize);
+        nlClose(m_pFile);
+        m_pFile = NULL;
+        return false;
+    }
 
-    nlSeek(m_pFile, m_pHeader->nDirectoryOffsetInSectors * m_pHeader->nSectorSize, 0);
-    m_pDirectory = (BundleFileDirectoryEntry*)nlMalloc(m_pHeader->nNumFiles * 0xC, 0x20, 0);
-    nlRead(m_pFile, m_pDirectory, m_pHeader->nNumFiles * 0xC);
-    // PORT: three u32s per entry; every lookup below reads them directly.
-    port_be32_array(m_pDirectory, m_pHeader->nNumFiles * 3);
+    u8 rawHeader[sizeof(BundleFileHeader)];
+    nlRead(m_pFile, rawHeader, sizeof(rawHeader));
+    m_pHeader->nSectorSize = port_be32(rawHeader + 0x00);
+    m_pHeader->nNumFiles = port_be32(rawHeader + 0x04);
+    m_pHeader->nDirectoryOffsetInSectors = port_be32(rawHeader + 0x08);
+    m_pHeader->nDataOffsetInSectors = port_be32(rawHeader + 0x0C);
+
+    const uint64_t directoryOffset =
+        (uint64_t)m_pHeader->nDirectoryOffsetInSectors * m_pHeader->nSectorSize;
+    const uint64_t dataOffset =
+        (uint64_t)m_pHeader->nDataOffsetInSectors * m_pHeader->nSectorSize;
+    const uint64_t directoryBytes =
+        (uint64_t)m_pHeader->nNumFiles * sizeof(BundleFileDirectoryEntry);
+
+    if (m_pHeader->nSectorSize == 0 || directoryOffset > bundleFileSize ||
+        directoryBytes > (uint64_t)bundleFileSize - directoryOffset ||
+        dataOffset > bundleFileSize)
+    {
+        OSReport("[bundle] '%s' has invalid header: sector=%u files=%u dir=%llu data=%llu size=%u\n",
+                 filename, m_pHeader->nSectorSize, m_pHeader->nNumFiles,
+                 (unsigned long long)directoryOffset, (unsigned long long)dataOffset,
+                 bundleFileSize);
+        nlClose(m_pFile);
+        m_pFile = NULL;
+        return false;
+    }
+
+    if (m_pHeader->nNumFiles != 0)
+    {
+        nlSeek(m_pFile, (unsigned long)directoryOffset, 0);
+        m_pDirectory = (BundleFileDirectoryEntry*)nlMalloc(
+            (size_t)directoryBytes, 0x20, false);
+        if (m_pDirectory == NULL)
+        {
+            nlClose(m_pFile);
+            m_pFile = NULL;
+            return false;
+        }
+        nlRead(m_pFile, m_pDirectory, (unsigned int)directoryBytes);
+
+        for (u32 i = 0; i < m_pHeader->nNumFiles; ++i)
+        {
+            BundleFileDirectoryEntry* entry = &m_pDirectory[i];
+            entry->m_hash = port_be32(&entry->m_hash);
+            entry->m_blockNumber = port_be32(&entry->m_blockNumber);
+            entry->m_length = port_be32(&entry->m_length);
+
+            if (!BundleFileRange(entry->m_blockNumber, m_pHeader->nSectorSize,
+                                 entry->m_length, bundleFileSize, NULL))
+            {
+                OSReport("[bundle] '%s' entry %u is outside file: block=%u length=%u size=%u\n",
+                         filename, i, entry->m_blockNumber, entry->m_length,
+                         bundleFileSize);
+                nlFree(m_pDirectory);
+                m_pDirectory = NULL;
+                nlClose(m_pFile);
+                m_pFile = NULL;
+                return false;
+            }
+        }
+    }
 
     if (getenv("STRIKERS_LOG_BUNDLES") != NULL)
         OSReport("[port] bundle '%s': %lu files, sector %lu, dir@%lu\n",
@@ -183,11 +313,11 @@ BundleFile::~BundleFile()
 
     if (m_pDirectory != 0U)
     {
-        delete[] m_pDirectory;
+        nlFree(m_pDirectory);
         m_pDirectory = NULL;
     }
 
-    delete m_pHeader;
+    nlFree(m_pHeader);
     m_pHeader = NULL;
 }
 
@@ -204,7 +334,8 @@ BundleFile::BundleFile()
     m_pHeader = 0;
     m_pDirectory = 0;
     m_pHeader = (BundleFileHeader*)nlMalloc(sizeof(BundleFileHeader), 0x20, 0);
-    memset(m_pHeader, 0, sizeof(BundleFileHeader));
+    if (m_pHeader != NULL)
+        memset(m_pHeader, 0, sizeof(BundleFileHeader));
 }
 
 /**

@@ -60,6 +60,8 @@ public:
 
     inline void LoadFileByIndex(unsigned long nFileIndex, void* pBuffer)
     {
+        if (nFileIndex >= m_pHeader->nNumFiles)
+            return;
         BundleFileDirectoryEntry* pEntry = &m_pDirectory[nFileIndex];
         nlSeek(m_pFile, pEntry->m_blockNumber * m_pHeader->nSectorSize, 0);
         nlRead(m_pFile, pBuffer, pEntry->m_length);
@@ -68,14 +70,28 @@ public:
     inline void LoadFile(unsigned long nHashID, void* pBuffer)
     {
         u32 index = FindHashIndex(nHashID);
+        if (index >= m_pHeader->nNumFiles)
+            return;
         LoadFileByIndex(index, pBuffer);
     }
 
     inline void ReadFileAsyncByIndex(unsigned long nFileIndex, void* pBuffer, unsigned long bytesToRead, FileReadAsyncCallback pCallback, uintptr_t userParam)
     {
+        if (nFileIndex >= m_pHeader->nNumFiles)
+        {
+            if (pCallback != NULL)
+                pCallback(pBuffer, 0, userParam);
+            return;
+        }
+        BundleFileDirectoryEntry* pEntry = &m_pDirectory[nFileIndex];
+        if (bytesToRead > pEntry->m_length)
+        {
+            if (pCallback != NULL)
+                pCallback(pBuffer, 0, userParam);
+            return;
+        }
         m_pReadCallback = pCallback;
         m_readUserParam = userParam;
-        BundleFileDirectoryEntry* pEntry = &m_pDirectory[nFileIndex];
         nlSeek(m_pFile, pEntry->m_blockNumber * m_pHeader->nSectorSize, 0);
         nlReadAsync(m_pFile, pBuffer, bytesToRead, &cbFileReadAsyncCallback, (uintptr_t)this);
     }

@@ -1,11 +1,10 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include "port/input.h"
-#include "port/endian.h"
 #include "NL/nlString.h"
 #include "NL/vmath.h"
 #include "Game/World.h"
-extern "C" unsigned long port_wld_swap(void*, unsigned long);
+#include "port/endian.h"
 #include "Game/LightObject.h"
 #include "Game/Render/FlareHandler.h"
 #include "Game/Camera/CameraMan.h"
@@ -228,23 +227,58 @@ struct WorldEmitterChunkData
     /* 0x60 */ nlMatrix4 m_worldMatrix;
 }; // total size: 0xA0
 
-static bool WorldCopyChunkPayload(nlChunk* chunk, u32 expectedType,
-                                  void* dst, unsigned long expectedSize)
+// WLD records are serialized GameCube structures. The byte/string prefix is
+// endian-neutral; everything from wordOffset onward is a run of 32-bit scalar
+// fields (including float/matrix bit patterns). Decode into a host record and
+// leave the disc buffer immutable.
+static bool DecodeWorldRecordBE(const nlChunk* rawChunk, u32 expectedType,
+                                void* dst, u32 dstSize, u32 wordOffset)
 {
-    if (chunk == NULL || chunk->GetID() != expectedType)
+    if (rawChunk == NULL || dst == NULL || wordOffset > dstSize || (wordOffset & 3u) != 0)
         return false;
 
-    unsigned long payloadLen = 0;
-    u8* payload = port_chunk_payload((u8*)chunk,
-                                     port_u32_unaligned(&chunk->m_ID),
-                                     chunk->GetSize(), &payloadLen);
-    if (payload == NULL || payloadLen < expectedSize)
+    const u8* raw = (const u8*)rawChunk;
+    const u32 rawSize = port_be32(raw + 4);
+    PortBEChunkView chunk;
+    if (!port_be_chunk_read(raw, raw + sizeof(nlChunk) + rawSize, &chunk) ||
+        (chunk.id & 0x80FFFFFFu) != expectedType || chunk.payload_len != dstSize)
         return false;
 
-    // The world converter has already put numeric fields in host order. Copy
-    // out of the byte-packed asset so subsequent struct/matrix reads are aligned.
-    memcpy(dst, payload, expectedSize);
+    memcpy(dst, chunk.payload, wordOffset);
+    for (u32 off = wordOffset; off < dstSize; off += 4)
+    {
+        const u32 value = port_be32(chunk.payload + off);
+        memcpy((u8*)dst + off, &value, sizeof(value));
+    }
     return true;
+}
+
+static void CopyWorldPhysicsElementsBE(CharacterPhysicsElement* dst, const u8* src, u32 count)
+{
+    static const struct
+    {
+        u32 offset;
+        u32 words;
+    } runs[] = {
+        { 0x00, 16 }, // matLocalToParent
+        { 0x60, 1 },  // uHashID; names are byte arrays
+        { 0x84, 7 },  // uParentHashID through uReserved
+    };
+
+    for (u32 n = 0; n < count; ++n)
+    {
+        const u8* in = src + n * sizeof(CharacterPhysicsElement);
+        u8* out = (u8*)&dst[n];
+        memcpy(out, in, sizeof(CharacterPhysicsElement));
+        for (u32 r = 0; r < sizeof(runs) / sizeof(runs[0]); ++r)
+        {
+            for (u32 w = 0; w < runs[r].words; ++w)
+            {
+                const u32 value = port_be32(in + runs[r].offset + w * 4);
+                memcpy(out + runs[r].offset + w * 4, &value, sizeof(value));
+            }
+        }
+    }
 }
 
 // PORT: was a second declaration of FlareHandler, padded to the console's 0x70.
@@ -509,52 +543,74 @@ void World::AssignLightBitmasks()
 
 bool World::LoadPhysicsPrimitives(nlChunk* pChunk)
 {
-    unsigned long i;
-    nlChunk* pLastChunk = pChunk->GetLastChunk();
-    pChunk = pChunk->GetFirstChunk();
-    while (pChunk != pLastChunk)
+    if (pChunk == NULL)
+        return false;
+
+    const u8* raw = (const u8*)pChunk;
+    const u32 rawSize = port_be32(raw + 4);
+    PortBEChunkView root;
+    if (!port_be_chunk_read(raw, raw + sizeof(nlChunk) + rawSize, &root) ||
+        (root.id & 0x00FFFFFFu) != 0x0001D000u)
+        return false;
+
+    bool haveCount = false;
+    bool haveElements = false;
+    u32 count = 0;
+    const u8* elements = NULL;
+    unsigned long elementsLen = 0;
+
+    const u8* cursor = root.raw + sizeof(nlChunk);
+    while (cursor < root.next)
     {
-        switch (pChunk->GetID())
+        PortBEChunkView child;
+        if (!port_be_chunk_read(cursor, root.next, &child))
+            return false;
+        cursor = child.next;
+
+        switch (child.id & 0x80FFFFFFu)
         {
-        case 0x1D001:
-        {
-            m_pPhysicsData = new (nlMalloc(sizeof(CharacterPhysicsData), 8, false)) CharacterPhysicsData();
-            unsigned long payloadLen = 0;
-            u8* payload = port_chunk_payload((u8*)pChunk,
-                                             port_u32_unaligned(&pChunk->m_ID),
-                                             pChunk->GetSize(), &payloadLen);
-            if (payload == NULL || payloadLen < sizeof(u32))
+        case 0x0001D001:
+            if (child.payload_len < sizeof(u32))
                 return false;
-            m_pPhysicsData->physicsElementCount = port_u32_unaligned(payload);
-            if (m_pPhysicsData->physicsElementCount > 0x10000u)
+            count = port_be32(child.payload);
+            if (count > 0x10000u)
                 return false;
-            m_pPhysicsData->pPhysicsElements = (CharacterPhysicsElement*)nlMalloc(
-                m_pPhysicsData->physicsElementCount * sizeof(CharacterPhysicsElement), 8, false);
+            haveCount = true;
+            break;
+        case 0x0001D002:
+            elements = child.payload;
+            elementsLen = child.payload_len;
+            haveElements = true;
+            break;
+        default:
             break;
         }
-        case 0x1D002:
-        {
-            if (m_pPhysicsData == NULL || m_pPhysicsData->pPhysicsElements == NULL)
-                return false;
-            unsigned long payloadLen = 0;
-            u8* payload = port_chunk_payload((u8*)pChunk,
-                                             port_u32_unaligned(&pChunk->m_ID),
-                                             pChunk->GetSize(), &payloadLen);
-            const unsigned long required =
-                (unsigned long)m_pPhysicsData->physicsElementCount * sizeof(CharacterPhysicsElement);
-            if (payload == NULL || payloadLen < required)
-                return false;
-            for (i = 0; i < m_pPhysicsData->physicsElementCount; i++)
-            {
-                memcpy(&m_pPhysicsData->pPhysicsElements[i],
-                       payload + i * sizeof(CharacterPhysicsElement),
-                       sizeof(CharacterPhysicsElement));
-            }
-            break;
-        }
-        }
-        pChunk = pChunk->GetNextChunk();
     }
+
+    if (!haveCount || !haveElements ||
+        count > elementsLen / sizeof(CharacterPhysicsElement))
+        return false;
+
+    CharacterPhysicsData* physics =
+        new (nlMalloc(sizeof(CharacterPhysicsData), 8, false)) CharacterPhysicsData();
+    if (physics == NULL)
+        return false;
+    physics->physicsElementCount = count;
+    physics->pPhysicsElements = NULL;
+    if (count != 0)
+    {
+        physics->pPhysicsElements = (CharacterPhysicsElement*)nlMalloc(
+            count * sizeof(CharacterPhysicsElement), 8, false);
+        if (physics->pPhysicsElements == NULL)
+        {
+            delete physics;
+            return false;
+        }
+        CopyWorldPhysicsElementsBE(physics->pPhysicsElements, elements, count);
+    }
+
+    delete m_pPhysicsData;
+    m_pPhysicsData = physics;
     return true;
 }
 
@@ -564,70 +620,83 @@ bool World::LoadPhysicsPrimitives(nlChunk* pChunk)
 bool World::LoadObjectData(const char* szWorldName)
 {
     char szFullFileName[255];
-    nlChunk* pChunk;
     void* pWorldData;
 
     nlSNPrintf(szFullFileName, sizeof(szFullFileName), "art/%s.wld", szWorldName);
     tDebugPrintManager::Print(DC_RENDER, "Loading world object file: %s\n", szFullFileName);
 
-    // PORT: ask for the size, which upstream discards, the conversion below needs a bound.
     unsigned long uWorldDataSize = 0;
     pWorldData = nlLoadEntireFile(szFullFileName, &uWorldDataSize, 0x20, AllocateEnd);
-    // PORT: big-endian and read in place; a file wld_endian.c refuses would be walked out of bounds.
-    if (pWorldData != NULL && port_wld_swap(pWorldData, uWorldDataSize) == 0)
-    {
-        OSReport("Error: '%s' is not a well-formed world object file\n", szFullFileName);
-        delete pWorldData;
-        pWorldData = NULL;
-    }
     if (pWorldData == NULL)
     {
         nlPrintf("Error: Failed to load world object data '%s'\n", szFullFileName);
         return false;
     }
 
-    nlChunk* pLastChunk = ((nlChunk*)pWorldData)->GetLastChunk();
-    pChunk = ((nlChunk*)pWorldData)->GetFirstChunk();
-    while (pChunk != pLastChunk)
+    const u8* fileBegin = (const u8*)pWorldData;
+    const u8* fileEnd = fileBegin + uWorldDataSize;
+    PortBEChunkView root;
+    if (!port_be_chunk_read(fileBegin, fileEnd, &root) ||
+        (root.id & 0x00FFFFFFu) != 0x00019000u)
     {
-        switch (pChunk->GetID())
-        {
-        case 0x19001:
-            pChunk->GetData();
-            break;
-        case 0x19002:
-            pChunk->GetData();
-            break;
-        case 0x19003:
-            CreateWorldObjFromChunk(pChunk);
-            break;
-        case 0x19004:
-            pChunk->GetData();
-            break;
-        case 0x19005:
-            CreateLightObjFromChunk(pChunk);
-            break;
-        case 0x19100:
-            pChunk->GetData();
-            break;
-        case 0x19101:
-            CreateEmitterObjFromChunk(pChunk);
-            break;
-        case 0x19200:
-            pChunk->GetData();
-            break;
-        case 0x19201:
-            CreateHelperObjFromChunk(pChunk);
-            break;
-        case (u32)0x8001D000:
-            LoadPhysicsPrimitives(pChunk);
-            break;
-        }
-
-        pChunk = pChunk->GetNextChunk();
+        OSReport("Error: '%s' is not a well-formed world object file\n", szFullFileName);
+        nlFree(pWorldData);
+        return false;
     }
 
-    delete pWorldData;
+    const u8* cursor = root.raw + sizeof(nlChunk);
+    while (cursor < root.next)
+    {
+        PortBEChunkView chunk;
+        if (!port_be_chunk_read(cursor, root.next, &chunk))
+        {
+            OSReport("Error: malformed WLD child in '%s' at offset %lu\n",
+                     szFullFileName, (unsigned long)(cursor - fileBegin));
+            nlFree(pWorldData);
+            return false;
+        }
+        cursor = chunk.next;
+
+        nlChunk* rawChunk = (nlChunk*)chunk.raw;
+        switch (chunk.id & 0x80FFFFFFu)
+        {
+        case 0x19001:
+            break;
+        case 0x19002:
+            break;
+        case 0x19003:
+            CreateWorldObjFromChunk(rawChunk);
+            break;
+        case 0x19004:
+            break;
+        case 0x19005:
+            CreateLightObjFromChunk(rawChunk);
+            break;
+        case 0x19100:
+            break;
+        case 0x19101:
+            CreateEmitterObjFromChunk(rawChunk);
+            break;
+        case 0x19200:
+            break;
+        case 0x19201:
+            CreateHelperObjFromChunk(rawChunk);
+            break;
+        case (u32)0x0001D000:
+        case (u32)0x8001D000:
+            if (!LoadPhysicsPrimitives(rawChunk))
+            {
+                OSReport("Error: malformed WLD physics block in '%s'\n", szFullFileName);
+                nlFree(pWorldData);
+                return false;
+            }
+            break;
+        default:
+            break;
+        }
+    }
+
+    nlFree(pWorldData);
     AssignLightBitmasks();
     return true;
 }
@@ -885,16 +954,17 @@ void World::CreateHelperObjFromChunk(nlChunk* chunk)
     static signed char init;
 
     HelperObject* pHelper;
-    WorldHelperChunkData helperData;
-    WorldHelperChunkData* pWorldHelperChunkData = &helperData;
+    WorldHelperChunkData worldHelperChunkData;
+    WorldHelperChunkData* pWorldHelperChunkData = &worldHelperChunkData;
     char* substring;
     const char* flashString;
     const char* flareTag;
     char flareName[64];
 
-    if (!WorldCopyChunkPayload(chunk, 0x19201, &helperData, sizeof(helperData)))
+    if (!DecodeWorldRecordBE(chunk, 0x00019201u, pWorldHelperChunkData,
+                             sizeof(*pWorldHelperChunkData), 0x3C))
     {
-        OSReport("Error: truncated/invalid world helper chunk\n");
+        OSReport("Error: malformed WLD helper record\n");
         return;
     }
 
@@ -904,8 +974,7 @@ void World::CreateHelperObjFromChunk(nlChunk* chunk)
 
     substring = nlStrChr<char>(pWorldHelperChunkData->m_szName, '/');
     flashString = "fx_camera_flash";
-    if (substring != NULL &&
-        nlStrNICmp<char>(substring + 1, flashString, nlStrLen<char>(flashString)) == 0)
+    if (nlStrNICmp<char>(substring + 1, flashString, nlStrLen<char>(flashString)) == 0)
     {
         nlStrNCpy<char>(pHelper->m_szName, substring + 1, sizeof(pHelper->m_szName));
     }
@@ -960,9 +1029,10 @@ void World::CreateEmitterObjFromChunk(nlChunk* pChunk)
     EmissionController* pEmissionController;
     HelperObject* pHelper;
 
-    if (!WorldCopyChunkPayload(pChunk, 0x19101, &emitterData, sizeof(emitterData)))
+    if (!DecodeWorldRecordBE(pChunk, 0x00019101u, pEmitterData,
+                             sizeof(*pEmitterData), 0x40))
     {
-        OSReport("Error: truncated/invalid world emitter chunk\n");
+        OSReport("Error: malformed WLD emitter record\n");
         return;
     }
     pPersistentEffectsTag = "fx_persistent_";
@@ -1010,12 +1080,13 @@ void World::CreateLightObjFromChunk(nlChunk* pChunk)
 {
     LightObject* pLightObj;
     WorldLightChunkData lightData;
-    if (!WorldCopyChunkPayload(pChunk, 0x19005, &lightData, sizeof(lightData)))
+    WorldLightChunkData* pWorldLightChunkData = &lightData;
+    if (!DecodeWorldRecordBE(pChunk, 0x00019005u, pWorldLightChunkData,
+                             sizeof(*pWorldLightChunkData), 0x40))
     {
-        OSReport("Error: truncated/invalid world light chunk\n");
+        OSReport("Error: malformed WLD light record\n");
         return;
     }
-    WorldLightChunkData* pWorldLightChunkData = &lightData;
 
     pLightObj = (LightObject*)nlMalloc(sizeof(LightObject), 8, false);
     pLightObj->m_uHashID = pWorldLightChunkData->m_uHashID;
@@ -1042,13 +1113,14 @@ void World::CreateLightObjFromChunk(nlChunk* pChunk)
 
 void World::CreateWorldObjFromChunk(nlChunk* pChunk)
 {
-    WorldObjectChunkData worldChunkData;
-    WorldObjectChunkData* pWorldObjectChunkData = &worldChunkData;
+    WorldObjectChunkData worldObjectChunkData;
+    WorldObjectChunkData* pWorldObjectChunkData = &worldObjectChunkData;
     WorldObjectData objectData;
     memset(&objectData, 0, sizeof(WorldObjectData));
-    if (!WorldCopyChunkPayload(pChunk, 0x19003, &worldChunkData, sizeof(worldChunkData)))
+    if (!DecodeWorldRecordBE(pChunk, 0x00019003u, pWorldObjectChunkData,
+                             sizeof(*pWorldObjectChunkData), 0x80))
     {
-        OSReport("Error: truncated/invalid world object chunk\n");
+        OSReport("Error: malformed WLD object record\n");
         return;
     }
 

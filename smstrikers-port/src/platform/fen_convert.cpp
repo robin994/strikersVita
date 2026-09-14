@@ -1,8 +1,11 @@
-// The .fen front-end package: a flat big-endian blob plus a table of the offsets holding pointers.
-// A host address no longer fits its slot, so the graph is rebuilt into one arena.
-
-// discover walks it from FEPackage tagging concrete types, emit converts field by field, and the
-// root sits at arena offset 0 so FEScene still frees a package with one nlFree.
+// The .fen front-end package is a flat big-endian blob plus the authoritative
+// table of offsets that hold pointers. The GameCube loader relocates exactly
+// those slots and nothing else. Schema knowledge identifies concrete object
+// types for scalar decoding; it must never invent edges from plausible values.
+//
+// Vita has the same 32-bit object layouts as the serialized package (asserted
+// below), so its converted arena preserves DataLength and source offsets 1:1.
+// 64-bit desktop hosts still rebuild the typed graph into native-size records.
 
 // 0xFFFFFFFF is the null pointer, not 0, so offset 0 is a legitimate target.
 
@@ -118,8 +121,7 @@ std::size_t hostSize(int k)
 u32 diskMinSize(int k)
 {
     // Minimum serialized GameCube bytes touched by expand()/emit() for each
-    // object kind. Recovered schema edges are heuristic, so never let one turn
-    // a short tail of the blob into a typed object and then read past DataLength.
+    // object kind. A relocation target must contain the complete typed record.
     switch (k)
     {
     case K_PACKAGE:      return 0x18;
@@ -165,8 +167,7 @@ struct Ctx
     s32* byWord;
 
     u8* isSlot;
-    u32 recoveredNonReloc;
-    u32 nonRelocNull;
+    u32 skippedInvalidReloc;
 
     u8* arena;
     std::size_t arenaSize;
@@ -176,8 +177,6 @@ struct Ctx
     u32 failTarget;
     int failKind;
     const char* failReason;
-    u32 skippedNonReloc;
-    u32 skippedInvalidReloc;
 };
 
 u32 rd32(Ctx* c, u32 off) { return port_be32(c->blob + off); }
@@ -215,37 +214,9 @@ bool shouldFollow(Ctx* c, u32 slot, int kind)
         return false;
     }
 
-    if (isRelocSlot(c, slot))
-        return true;
-
-    // Some retail FENs seen on hardware omit schema-known ring/root slots from
-    // the relocation table.  Treat a schema edge as recoverable only when its
-    // value is itself a plausible GameCube blob pointer.  Invalid scalar-looking
-    // values remain ignored rather than becoming the fatal false positives that
-    // the original permissive converter produced.
-    const u32 target = rd32(c, slot);
-    if (target == kNullOffset)
-    {
-        c->nonRelocNull++;
-        return false;
-    }
-
-    if (target < c->blobLen && (target & 3u) == 0)
-    {
-        c->recoveredNonReloc++;
-        if (c->recoveredNonReloc <= 16)
-        {
-            OSReport("[fen] recover schema edge: slot=%#x target=%#x kind=%d\n",
-                     slot, target, kind);
-        }
-        return true;
-    }
-
-    c->skippedNonReloc++;
-    if (c->skippedNonReloc <= 8)
-        OSReport("[fen] skip invalid schema edge: slot=%#x value=%#x kind=%d\n",
-                 slot, target, kind);
-    return false;
+    // The retail loader relocates exactly the slots listed by the FEN pointer
+    // table. Never promote a scalar merely because its value resembles a blob offset.
+    return isRelocSlot(c, slot);
 }
 
 int kindOfInstance(Ctx* c, u32 off)
@@ -291,20 +262,8 @@ s32 discover(Ctx* c, u32 srcSlot, u32 target, int kind, bool authoritative)
     const u32 minSize = diskMinSize(kind);
     if (!rangeValid(c, target, minSize))
     {
-        if (authoritative)
-        {
-            fail(c, "typed pointer target truncated", srcSlot, target, kind);
-        }
-        else
-        {
-            c->skippedNonReloc++;
-            if (c->skippedNonReloc <= 16)
-            {
-                OSReport("[fen] skip truncated recovered object: slot=%#x target=%#x kind=%d "
-                         "need=%#x remaining=%#x\n",
-                         srcSlot, target, kind, minSize, c->blobLen - target);
-            }
-        }
+        (void)authoritative;
+        fail(c, "typed pointer target truncated", srcSlot, target, kind);
         return -1;
     }
 
@@ -338,23 +297,16 @@ void edge(Ctx* c, u32 base, u32 fieldOff, int kind)
     u32 slot = base + fieldOff;
     if (!shouldFollow(c, slot, kind))
         return;
-    discover(c, slot, rd32(c, slot), kind, isRelocSlot(c, slot));
+    discover(c, slot, rd32(c, slot), kind, true);
 }
 
-// FEPackage's three root pointers are required to enter the graph.  Retail
-// packages seen on hardware do not consistently list these root slots in the
-// relocation table even though their values are ordinary blob-relative
-// offsets.  Treat only these known schema fields as authoritative; all nested
-// edges remain relocation-driven so random payload words cannot become
-// pointers merely because they look like an in-range offset.
+// FEPackage root fields are schema-known pointers, but they are followed only
+// when their slots are present in the authoritative relocation table.
 void edgePackageRoot(Ctx* c, u32 base, u32 fieldOff, int kind)
 {
     const u32 slot = base + fieldOff;
-    if (!rangeValid(c, slot, sizeof(u32)) || (slot & 3u) != 0)
-    {
-        fail(c, "package root slot outside/alignment-invalid", slot, kNullOffset, kind);
+    if (!shouldFollow(c, slot, kind))
         return;
-    }
 
     const u32 target = rd32(c, slot);
     if (target == kNullOffset)
@@ -382,7 +334,7 @@ void edgeInstance(Ctx* c, u32 base, u32 fieldOff)
         fail(c, "instance target truncated", slot, target, K_INSTANCE);
         return;
     }
-    discover(c, slot, target, kindOfInstance(c, target), isRelocSlot(c, slot));
+    discover(c, slot, target, kindOfInstance(c, target), true);
 }
 
 void edgeLibObj(Ctx* c, u32 base, u32 fieldOff)
@@ -398,7 +350,7 @@ void edgeLibObj(Ctx* c, u32 base, u32 fieldOff)
         fail(c, "library-object target truncated", slot, target, K_LIBOBJ);
         return;
     }
-    discover(c, slot, target, kindOfLibObj(c, target), isRelocSlot(c, slot));
+    discover(c, slot, target, kindOfLibObj(c, target), true);
 }
 
 void edgeResource(Ctx* c, u32 base, u32 fieldOff)
@@ -414,7 +366,7 @@ void edgeResource(Ctx* c, u32 base, u32 fieldOff)
         fail(c, "resource target truncated", slot, target, K_TEXRES);
         return;
     }
-    discover(c, slot, target, kindOfResource(c, target), isRelocSlot(c, slot));
+    discover(c, slot, target, kindOfResource(c, target), true);
 }
 
 void expand(Ctx* c, u32 index)
@@ -428,19 +380,25 @@ void expand(Ctx* c, u32 index)
         edgePackageRoot(c, b, 0x04, K_PRESENTATION);
         {
             const u32 slot = b + 0x08;
-            const u32 target = rd32(c, slot);
-            if (target != kNullOffset && rangeValid(c, target, 0x08 + sizeof(u32)))
-                edgePackageRoot(c, b, 0x08, kindOfResource(c, target));
-            else if (target != kNullOffset)
-                fail(c, "package resource root target truncated", slot, target, K_TEXRES);
+            if (shouldFollow(c, slot, K_TEXRES))
+            {
+                const u32 target = rd32(c, slot);
+                if (target != kNullOffset && rangeValid(c, target, 0x08 + sizeof(u32)))
+                    edgePackageRoot(c, b, 0x08, kindOfResource(c, target));
+                else if (target != kNullOffset)
+                    fail(c, "package resource root target truncated", slot, target, K_TEXRES);
+            }
         }
         {
             const u32 slot = b + 0x0C;
-            const u32 target = rd32(c, slot);
-            if (target != kNullOffset && rangeValid(c, target, 0x64 + sizeof(u32)))
-                edgePackageRoot(c, b, 0x0C, kindOfLibObj(c, target));
-            else if (target != kNullOffset)
-                fail(c, "package library root target truncated", slot, target, K_LIBOBJ);
+            if (shouldFollow(c, slot, K_LIBOBJ))
+            {
+                const u32 target = rd32(c, slot);
+                if (target != kNullOffset && rangeValid(c, target, 0x64 + sizeof(u32)))
+                    edgePackageRoot(c, b, 0x0C, kindOfLibObj(c, target));
+                else if (target != kNullOffset)
+                    fail(c, "package library root target truncated", slot, target, K_LIBOBJ);
+            }
         }
         break;
 
@@ -520,6 +478,8 @@ void expand(Ctx* c, u32 index)
 void* resolve(Ctx* c, u32 slotOff)
 {
     if (!rangeValid(c, slotOff, sizeof(u32)) || (slotOff & 3u) != 0)
+        return nullptr;
+    if (!isRelocSlot(c, slotOff))
         return nullptr;
     u32 target = rd32(c, slotOff);
     if (target == kNullOffset)
@@ -767,7 +727,8 @@ void emit(Ctx* c, u32 index)
 extern "C" void* port_fen_convert(const void* blob, unsigned long blobLen, const void* table,
                                   unsigned long tableLen)
 {
-    if (blob == nullptr || blobLen < sizeof(u32))
+    if (blob == nullptr || blobLen < sizeof(u32) || (tableLen & 3u) != 0 ||
+        (tableLen != 0 && table == nullptr))
         return nullptr;
 
     Ctx c;
@@ -792,7 +753,12 @@ extern "C" void* port_fen_convert(const void* blob, unsigned long blobLen, const
     {
         u32 off = c.table[i];
         if (rangeValid(&c, off, sizeof(u32)) && (off & 3u) == 0)
+        {
             c.isSlot[off >> 2] = 1;
+            const u32 target = rd32(&c, off);
+            if (target != kNullOffset && target > c.blobLen)
+                fail(&c, "relocation target outside blob", off, target, -1);
+        }
         else
         {
             // Retail relocates every entry without a logical DataLength bounds
@@ -827,6 +793,38 @@ extern "C" void* port_fen_convert(const void* blob, unsigned long blobLen, const
         return nullptr;
     }
 
+#if defined(__vita__)
+    // Vita is 32-bit and the FEN host layouts above are asserted to match the
+    // serialized GameCube layouts. Preserve DataLength and every source offset
+    // 1:1; relocation changes only the slots named by the pointer table.
+    for (u32 i = 0; i < c.objCount; i++)
+        c.objs[i].dst = c.objs[i].src;
+
+    c.arenaSize = c.blobLen;
+    c.arena = (u8*)nlMalloc((size_t)c.arenaSize, 0x20, false);
+    if (c.arena == nullptr)
+    {
+        std::free(c.byWord);
+        std::free(c.isSlot);
+        std::free(c.objs);
+        return nullptr;
+    }
+    std::memcpy(c.arena, c.blob, c.arenaSize);
+
+    for (u32 i = 0; i < c.tableCount; i++)
+    {
+        const u32 slot = c.table[i];
+        if (!rangeValid(&c, slot, sizeof(u32)) || (slot & 3u) != 0)
+            continue;
+
+        const u32 target = rd32(&c, slot);
+        u32 relocated = 0;
+        if (target != kNullOffset)
+            relocated = (u32)(uintptr_t)(c.arena + target);
+        std::memcpy(c.arena + slot, &relocated, sizeof relocated);
+    }
+
+#else
     std::size_t total = 0;
     for (u32 i = 0; i < c.objCount; i++)
     {
@@ -845,16 +843,11 @@ extern "C" void* port_fen_convert(const void* blob, unsigned long blobLen, const
     }
     c.arenaSize = total;
     std::memset(c.arena, 0, total);
+#endif
 
     for (u32 i = 0; i < c.objCount; i++)
         emit(&c, i);
 
-    if (c.recoveredNonReloc != 0)
-    {
-        OSReport("port_fen_convert: recovered %u non-null schema edge(s) absent from the "
-                 "relocation table (%u null schema slot(s) omitted as expected)\n",
-                 c.recoveredNonReloc, c.nonRelocNull);
-    }
     if (c.skippedInvalidReloc != 0)
     {
         OSReport("port_fen_convert: skipped %u relocation slot(s) outside serialized blob\n",

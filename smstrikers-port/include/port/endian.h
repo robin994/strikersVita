@@ -32,9 +32,6 @@ static inline float port_bef32(const void* p)
     return f;
 }
 
-// Host-order loads from asset buffers. Even after an endian conversion pass,
-// chunk payloads/headers can still be byte-packed, so a plain *(u32*)/float*
-// is not ARM-safe.
 static inline uint16_t port_u16_unaligned(const void* p)
 {
     uint16_t v;
@@ -56,11 +53,6 @@ static inline float port_f32_unaligned(const void* p)
     return v;
 }
 
-/*
- * Immutable view of an on-disc GameCube nlChunk. Serialized chunks are
- * big-endian and child headers may be byte-packed. Keep the input untouched:
- * host alignment and host endian must never become part of the file format.
- */
 typedef struct PortBEChunkView
 {
     const unsigned char* raw;
@@ -122,7 +114,6 @@ static inline unsigned char* port_chunk_payload(unsigned char* chunk, uint32_t i
     return (unsigned char*)port_chunk_payload_const(chunk, id, size, len);
 }
 
-/* Read exactly one BE chunk contained in [cursor, end). */
 static inline int port_be_chunk_read(const unsigned char* cursor,
                                      const unsigned char* end,
                                      PortBEChunkView* out)
@@ -157,7 +148,6 @@ static inline int port_be_chunk_read(const unsigned char* cursor,
     return 1;
 }
 
-/* Nested chunks start immediately after their parent's serialized header. */
 static inline int port_be_chunk_children(const PortBEChunkView* parent,
                                          const unsigned char** begin,
                                          const unsigned char** end)
