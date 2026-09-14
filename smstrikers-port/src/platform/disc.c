@@ -7,6 +7,10 @@
 #include <stdlib.h>
 #include <string.h>
 
+#ifdef STRIKERS_VITA
+#include <psp2/io/fcntl.h>
+#endif
+
 #ifdef STRIKERS_ZLIB
 #include <zlib.h>
 #endif
@@ -48,6 +52,11 @@ static int disc_seek(FILE* f, unsigned long long off)
 struct PortDisc
 {
     FILE* f;
+#ifdef STRIKERS_VITA
+    // Raw ISO reads on Vita use positional I/O.  stdio seek state is shared and
+    // proved unreliable once the game starts issuing many random FST reads.
+    SceUID rawFd;
+#endif
     int kind;
     const char* name;
 
@@ -113,6 +122,10 @@ void port_disc_close(PortDisc* disc)
     unsigned i;
     if (disc == NULL)
         return;
+#ifdef STRIKERS_VITA
+    if (disc->rawFd >= 0)
+        sceIoClose(disc->rawFd);
+#endif
     if (disc->f)
         fclose(disc->f);
     free(disc->map);
@@ -351,9 +364,18 @@ long port_disc_read(PortDisc* d, void* dst, size_t len, unsigned long long offse
 
     if (d->kind == DISC_RAW)
     {
+#ifdef STRIKERS_VITA
+        if (d->rawFd < 0 || len > 0x7fffffffU)
+            return -1;
+        {
+            int got = sceIoPread(d->rawFd, out, (SceSize)len, (SceOff)offset);
+            return got < 0 ? -1 : (long)got;
+        }
+#else
         if (disc_seek(d->f, offset) != 0)
             return -1;
         return (long)fread(out, 1, len, d->f);
+#endif
     }
 
     while (done < len)
@@ -437,6 +459,9 @@ PortDisc* port_disc_open(const char* path, char* err, size_t errsize)
         snprintf(err, errsize, "Out of memory.");
         return NULL;
     }
+#ifdef STRIKERS_VITA
+    d->rawFd = -1;
+#endif
 
     d->f = fopen(path, "rb");
     if (d->f == NULL)
@@ -473,6 +498,19 @@ PortDisc* port_disc_open(const char* path, char* err, size_t errsize)
     {
         d->kind = DISC_RAW;
         d->name = note_nkit(head, got) ? "NKit/raw" : "raw";
+#ifdef STRIKERS_VITA
+        d->rawFd = sceIoOpen(path, SCE_O_RDONLY, 0);
+        if (d->rawFd < 0)
+        {
+            char msg[1024];
+            snprintf(msg, sizeof msg,
+                     "That disc image could not be opened for positional reads: %s", path);
+            return fail(d, err, errsize, msg);
+        }
+        // Keep exactly one backend for raw images on Vita.
+        fclose(d->f);
+        d->f = NULL;
+#endif
         return d;
     }
 

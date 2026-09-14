@@ -580,7 +580,7 @@ s32 DVDReadAsyncPrio(DVDFileInfo* fileInfo, void* addr, s32 length, s32 offset,
 {
     (void)prio;
     if (!fileInfo || fileInfo->startAddr >= (u32)s_count)
-        return -1;
+        return FALSE;
     const DvdEntry* e = &s_entries[fileInfo->startAddr];
 
     if (is_fen_mapping_probe(e->path))
@@ -590,45 +590,51 @@ s32 DVDReadAsyncPrio(DVDFileInfo* fileInfo, void* addr, s32 length, s32 offset,
                  (unsigned long long)e->offset + (offset >= 0 ? (unsigned)offset : 0));
     }
 
-    // A null destination or nonsensical length is a caller bug, named here because the UCRT's fread
-    // rejects them through _invalid_parameter, aborting from inside the CRT with the caller's
-    // numbers nowhere.
-    if (addr == NULL || length <= 0)
+    // The SDK contract is boolean: TRUE means the command was accepted and its
+    // completion state is authoritative. Never report END for a failed/short
+    // host read, otherwise upper layers will advance their destination pointer
+    // and consume uninitialised (often zero-filled) memory as valid disc data.
+    if (addr == NULL || length <= 0 || offset < 0)
     {
-        OSReport("[port] DVDReadAsyncPrio: refusing %s read of %s: "
+        OSReport("[port] DVDReadAsyncPrio: refusing read of %s: "
                  "addr=%p length=%d offset=%d\n",
-                 addr == NULL ? "null-destination" : "non-positive-length",
                  e->host != NULL ? e->host : e->path, addr, (int)length,
                  (int)offset);
         fileInfo->cb.transferredSize = 0;
-        fileInfo->cb.state = DVD_STATE_END;
+        fileInfo->cb.state = DVD_STATE_FATAL_ERROR;
         if (callback)
             callback(-1, fileInfo);
-        return -1;
+        return FALSE;
+    }
+
+    const u32 at = (u32)offset;
+    const u32 available = at < e->length ? e->length - at : 0;
+    const u32 expected = (u32)length < available ? (u32)length : available;
+
+    // Reads that start at/past EOF cannot satisfy a non-empty DVD request.
+    // A final 32-byte alignment read may extend past EOF, but it always starts
+    // before EOF and therefore has expected > 0.
+    if (expected == 0)
+    {
+        OSReport("[port] DVDReadAsyncPrio: read starts at/past EOF: %s "
+                 "offset=%d length=%d file_length=%u\n",
+                 e->host != NULL ? e->host : e->path, (int)offset, (int)length,
+                 (unsigned)e->length);
+        fileInfo->cb.transferredSize = 0;
+        fileInfo->cb.state = DVD_STATE_FATAL_ERROR;
+        if (callback)
+            callback(-1, fileInfo);
+        return FALSE;
     }
 
     s32 got = -1;
-    if (offset < 0)
+    if (s_disc != NULL)
     {
-        got = -1;
-    }
-    else if (s_disc != NULL)
-    {
-        // Clamp to the file. A host file gets this free from fread, but on an image the next file
-        // sits right there, so an over-long read would return the neighbour's bytes.
-        const u32 at = (u32)offset;
-        if (at >= e->length)
-        {
-            got = 0;
-        }
-        else
-        {
-            u32 avail = e->length - at;
-            size_t want = (size_t)length < (size_t)avail ? (size_t)length
-                                                         : (size_t)avail;
-            got = (s32)port_disc_read(s_disc, addr, want,
-                                      (unsigned long long)e->offset + at);
-        }
+        // Do not cross into the following file in an image. The GameCube code
+        // may round its final transfer to 32 bytes, so only the bytes remaining
+        // in this logical file are required for that final transfer.
+        got = (s32)port_disc_read(s_disc, addr, expected,
+                                  (unsigned long long)e->offset + at);
     }
     else
     {
@@ -636,29 +642,45 @@ s32 DVDReadAsyncPrio(DVDFileInfo* fileInfo, void* addr, s32 length, s32 offset,
         if (f)
         {
             if (fseek(f, offset, SEEK_SET) == 0)
-                got = (s32)fread(addr, 1, (size_t)length, f);
+                got = (s32)fread(addr, 1, expected, f);
             fclose(f);
         }
     }
 
     if (probe_dvd())
-        OSReport("[port] dvd: read %s off=%d len=%d -> %d cb=%d\n", e->path,
-                 (int)offset, (int)length, (int)got, callback != NULL);
+        OSReport("[port] dvd: read %s off=%d len=%d expected=%u -> %d cb=%d\n",
+                 e->path, (int)offset, (int)length, (unsigned)expected,
+                 (int)got, callback != NULL);
 
     fileInfo->cb.transferredSize = got > 0 ? (u32)got : 0;
+    if (got != (s32)expected)
+    {
+        OSReport("[port] DVDReadAsyncPrio: short/failed read %s off=%d "
+                 "requested=%d expected=%u got=%d\n",
+                 e->host != NULL ? e->host : e->path, (int)offset,
+                 (int)length, (unsigned)expected, (int)got);
+        fileInfo->cb.state = DVD_STATE_FATAL_ERROR;
+        if (callback)
+            callback(-1, fileInfo);
+        return FALSE;
+    }
+
     if (callback)
     {
-        // A caller that asked for a callback gets it here, inline; nothing in this tree does, and
-        // there is no later point from which to fire it.
+        // The host read is synchronous, but preserve the SDK callback contract:
+        // data is already in addr and the command is complete when the callback
+        // runs.
         fileInfo->cb.state = DVD_STATE_END;
         callback(got, fileInfo);
     }
     else
     {
-        // Done, but busy to the first poll. See the header comment.
+        // Preserve one BUSY poll so existing asynchronous state machines retain
+        // their original scheduling behaviour even though host I/O is complete.
         fileInfo->cb.state = DVD_STATE_BUSY;
     }
-    return got < 0 ? -1 : 0;
+
+    return TRUE;
 }
 
 s32 DVDGetCommandBlockStatus(const DVDCommandBlock* block)

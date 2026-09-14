@@ -170,7 +170,12 @@ public:
 
     virtual void ReadAsync(void* addr, unsigned long length, unsigned long offset)
     {
-        DVDReadAsyncPrio(&m_fileInfo, addr, (s32)length, (s32)offset, 0, 2);
+        if (!DVDReadAsyncPrio(&m_fileInfo, addr, (s32)length, (s32)offset, 0, 2))
+        {
+            // A rejected/short host read must never look like a successful END
+            // to AsyncManager::UpdateReadState().
+            m_fileInfo.cb.state = DVD_STATE_FATAL_ERROR;
+        }
     }
 
     virtual u32 GetDiscPosition()
