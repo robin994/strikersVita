@@ -73,13 +73,19 @@ void BasicStadium::BasicStadiumEventHandler(Event* pEvent, void* pUserData)
  */
 BasicStadium::BasicStadium(const char* szBaseName)
     : World(szBaseName)
+    , m_CameraFlashPositions(NULL)
+    , m_NumCameraFlashPositions(0)
+    , m_fSkyboxRotationAng(0.0f)
+    , m_fCloudRotationAng(0.0f)
+    , m_pSkyboxObject(NULL)
+    , m_pCloudsObject(NULL)
+    , m_pPropObject(NULL)
+    , m_pEventHandler(NULL)
+    , m_bCameraFlashesEnabled(false)
+    , m_fTimeUntilNextCameraFlash(0.0f)
+    , m_TerrainType(T_Grass)
+    , mpNPCManager(NULL)
 {
-    m_CameraFlashPositions = NULL;
-    m_NumCameraFlashPositions = 0;
-    m_fSkyboxRotationAng = 0.0f;
-    m_fCloudRotationAng = 0.0f;
-    m_bCameraFlashesEnabled = false;
-    mpNPCManager = NULL;
     pBasicStadiumInstance = this;
 
     m_pEventHandler = g_pEventManager->AddEventHandler(BasicStadium::BasicStadiumEventHandler, NULL, 4);

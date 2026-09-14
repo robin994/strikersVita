@@ -86,6 +86,13 @@ World::World(const char* szWorldName)
     , m_pModels(NULL)
     , m_uNumModels(0)
     , m_animControllerList(0)
+    , m_pLightData(NULL)
+    , m_pPlayerNISLightData(NULL)
+    , m_pIntensityPerm(NULL)
+    , m_pIntensityData(NULL)
+    , m_pSTSIntensity(NULL)
+    , m_pPhysicsData(NULL)
+    , m_pShadowLight(NULL)
 {
     m_WorldNameLength = nlStrLen<char>(szWorldName);
     nlStrNCpy<char>(m_WorldNamePrefix, szWorldName, MAX_NAME_LENGTH);
@@ -93,8 +100,6 @@ World::World(const char* szWorldName)
     m_WorldNamePrefix[m_WorldNameLength++] = '/';
 
     m_pWorldAnimManager = new (nlMalloc(sizeof(WorldAnimManager), 8, false)) WorldAnimManager();
-
-    m_pPlayerNISLightData = NULL;
 
     m_LightRampTexA = glGetTexture("global/lightramp");
     m_LightRampTexB = m_LightRampTexA;
