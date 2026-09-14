@@ -3,6 +3,8 @@
 #include "NL/nlMemory.h"
 #include "NL/nlFile.h"
 #include "NL/nlPrint.h"
+#include <stdint.h>
+#include <string.h>
 
 extern const unsigned short LocalizationTableNotFound[] = { 'L', 'o', 'c', 'a', 'l', 'i', 'z', 'a', 't', 'i', 'o', 'n', ' ', 'T', 'a', 'b', 'l', 'e', ' ', 'N', 'o', 't', ' ', 'F', 'o', 'u', 'n', 'd', 0 };
 extern const unsigned short MissingLocString[] = { 'm', 'i', 's', 's', 'i', 'n', 'g', ' ', 'l', 'o', 'c', ' ', 's', 't', 'r', 'i', 'n', 'g', 0 };
@@ -40,6 +42,13 @@ nlLocalization* g_pLocalization;
  */
 unsigned char nlLocalization::Load(nlLanguage Language, bool ingameloc)
 {
+    m_pFile = NULL;
+    m_LookupTable = NULL;
+    m_FirstString = NULL;
+
+    if ((unsigned int)Language >= (unsigned int)LangEnd)
+        return 0;
+
     m_CurrentLanguage = Language;
 
     char Filename[64];
@@ -52,38 +61,97 @@ unsigned char nlLocalization::Load(nlLanguage Language, bool ingameloc)
         nlSNPrintf(Filename, 64, "art/fe/%s.loc", LanguageName[Language]);
     }
 
-    unsigned long FileSize;
-    m_pFile = (LOCHeader*)nlLoadEntireFile(Filename, &FileSize, 32, AllocateStart);
+    unsigned long FileSize = 0;
+    u8* rawFile = (u8*)nlLoadEntireFile(Filename, &FileSize, 32, AllocateStart);
 
-    if (m_pFile == 0)
+    if (rawFile == NULL)
+        return 0;
+
+    if (FileSize < sizeof(LOCHeader) || memcmp(rawFile, Thumbprint, 4) != 0)
     {
-        m_LookupTable = 0;
-        m_FirstString = 0;
+        nlFree(rawFile);
         return 0;
     }
 
-    // PORT: big-endian on disc. The four u32s behind the thumbprint first, the Version check below reads one of them.
-    port_be32_array((char*)m_pFile + 4, 4);
-    {
-        // Then the lookup table (a hash and an offset per string).
-        u32* pLookup = (u32*)(m_pFile + 1);
-        port_be32_array(pLookup, m_pFile->StringCount * 2);
+    // The disc image remains big-endian. Validate every extent using decoded
+    // locals before allocating/materializing the host representation.
+    const u32 version = port_be32(rawFile + 0x04);
+    const u32 language = port_be32(rawFile + 0x08);
+    const u32 stringCount = port_be32(rawFile + 0x0C);
+    const u32 flags = port_be32(rawFile + 0x10);
+    const uint64_t lookupBytes = (uint64_t)stringCount * sizeof(StringLookup);
+    const uint64_t stringsOffset = sizeof(LOCHeader) + lookupBytes;
 
-        u16* pStrings = (u16*)&pLookup[m_pFile->StringCount * 2];
-        const char* pEnd = (const char*)m_pFile + FileSize;
-        for (u16* w = pStrings; (const char*)(w + 1) <= pEnd; w++)
-            *w = port_be16(w);
-    }
-
-    if (memcmp(m_pFile, Thumbprint, 4) != 0 || m_pFile->Version != 1 || m_pFile->Language != LanguageId[Language])
+    if (version != 1 || language != LanguageId[Language] || stringsOffset > FileSize ||
+        ((FileSize - (unsigned long)stringsOffset) & 1u) != 0)
     {
-        nlFree(m_pFile);
-        m_pFile = 0;
+        nlFree(rawFile);
         return 0;
     }
 
-    m_LookupTable = (StringLookup*)(m_pFile + 1);
-    m_FirstString = (unsigned short*)(&m_LookupTable[m_pFile->StringCount]);
+    const unsigned long stringWords =
+        (FileSize - (unsigned long)stringsOffset) / sizeof(u16);
+    const u8* rawLookup = rawFile + sizeof(LOCHeader);
+    const u8* rawStrings = rawFile + (unsigned long)stringsOffset;
+
+    // Every StringOffset is later added directly to m_FirstString. Prove not
+    // only that it lands in the UTF-16 area, but that a terminator exists before
+    // EOF so a malformed table cannot turn a text lookup into an OOB scan.
+    for (u32 i = 0; i < stringCount; ++i)
+    {
+        const u32 stringOffset = port_be32(rawLookup + i * sizeof(StringLookup) + 4);
+        if (stringOffset >= stringWords)
+        {
+            nlFree(rawFile);
+            return 0;
+        }
+
+        bool terminated = false;
+        for (unsigned long w = stringOffset; w < stringWords; ++w)
+        {
+            if (port_be16(rawStrings + w * sizeof(u16)) == 0)
+            {
+                terminated = true;
+                break;
+            }
+        }
+        if (!terminated)
+        {
+            nlFree(rawFile);
+            return 0;
+        }
+    }
+
+    u8* hostFile = (u8*)nlMalloc(FileSize, 32, false);
+    if (hostFile == NULL)
+    {
+        nlFree(rawFile);
+        return 0;
+    }
+    memcpy(hostFile, rawFile, FileSize);
+
+    LOCHeader* hostHeader = (LOCHeader*)hostFile;
+    hostHeader->Version = version;
+    hostHeader->Language = language;
+    hostHeader->StringCount = stringCount;
+    hostHeader->Flags = flags;
+
+    StringLookup* hostLookup = (StringLookup*)(hostFile + sizeof(LOCHeader));
+    for (u32 i = 0; i < stringCount; ++i)
+    {
+        hostLookup[i].hash = port_be32(rawLookup + i * sizeof(StringLookup));
+        hostLookup[i].StringOffset =
+            port_be32(rawLookup + i * sizeof(StringLookup) + 4);
+    }
+
+    u16* hostStrings = (u16*)(hostFile + (unsigned long)stringsOffset);
+    for (unsigned long w = 0; w < stringWords; ++w)
+        hostStrings[w] = port_be16(rawStrings + w * sizeof(u16));
+
+    nlFree(rawFile);
+    m_pFile = hostHeader;
+    m_LookupTable = hostLookup;
+    m_FirstString = hostStrings;
     return 1;
 }
 
