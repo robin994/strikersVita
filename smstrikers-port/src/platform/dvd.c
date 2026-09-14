@@ -265,6 +265,45 @@ static void index_image_fst(const char* path)
 
     if (port_disc_walk(s_disc, index_visit, NULL, err, sizeof err) != 0)
         image_fatal(path, err);
+
+    // A plain ISO can still have a perfectly readable header/FST while the
+    // actual file has been truncated or "shrunk" after the table was written.
+    // In that case every entry name/size looks valid, but higher-offset files
+    // silently read as EOF. Validate the furthest byte referenced by the FST
+    // once, here, so the failure is attributed to the image rather than to an
+    // unrelated parser much later in boot.
+    if (s_count > 0)
+    {
+        unsigned long long maxEnd = 0;
+        const DvdEntry* last = NULL;
+        unsigned char byte;
+        int i;
+
+        for (i = 0; i < s_count; ++i)
+        {
+            const unsigned long long end = (unsigned long long)s_entries[i].offset
+                                           + (unsigned long long)s_entries[i].length;
+            if (end > maxEnd)
+            {
+                maxEnd = end;
+                last = &s_entries[i];
+            }
+        }
+
+        if (last != NULL && maxEnd != 0
+            && port_disc_read(s_disc, &byte, 1, maxEnd - 1) != 1)
+        {
+            char msg[2048];
+            snprintf(msg, sizeof msg,
+                     "The disc image is incomplete or has been trimmed without rebuilding its "
+                     "file table.\n\nThe FST says '%s' ends at disc offset 0x%llX, but that byte "
+                     "cannot be read from the image.\n\nRe-copy a complete ISO/GCM, or use the "
+                     "disc's extracted files folder instead. Do not continue with this image: "
+                     "missing bytes become empty game assets and cause unrelated crashes later.",
+                     last->path, maxEnd);
+            image_fatal(path, msg);
+        }
+    }
 }
 
 // Open `path` as a disc image and index it.
