@@ -6,7 +6,6 @@
 #include "NL/glx/glxTexture.h"
 #include "port/endian.h"
 #include "dolphin/os.h"
-#include "port/endian.h"
 #include <stdlib.h>
 extern "C" int port_region_owns(const void*);  // src/platform/memalloc.cpp
 
@@ -546,28 +545,57 @@ bool glplatLoadTextureBundle(const char* filename)
 /**
  * Offset/Address/Size: 0x93C | 0x801B7BF8 | size: 0xB8
  */
-static bool glxParseTextureBundle(const char* filedata)
+static bool glxParseTextureBundle(const char* filedata, unsigned long fileSize)
 {
+    if (filedata == NULL || fileSize < sizeof(glTexBundleHeader))
+    {
+        OSReport("[texture] async bundle is truncated: %lu bytes\n", fileSize);
+        return false;
+    }
+
     const u32 numTextures = port_be32(filedata + 4);
-    const glTexBundleDict* dict = (glTexBundleDict*)(filedata + 0x20);
-    const char* textureData = (char*)dict + (numTextures * 0x10);
+    const unsigned long headerSize = sizeof(glTexBundleHeader);
+    if (numTextures > (fileSize - headerSize) / sizeof(glTexBundleDict))
+    {
+        OSReport("[texture] async bundle has invalid dictionary count: %u (file=%lu)\n",
+                 numTextures, fileSize);
+        return false;
+    }
+
+    const unsigned long dictionarySize =
+        (unsigned long)numTextures * sizeof(glTexBundleDict);
+    const unsigned long dataOffset = headerSize + dictionarySize;
+    const unsigned long dataBytes = fileSize - dataOffset;
+    const u8* dict = (const u8*)filedata + headerSize;
+    const u8* textureData = (const u8*)filedata + dataOffset;
 
     for (u32 i = 0; i < numTextures; i++)
     {
-        const u32 hash = port_be32(&dict[i].hash);
-        const u32 fileSize = port_be32(&dict[i].fileSize);
-        GXTextureHeader* currentTextureHeader = (GXTextureHeader*)(textureData + port_be32(&dict[i].offset));
+        const u8* entry = dict + i * sizeof(glTexBundleDict);
+        const u32 hash = port_be32(entry + 0x00);
+        const u32 offset = port_be32(entry + 0x04);
+        const u32 entrySize = port_be32(entry + 0x08);
+        if (offset > dataBytes || entrySize > dataBytes - offset ||
+            entrySize < sizeof(GXTextureHeader))
+        {
+            OSReport("[texture] async bundle invalid entry %u: offset=%u size=%u data=%lu\n",
+                     i, offset, entrySize, dataBytes);
+            return false;
+        }
+
+        const GXTextureHeader* currentTextureHeader =
+            (const GXTextureHeader*)(textureData + offset);
 
         if (glxTextureLoad_cb == NULL)
         {
-            glplatTextureAdd(hash, currentTextureHeader, fileSize);
+            glplatTextureAdd(hash, currentTextureHeader, entrySize);
         }
         else
         {
             unsigned long newHash = glxTextureLoad_cb(hash);
             if (newHash != -1 && glTextureLoad(newHash) != 0)
             {
-                glplatTextureReplace(newHash, currentTextureHeader, fileSize);
+                glplatTextureReplace(newHash, currentTextureHeader, entrySize);
             }
         }
     }
@@ -603,7 +631,7 @@ bool glplatBeginLoadTextureBundle(const char* filename, void (*callback)(void*, 
  */
 bool glplatEndLoadTextureBundle(void* data, unsigned long size)
 {
-    return glxParseTextureBundle((const char*)data);
+    return glxParseTextureBundle((const char*)data, size);
 }
 
 /**
