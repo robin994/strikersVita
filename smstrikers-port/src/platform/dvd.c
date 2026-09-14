@@ -354,7 +354,7 @@ static void pick_image(void* user, const char* name)
 #define DVD_SENTINEL "common.ini"
 
 // The paths tried, in the order tried, so the message can name them.
-#define DVD_MAX_TRIED 4
+#define DVD_MAX_TRIED 5
 
 void DVDInit(void)
 {
@@ -369,9 +369,29 @@ void DVDInit(void)
     // too late; this runs *before* main.
     PortConfigLoad();
 
+#if defined(PORT_VITA)
+    // Vita development layout: prefer the extracted disc tree copied to
+    // ux0:data/strikersVita/game/{sys,files}. This comes before STRIKERS_DATA so
+    // a stale ini that still points at a test ISO cannot shadow complete files.
+    // Require common.ini before scanning so a half-copied folder is ignored.
+    {
+        char dir[1024];
+        char sentinel[1200];
+        if (port_executable_dir(dir, sizeof dir) == 0)
+        {
+            snprintf(s_root, sizeof s_root, "%s/game/files", dir);
+            snprintf(sentinel, sizeof sentinel, "%s/%s", s_root, DVD_SENTINEL);
+            snprintf(tried[nTried], sizeof tried[0], "%s", s_root);
+            triedWhy[nTried++] = "the Vita extracted-disc folder";
+            if (is_regular_file(sentinel))
+                scan(s_root, "");
+        }
+    }
+#endif
+
     const char* env = getenv("STRIKERS_DATA");
     const char* why = "STRIKERS_DATA / the 'data' key in strikers.ini";
-    if (env != NULL && *env != '\0')
+    if (s_count == 0 && env != NULL && *env != '\0')
     {
         snprintf(s_root, sizeof s_root, "%s", env);
         snprintf(tried[nTried], sizeof tried[0], "%s", s_root);
