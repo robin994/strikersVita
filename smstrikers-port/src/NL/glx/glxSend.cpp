@@ -2458,7 +2458,13 @@ static void glx_DrawPacket(const glModelPacket* packet)
             || p->state.program == prog_3d_pointlit_dirt
             || p->state.program == prog_3d_crowd
             || p->state.program == prog_3d_crowd_lit;
-        if (is3DProgram)
+        static int vita3DDiagnostics = -1;
+        if (vita3DDiagnostics < 0)
+        {
+            const char* enabled = getenv("STRIKERS_VITA_3D_DIAGNOSTICS");
+            vita3DDiagnostics = enabled != NULL && enabled[0] != '\0' && enabled[0] != '0';
+        }
+        if (is3DProgram && vita3DDiagnostics)
         {
             static unsigned n3DLogged = 0;
             const bool isDl = p->indexBuffer != 0 && dlIsDisplayList(p->indexBuffer);

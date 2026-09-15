@@ -809,8 +809,12 @@ int main(int argc, char* argv[])
         if (sceKernelGetFreeMemorySize(&memInfo) >= 0)
         {
             const u32 mb = 1024u * 1024u;
-            cfg.vgl_ram_pool_size = memInfo.size_user > 8u * mb
-                ? ((memInfo.size_user - 8u * mb < 4u * mb) ? memInfo.size_user - 8u * mb : 4u * mb)
+            // The circular pool and dynamic Aurora streaming buffers are CPU
+            // mapped, so vitaGL allocates them from RAM before PHYCONT/CDRAM.
+            // A 4 MiB RAM pool forced most streaming pages into scarce CDRAM,
+            // directly competing with the gameplay texture cache.
+            cfg.vgl_ram_pool_size = memInfo.size_user > 24u * mb
+                ? ((memInfo.size_user - 24u * mb < 20u * mb) ? memInfo.size_user - 24u * mb : 20u * mb)
                 : 0;
             cfg.vgl_cdram_pool_size = memInfo.size_cdram > 16u * mb
                 ? ((memInfo.size_cdram - 16u * mb < 40u * mb) ? memInfo.size_cdram - 16u * mb : 40u * mb)
@@ -823,7 +827,7 @@ int main(int argc, char* argv[])
                      cfg.vgl_cdram_pool_size >> 10,
                      cfg.vgl_phycont_pool_size >> 10);
         }
-        cfg.vgl_circular_pool_size = 16 * 1024 * 1024;
+        cfg.vgl_circular_pool_size = 12 * 1024 * 1024;
         cfg.vgl_display_buffer_count = 3;
         // Aurora's multi-buffered VBO/IBO pages are long-lived dynamic buffers.
         // Keep them out of vitaGL's circular scratch pool: that same pool stages
@@ -836,24 +840,30 @@ int main(int argc, char* argv[])
         // by queued draws, so the smaller budget turns character/stadium
         // textures into fallbacks even though the vitaGL CDRAM pool still has
         // room. Match Aurora-Vita's normal 24 MiB cache budget.
-        cfg.texture_cache_budget = 24 * 1024 * 1024;
+        cfg.texture_cache_budget = 26 * 1024 * 1024;
         // The arena now rolls over safely inside a frame; use Aurora's normal
         // page size so stadium/crowd batches amortize buffer orphaning while
         // keeping peak transient storage bounded.
-        cfg.stream_vertex_bytes = 4 * 1024 * 1024;
-        cfg.stream_index_bytes = 1024 * 1024;
+        cfg.stream_vertex_bytes = 8 * 1024 * 1024;
+        cfg.stream_index_bytes = 512 * 1024;
         cfg.stream_slots = 3;
         cfg.cpu_worker_threads = 2;
         // Gameplay averages only ~200 vertices per draw. 512 left most of the
         // expensive GX decode/transform path on one core despite two workers.
         cfg.cpu_parallel_min_vertices = 128;
         cfg.wait_vblank = true;
-        cfg.diagnostics = true;
+        // Keep lightweight timing telemetry enabled in normal builds, but do
+        // not pay for per-draw coverage/trace/geometry diagnostics unless a
+        // developer explicitly requests them in strikers.ini/environment.
+        const char* auroraDiagnostics = getenv("STRIKERS_AURORA_DIAGNOSTICS");
+        const bool fullAuroraDiagnostics = auroraDiagnostics != NULL
+            && auroraDiagnostics[0] != '\0' && auroraDiagnostics[0] != '0';
+        cfg.diagnostics = fullAuroraDiagnostics;
         cfg.strict_unsupported = false;
-        cfg.diagnostics_period_frames = 300;
+        cfg.diagnostics_period_frames = 10;
         cfg.telemetry_log_path = "ux0:data/strikersVita/aurora_telemetry.log";
-        cfg.coverage_log_path = "ux0:data/strikersVita/aurora_coverage.log";
-        cfg.trace_log_path = "ux0:data/strikersVita/aurora_trace.log";
+        cfg.coverage_log_path = fullAuroraDiagnostics ? "ux0:data/strikersVita/aurora_coverage.log" : NULL;
+        cfg.trace_log_path = fullAuroraDiagnostics ? "ux0:data/strikersVita/aurora_trace.log" : NULL;
         if (!aurora::vita::initialize(cfg))
         {
             OSReport("[vita] Aurora backend init failed: %u %s\n",
