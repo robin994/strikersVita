@@ -825,7 +825,11 @@ int main(int argc, char* argv[])
         }
         cfg.vgl_circular_pool_size = 16 * 1024 * 1024;
         cfg.vgl_display_buffer_count = 3;
-        cfg.vgl_scratch_dynamic = true;
+        // Aurora's multi-buffered VBO/IBO pages are long-lived dynamic buffers.
+        // Keep them out of vitaGL's circular scratch pool: that same pool stages
+        // compressed texture transfers, and a large-frame rollover must not
+        // consume the memory needed by the next CMPR/DXT1 upload.
+        cfg.vgl_scratch_dynamic = false;
         cfg.vgl_scratch_stream = true;
         // The gameplay scene exceeds 16 MiB of resident GX textures in a
         // single frame. Aurora's cache cannot evict textures already referenced
