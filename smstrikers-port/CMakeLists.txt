@@ -175,7 +175,14 @@ int main() { std::jthread t([](std::stop_token) {}); }
 endif()
 
 if(STRIKERS_AURORA AND STRIKERS_VITA)
-    set(AURORA_VITA_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/extern/aurora-vita")
+    # Keep the native CMPR/DXT1 upload path opt-in while isolating a Vita
+    # allocator corruption observed inside glCompressedTexImage2D on hardware.
+    # The RGBA8 fallback is slower, but gives us a clean A/B against the
+    # fused/multithreaded vertex path without modifying the Aurora submodule.
+    option(STRIKERS_VITA_NATIVE_CMPR "Use Aurora Vita native CMPR/DXT1 uploads" OFF)
+    set(STRIKERS_AURORA_VITA_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/extern/aurora-vita"
+        CACHE PATH "Aurora Vita source tree used by the Strikers Vita backend")
+    set(AURORA_VITA_ROOT "${STRIKERS_AURORA_VITA_ROOT}")
     set(AURORA_VITA_BACKEND_SOURCES
         "${AURORA_VITA_ROOT}/platforms/vita/aurora_vita_backend.cpp"
         "${AURORA_VITA_ROOT}/platforms/vita/gx/aurora_vita_draw_sink.cpp"
@@ -240,7 +247,7 @@ if(STRIKERS_AURORA AND STRIKERS_VITA)
         AURORA_VITA_UPSTREAM=1 MKW_TARGET_VITA=1 TARGET_PC=1
         # Strikers builds Aurora's source list directly instead of including
         # aurora_vita.cmake, so Vita backend options must be mirrored here.
-        AURORA_VITA_NATIVE_CMPR=1)
+        AURORA_VITA_NATIVE_CMPR=$<BOOL:${STRIKERS_VITA_NATIVE_CMPR}>)
     target_compile_options(aurora_vita_backend PRIVATE
         -O3 -ffunction-sections -fdata-sections -fno-exceptions -fno-rtti
         -mtune=cortex-a9 -mfpu=neon -ffast-math -fsigned-char -fshort-wchar
