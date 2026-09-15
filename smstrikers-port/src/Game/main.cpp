@@ -844,7 +844,9 @@ int main(int argc, char* argv[])
         cfg.stream_index_bytes = 1024 * 1024;
         cfg.stream_slots = 3;
         cfg.cpu_worker_threads = 2;
-        cfg.cpu_parallel_min_vertices = 512;
+        // Gameplay averages only ~200 vertices per draw. 512 left most of the
+        // expensive GX decode/transform path on one core despite two workers.
+        cfg.cpu_parallel_min_vertices = 128;
         cfg.wait_vblank = true;
         cfg.diagnostics = true;
         cfg.strict_unsupported = false;
