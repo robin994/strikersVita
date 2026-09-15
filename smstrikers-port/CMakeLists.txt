@@ -247,10 +247,6 @@ if(STRIKERS_AURORA AND STRIKERS_VITA)
         AURORA_VITA_UPSTREAM=1 MKW_TARGET_VITA=1 TARGET_PC=1
         # Strikers builds Aurora's source list directly instead of including
         # aurora_vita.cmake, so Vita backend options must be mirrored here.
-        # The pinned vitaGL maps dynamic VBO/IBO storage into CPU-visible memory;
-        # write Aurora's packed stream there directly instead of staging and
-        # memcpying several MiB again at every chunk flush.
-        AURORA_VITA_DIRECT_STREAM_WRITE=1
         AURORA_VITA_NATIVE_CMPR=$<BOOL:${STRIKERS_VITA_NATIVE_CMPR}>)
     target_compile_options(aurora_vita_backend PRIVATE
         -O3 -ffunction-sections -fdata-sections -fno-exceptions -fno-rtti
