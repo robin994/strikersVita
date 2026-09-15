@@ -848,9 +848,10 @@ int main(int argc, char* argv[])
         cfg.stream_index_bytes = 512 * 1024;
         cfg.stream_slots = 3;
         cfg.cpu_worker_threads = 2;
-        // Gameplay averages only ~200 vertices per draw. 512 left most of the
-        // expensive GX decode/transform path on one core despite two workers.
-        cfg.cpu_parallel_min_vertices = 128;
+        // The worker scheduler treats this as the minimum useful work per lane.
+        // Gameplay's common ~198-vertex packets therefore need ~64 vertices per
+        // lane to keep all three Vita CPU lanes busy during decode/transform.
+        cfg.cpu_parallel_min_vertices = 64;
         cfg.wait_vblank = true;
         // Keep lightweight timing telemetry enabled in normal builds, but do
         // not pay for per-draw coverage/trace/geometry diagnostics unless a
