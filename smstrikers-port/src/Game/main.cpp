@@ -865,6 +865,15 @@ int main(int argc, char* argv[])
         cfg.telemetry_log_path = "ux0:data/strikersVita/aurora_telemetry.log";
         cfg.coverage_log_path = fullAuroraDiagnostics ? "ux0:data/strikersVita/aurora_coverage.log" : NULL;
         cfg.trace_log_path = fullAuroraDiagnostics ? "ux0:data/strikersVita/aurora_trace.log" : NULL;
+        const char* vita3dDiagnostics = getenv("STRIKERS_VITA_3D_DIAGNOSTICS");
+        const bool verboseVita3d = vita3dDiagnostics != NULL
+            && vita3dDiagnostics[0] != '\0' && vita3dDiagnostics[0] != '0';
+        OSReport("[vita] 3D perf profile=dedup-v1 stream_v=%uKB stream_i=%uKB parallel_min=%u aurora_diag=%u vita3d_diag=%u\n",
+                 (unsigned int)(cfg.stream_vertex_bytes >> 10),
+                 (unsigned int)(cfg.stream_index_bytes >> 10),
+                 (unsigned int)cfg.cpu_parallel_min_vertices,
+                 fullAuroraDiagnostics ? 1u : 0u,
+                 verboseVita3d ? 1u : 0u);
         if (!aurora::vita::initialize(cfg))
         {
             OSReport("[vita] Aurora backend init failed: %u %s\n",
