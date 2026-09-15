@@ -833,8 +833,11 @@ int main(int argc, char* argv[])
         // textures into fallbacks even though the vitaGL CDRAM pool still has
         // room. Match Aurora-Vita's normal 24 MiB cache budget.
         cfg.texture_cache_budget = 24 * 1024 * 1024;
-        cfg.stream_vertex_bytes = 2 * 1024 * 1024;
-        cfg.stream_index_bytes = 512 * 1024;
+        // The arena now rolls over safely inside a frame; use Aurora's normal
+        // page size so stadium/crowd batches amortize buffer orphaning while
+        // keeping peak transient storage bounded.
+        cfg.stream_vertex_bytes = 4 * 1024 * 1024;
+        cfg.stream_index_bytes = 1024 * 1024;
         cfg.stream_slots = 3;
         cfg.cpu_worker_threads = 2;
         cfg.cpu_parallel_min_vertices = 512;

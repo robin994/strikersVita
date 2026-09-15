@@ -237,7 +237,10 @@ if(STRIKERS_AURORA AND STRIKERS_VITA)
     target_compile_definitions(aurora_vita_backend PUBLIC
         AURORA_PLATFORM_VITA=1 AURORA_GFX_VITA=1 __vita__=1)
     target_compile_definitions(aurora_vita_backend PRIVATE
-        AURORA_VITA_UPSTREAM=1 MKW_TARGET_VITA=1 TARGET_PC=1)
+        AURORA_VITA_UPSTREAM=1 MKW_TARGET_VITA=1 TARGET_PC=1
+        # Strikers builds Aurora's source list directly instead of including
+        # aurora_vita.cmake, so Vita backend options must be mirrored here.
+        AURORA_VITA_NATIVE_CMPR=1)
     target_compile_options(aurora_vita_backend PRIVATE
         -O3 -ffunction-sections -fdata-sections -fno-exceptions -fno-rtti
         -mtune=cortex-a9 -mfpu=neon -ffast-math -fsigned-char -fshort-wchar
