@@ -2,6 +2,10 @@
 #include "NL/nlMemory.h"
 #include "NL/nlTicker.h"
 #include "NL/nlDLRing.h"
+#include "port/host.h"
+
+#include <cstdio>
+#include <cstdlib>
 
 #define assert(condition) ((condition) ? ((void)0) : ((void)0))
 
@@ -11,6 +15,81 @@ float g_fTaskTimeUpperBound = 0.1f;
 nlTaskManager* nlTaskManager::m_pInstance = nullptr;
 u8 g_DoStackWatermarkTests;
 float g_fTaskTimeLowerBound;
+
+namespace
+{
+struct TaskProfileSlot
+{
+    nlTask* task;
+    unsigned long long totalNs;
+    unsigned long long maxNs;
+    unsigned int calls;
+};
+
+TaskProfileSlot s_TaskProfile[32]{};
+unsigned int s_TaskProfileFrames;
+int s_TaskProfileEnabled = -1;
+
+bool TaskProfileEnabled()
+{
+    if (s_TaskProfileEnabled < 0)
+    {
+        const char* value = std::getenv("STRIKERS_TASK_PROFILE");
+        s_TaskProfileEnabled = value != nullptr && *value != '\0' && *value != '0';
+    }
+    return s_TaskProfileEnabled != 0;
+}
+
+TaskProfileSlot* TaskProfileGet(nlTask* task)
+{
+    TaskProfileSlot* empty = nullptr;
+    for (TaskProfileSlot& slot : s_TaskProfile)
+    {
+        if (slot.task == task)
+            return &slot;
+        if (slot.task == nullptr && empty == nullptr)
+            empty = &slot;
+    }
+    if (empty != nullptr)
+        empty->task = task;
+    return empty;
+}
+
+void TaskProfileReport()
+{
+    std::fprintf(stderr, "[task-profile] frames=%u\n", s_TaskProfileFrames);
+    bool emitted[32]{};
+    for (unsigned int rank = 0; rank < 12; ++rank)
+    {
+        int best = -1;
+        for (unsigned int i = 0; i < 32; ++i)
+        {
+            if (emitted[i] || s_TaskProfile[i].task == nullptr || s_TaskProfile[i].calls == 0)
+                continue;
+            if (best < 0 || s_TaskProfile[i].totalNs > s_TaskProfile[best].totalNs)
+                best = (int)i;
+        }
+        if (best < 0)
+            break;
+        emitted[best] = true;
+        const TaskProfileSlot& slot = s_TaskProfile[best];
+        const char* name = slot.task->GetName();
+        std::fprintf(stderr, "[task-profile] %-24s total_us=%llu mean_us=%llu max_us=%llu calls=%u\n",
+                     name != nullptr ? name : "?",
+                     slot.totalNs / 1000ull,
+                     slot.calls != 0 ? slot.totalNs / (1000ull * slot.calls) : 0ull,
+                     slot.maxNs / 1000ull,
+                     slot.calls);
+    }
+    for (TaskProfileSlot& slot : s_TaskProfile)
+    {
+        slot.totalNs = 0;
+        slot.maxNs = 0;
+        slot.calls = 0;
+    }
+    s_TaskProfileFrames = 0;
+}
+}
 
 /**
  * Offset/Address/Size: 0x0 | 0x801D28FC | size: 0xC
@@ -39,6 +118,7 @@ void nlTaskManager::RunAllTasks()
     nlTask* currentTask;
     nlTask* taskIterator;
     s32 currentTicker;
+    const bool profileTasks = TaskProfileEnabled();
 
     currentTask = nlDLRingGetStart<nlTask>(m_pInstance->m_lTaskList);
     if (currentTask != NULL)
@@ -75,12 +155,31 @@ void nlTaskManager::RunAllTasks()
                 }
                 deltaTime = clampedDeltaTime * m_pInstance->m_TimeDilation;
                 m_pInstance->m_fCurrentTimeDelta = deltaTime;
-                taskIterator->Run(deltaTime);
+                if (profileTasks)
+                {
+                    const unsigned long long started = port_monotonic_ns();
+                    taskIterator->Run(deltaTime);
+                    const unsigned long long elapsed = port_monotonic_ns() - started;
+                    TaskProfileSlot* slot = TaskProfileGet(taskIterator);
+                    if (slot != nullptr)
+                    {
+                        slot->totalNs += elapsed;
+                        if (elapsed > slot->maxNs)
+                            slot->maxNs = elapsed;
+                        slot->calls++;
+                    }
+                }
+                else
+                {
+                    taskIterator->Run(deltaTime);
+                }
             }
             if (taskIterator == m_pInstance->m_lTaskList)
                 break;
             taskIterator = taskIterator->m_next;
         }
+        if (profileTasks && ++s_TaskProfileFrames >= 120)
+            TaskProfileReport();
     }
 }
 
