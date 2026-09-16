@@ -366,12 +366,12 @@ void PortBenchReport(void)
     {
         fprintf(stderr,
                 "\n=== strikers benchmark ===\n"
-                "no match was reached; %zu frames of front end discarded and "
+                "no match was reached; %lu frames of front end discarded and "
                 "nothing measured.\n"
                 "The demo match starts about a minute in, give it longer, or "
                 "set STRIKERS_BENCHMARK=fe\nto measure the front end "
                 "deliberately.\n\n",
-                s_count);
+                (unsigned long)s_count);
         return;
     }
     if (s_count == 0)
@@ -400,14 +400,14 @@ void PortBenchReport(void)
     fprintf(stderr, "\n");
 
     fprintf(stderr,
-        "match frames %zu over %.1fs   %.2f fps presented\n"
-        "(%zu earlier frames, boot, title, loading; discarded)\n"
+        "match frames %lu over %.1fs   %.2f fps presented\n"
+        "(%lu earlier frames, boot, title, loading; discarded)\n"
         "                     mean     p50     p95     p99     max   (ms)\n"
         "  cpu busy        %7.3f %7.3f %7.3f %7.3f %7.3f\n"
         "  present/drain   %7.3f %7.3f %7.3f %7.3f %7.3f\n"
         "  frame total     %7.3f %7.3f %7.3f %7.3f %7.3f\n"
         "  limiter sleep   %7.3f (idle)\n",
-        s_count, wall, (double)s_count / (wall > 0.0 ? wall : 1.0), s_skipped,
+        (unsigned long)s_count, wall, (double)s_count / (wall > 0.0 ? wall : 1.0), (unsigned long)s_skipped,
         bMean, bP50, bP95, bP99, bMax,
         pMean, pP50, pP95, pP99, pMax,
         fMean, fP50, fP95, fP99, fMax,
@@ -450,8 +450,8 @@ void PortBenchReport(void)
             (double)s_worstUs / 1000.0, s_worstFrame);
 
     if (s_dropped)
-        fprintf(stderr, "  (%zu frames past the %d-frame sample cap not counted)\n",
-                s_dropped, BENCH_CAP);
+        fprintf(stderr, "  (%lu frames past the %d-frame sample cap not counted)\n",
+                (unsigned long)s_dropped, BENCH_CAP);
     fprintf(stderr,
         "=====================================================================\n\n");
 

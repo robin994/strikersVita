@@ -252,8 +252,10 @@ if(STRIKERS_AURORA AND STRIKERS_VITA)
         -O3 -ffunction-sections -fdata-sections -fno-exceptions -fno-rtti
         -mtune=cortex-a9 -mfpu=neon -ffast-math -fsigned-char -fshort-wchar
         -fno-short-enums)
+    include("${AURORA_VITA_ROOT}/cmake/AuroraVitaProgramCache.cmake")
+    aurora_vita_bind_vitagl(aurora_vita_backend)
     target_link_libraries(aurora_vita_backend PUBLIC
-        vitaGL vitashark SceShaccCgExt SceShaccCg_stub taihen_stub
+        vitashark SceShaccCgExt SceShaccCg_stub taihen_stub
         SceGxm_stub SceDisplay_stub SceCtrl_stub SceAppMgr_stub
         SceCommonDialog_stub SceKernelDmacMgr_stub SceSysmodule_stub SceLibKernel_stub
         mathneon pthread m)

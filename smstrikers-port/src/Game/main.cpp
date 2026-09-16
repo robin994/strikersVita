@@ -11,6 +11,9 @@
 #include <psp2/ctrl.h>
 #include <psp2/kernel/processmgr.h>
 #include <psp2/kernel/sysmem.h>
+#include <psp2/power.h>
+#include <psp2/display.h>
+#include <psp2/gxm.h>
 #include <SDL3/SDL_events.h>
 #else
 #include <aurora/aurora.h>
@@ -147,6 +150,64 @@ extern "C" {
 // separate 96 MiB USER_RW memblock for the GameCube VM/standard allocators.
 // A 256 MiB newlib heap starves that memblock before main() even starts.
 unsigned int _newlib_heap_size_user = 128u * 1024u * 1024u;
+}
+
+// One opt-in diagnostic snapshot, after the selected completed 3D frame. The
+// display queue wait and disk write are intentionally not part of normal play.
+static void VitaMaybeCaptureFrame()
+{
+    static bool initialized = false;
+    static unsigned long target = 0;
+    static unsigned long heavyFrames = 0;
+    if (!initialized)
+    {
+        initialized = true;
+        const char* value = getenv("STRIKERS_VITA_SNAPSHOT_3D_FRAME");
+        if (value != NULL)
+            target = strtoul(value, NULL, 10);
+    }
+    if (target == 0 || aurora::vita::telemetry().frame().counters.triangles < 10000)
+        return;
+    if (++heavyFrames != target)
+        return;
+    sceGxmDisplayQueueFinish();
+    SceDisplayFrameBuf fb = {};
+    fb.size = sizeof(fb);
+    const int result = sceDisplayGetFrameBuf(&fb, SCE_DISPLAY_SETBUF_IMMEDIATE);
+    if (result < 0 || fb.base == NULL || fb.width == 0 || fb.width > 4096
+        || fb.height == 0 || fb.height > 4096 || fb.pitch < fb.width || fb.pixelformat != 0)
+    {
+        OSReport("[vita] snapshot failed: framebuffer rc=%d format=%u\n", result, fb.pixelformat);
+        return;
+    }
+    unsigned char* row = (unsigned char*)malloc(fb.width * 3u);
+    if (row == NULL)
+        return;
+    char path[128];
+    snprintf(path, sizeof(path), "ux0:data/strikersVita/debug_frame_3d_%lu.ppm", target);
+    FILE* output = fopen(path, "wb");
+    bool ok = output != NULL;
+    if (output != NULL)
+    {
+        fprintf(output, "P6\n%u %u\n255\n", fb.width, fb.height);
+        const unsigned char* pixels = (const unsigned char*)fb.base;
+        for (unsigned int y = 0; y < fb.height && ok; ++y)
+        {
+            const unsigned char* source = pixels + y * fb.pitch * 4u;
+            for (unsigned int x = 0; x < fb.width; ++x)
+            {
+                row[x*3u] = source[x*4u];
+                row[x*3u+1u] = source[x*4u+1u];
+                row[x*3u+2u] = source[x*4u+2u];
+            }
+            ok = fwrite(row, 3u, fb.width, output) == fb.width;
+        }
+        if (fclose(output) != 0)
+            ok = false;
+    }
+    free(row);
+    OSReport("[vita] snapshot 3d_frame=%lu aurora_frame=%lu ok=%d path=%s\n",
+             heavyFrames, (unsigned long)aurora::vita::telemetry().frame().frame, ok ? 1 : 0, path);
 }
 #endif
 
@@ -781,6 +842,23 @@ int main(int argc, char* argv[])
 #if defined(PORT_VITA)
     {
         sceCtrlSetSamplingMode(SCE_CTRL_MODE_ANALOG);
+        OSReport("[vita] clocks at boot: cpu=%d bus=%d gpu=%d xbar=%d MHz\n",
+                 scePowerGetArmClockFrequency(), scePowerGetBusClockFrequency(),
+                 scePowerGetGpuClockFrequency(), scePowerGetGpuXbarClockFrequency());
+        const char* cpuMHz = getenv("STRIKERS_CPU_MHZ");
+        if (cpuMHz != NULL && strcmp(cpuMHz, "444") == 0)
+        {
+            const int result = scePowerSetArmClockFrequency(444);
+            OSReport("[vita] requested cpu=444 MHz rc=%d actual=%d\n", result, scePowerGetArmClockFrequency());
+        }
+        const char* gpuMHz = getenv("STRIKERS_GPU_MHZ");
+        if (gpuMHz != NULL && strcmp(gpuMHz, "222") == 0)
+        {
+            const int gpuResult = scePowerSetGpuClockFrequency(222);
+            const int xbarResult = scePowerSetGpuXbarClockFrequency(166);
+            OSReport("[vita] requested gpu=222 xbar=166 rc=%d/%d reported=%d/%d\n",
+                     gpuResult, xbarResult, scePowerGetGpuClockFrequency(), scePowerGetGpuXbarClockFrequency());
+        }
         SceKernelFreeMemorySizeInfo memInfo = {};
         memInfo.size = sizeof(memInfo);
         if (sceKernelGetFreeMemorySize(&memInfo) >= 0)
@@ -791,7 +869,7 @@ int main(int argc, char* argv[])
                      (unsigned int)memInfo.size_phycont);
         }
         if (!glxVitaReserveResourceArena())
-            OSReport("[vita] warning: could not pre-reserve the full GLX CDRAM arena\n");
+            OSReport("[vita] warning: could not pre-reserve the full GLX resource arena\n");
         if (sceKernelGetFreeMemorySize(&memInfo) >= 0)
         {
             OSReport("[vita] post-GLX-reserve free memory: user=%u cdram=%u phycont=%u\n",
@@ -819,6 +897,13 @@ int main(int argc, char* argv[])
             cfg.vgl_cdram_pool_size = memInfo.size_cdram > 16u * mb
                 ? ((memInfo.size_cdram - 16u * mb < 40u * mb) ? memInfo.size_cdram - 16u * mb : 40u * mb)
                 : 0;
+            const char* cdramPoolMb = getenv("STRIKERS_VGL_CDRAM_MB");
+            if (cdramPoolMb != NULL)
+            {
+                const unsigned long value = strtoul(cdramPoolMb, NULL, 10);
+                if (value >= 32 && value <= 96 && memInfo.size_cdram >= (value + 16u) * mb)
+                    cfg.vgl_cdram_pool_size = (unsigned int)value * mb;
+            }
             cfg.vgl_phycont_pool_size = memInfo.size_phycont > 8u * mb
                 ? ((memInfo.size_phycont - 8u * mb < 8u * mb) ? memInfo.size_phycont - 8u * mb : 8u * mb)
                 : 0;
@@ -841,6 +926,13 @@ int main(int argc, char* argv[])
         // textures into fallbacks even though the vitaGL CDRAM pool still has
         // room. Match Aurora-Vita's normal 24 MiB cache budget.
         cfg.texture_cache_budget = 26 * 1024 * 1024;
+        const char* textureCacheMb = getenv("STRIKERS_TEXTURE_CACHE_MB");
+        if (textureCacheMb != NULL)
+        {
+            const unsigned long value = strtoul(textureCacheMb, NULL, 10);
+            if (value >= 16 && value <= 64)
+                cfg.texture_cache_budget = (unsigned int)value * 1024u * 1024u;
+        }
         // The arena now rolls over safely inside a frame; use Aurora's normal
         // page size so stadium/crowd batches amortize buffer orphaning while
         // keeping peak transient storage bounded.
@@ -852,6 +944,16 @@ int main(int argc, char* argv[])
         // Gameplay's common ~198-vertex packets therefore need ~64 vertices per
         // lane to keep all three Vita CPU lanes busy during decode/transform.
         cfg.cpu_parallel_min_vertices = 64;
+        const char* workerCount = getenv("STRIKERS_AURORA_CPU_WORKERS");
+        if (workerCount != NULL && workerCount[0] >= '0' && workerCount[0] <= '2' && workerCount[1] == '\0')
+            cfg.cpu_worker_threads = (unsigned int)(workerCount[0] - '0');
+        const char* parallelMin = getenv("STRIKERS_AURORA_PARALLEL_MIN");
+        if (parallelMin != NULL)
+        {
+            const unsigned long value = strtoul(parallelMin, NULL, 10);
+            if (value >= 64 && value <= 65536)
+                cfg.cpu_parallel_min_vertices = (unsigned int)value;
+        }
         cfg.wait_vblank = true;
         // Keep lightweight timing telemetry enabled in normal builds, but do
         // not pay for per-draw coverage/trace/geometry diagnostics unless a
@@ -860,6 +962,28 @@ int main(int argc, char* argv[])
         const bool fullAuroraDiagnostics = auroraDiagnostics != NULL
             && auroraDiagnostics[0] != '\0' && auroraDiagnostics[0] != '0';
         cfg.diagnostics = fullAuroraDiagnostics;
+        const char* splitVertexPhases = getenv("STRIKERS_PROFILE_VERTEX_PHASES");
+        cfg.profile_split_vertex_phases = splitVertexPhases != NULL && splitVertexPhases[0] == '1';
+        const char* textureDiagnostics = getenv("STRIKERS_VITA_TEXTURE_DIAGNOSTICS");
+        cfg.texture_decode_diagnostics = textureDiagnostics != NULL && textureDiagnostics[0] == '1';
+        const char* staticGeometryMb = getenv("STRIKERS_STATIC_GEOMETRY_MB");
+        const char* shaderCache = getenv("STRIKERS_SHADER_CACHE");
+        if (shaderCache != NULL && shaderCache[0] == '1')
+            cfg.program_binary_cache_path = "ux0:data/aurora-vita/program_cache";
+        if (staticGeometryMb != NULL)
+        {
+            const unsigned long value = strtoul(staticGeometryMb, NULL, 10);
+            if (value <= 32)
+                cfg.static_geometry_budget = (unsigned int)value * 1024u * 1024u;
+        }
+        const char* drawLimit = getenv("STRIKERS_VITA_DRAW_LIMIT");
+        if (drawLimit != NULL)
+            cfg.diagnostic_draw_limit = (unsigned int)strtoul(drawLimit, NULL, 10);
+        OSReport("[vita] static geometry budget=%u KB gpu_fixed_vertex=%d split_vertex_phases=%d\n",
+                 (unsigned int)(cfg.static_geometry_budget >> 10), cfg.static_geometry_budget != 0,
+                 cfg.profile_split_vertex_phases ? 1 : 0);
+        if (cfg.diagnostic_draw_limit != 0)
+            OSReport("[vita] diagnostic draw limit=%u\n", (unsigned int)cfg.diagnostic_draw_limit);
         cfg.strict_unsupported = false;
         cfg.diagnostics_period_frames = 10;
         cfg.telemetry_log_path = "ux0:data/strikersVita/aurora_telemetry.log";
@@ -868,7 +992,7 @@ int main(int argc, char* argv[])
         const char* vita3dDiagnostics = getenv("STRIKERS_VITA_3D_DIAGNOSTICS");
         const bool verboseVita3d = vita3dDiagnostics != NULL
             && vita3dDiagnostics[0] != '\0' && vita3dDiagnostics[0] != '0';
-        OSReport("[vita] 3D perf profile=dedup-v1 stream_v=%uKB stream_i=%uKB parallel_min=%u aurora_diag=%u vita3d_diag=%u\n",
+        OSReport("[vita] 3D perf profile=cpu-color-v3 stream_v=%uKB stream_i=%uKB parallel_min=%u aurora_diag=%u vita3d_diag=%u\n",
                  (unsigned int)(cfg.stream_vertex_bytes >> 10),
                  (unsigned int)(cfg.stream_index_bytes >> 10),
                  (unsigned int)cfg.cpu_parallel_min_vertices,
@@ -1079,6 +1203,7 @@ int main(int argc, char* argv[])
         }
 #if defined(PORT_VITA)
         aurora::vita::end_frame();
+        VitaMaybeCaptureFrame();
 #else
         aurora_end_frame();
 #endif
