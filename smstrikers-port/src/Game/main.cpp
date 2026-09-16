@@ -966,6 +966,12 @@ int main(int argc, char* argv[])
         cfg.profile_split_vertex_phases = splitVertexPhases != NULL && splitVertexPhases[0] == '1';
         const char* textureDiagnostics = getenv("STRIKERS_VITA_TEXTURE_DIAGNOSTICS");
         cfg.texture_decode_diagnostics = textureDiagnostics != NULL && textureDiagnostics[0] == '1';
+#if defined(AURORA_VITA_RENDERER_GXM)
+        // Native GXM can keep immutable object-space GX geometry resident and
+        // perform fixed PN/texgen work in its vertex shader. Start conservatively
+        // so gameplay still has ample RAM for stadium and character assets.
+        cfg.static_geometry_budget = 8 * 1024 * 1024;
+#endif
         const char* staticGeometryMb = getenv("STRIKERS_STATIC_GEOMETRY_MB");
         const char* shaderCache = getenv("STRIKERS_SHADER_CACHE");
         if (shaderCache != NULL && shaderCache[0] == '1')
