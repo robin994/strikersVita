@@ -27,6 +27,8 @@
 #include "dolphin/os/OSReset.h"
 #include "dolphin/vm/VM.h"
 #include "Game/Sys/debug.h"
+#include "port/host.h"
+#include <cstdlib>
 #if defined(PORT_VITA)
 #include <aurora_vita_backend.hpp>
 #endif
@@ -269,11 +271,50 @@ static inline void glx_SendFrame(bool bSend)
  */
 void glplatSendFrame()
 {
-    glxSwapPre(true);
-    glx_SendFrame(true);
-    glx_SendViews();
-    glxSwapPost(true);
-    glplatFrameAllocNextFrame();
+    static int profile = -1;
+    static unsigned int profileFrames;
+    static unsigned long long totals[5]{};
+    static unsigned long long maxima[5]{};
+    if (profile < 0)
+    {
+        const char* value = std::getenv("STRIKERS_TASK_PROFILE");
+        profile = value != nullptr && *value != '\0' && *value != '0';
+    }
+    if (!profile)
+    {
+        glxSwapPre(true);
+        glx_SendFrame(true);
+        glx_SendViews();
+        glxSwapPost(true);
+        glplatFrameAllocNextFrame();
+    }
+    else
+    {
+        unsigned long long t[6];
+        t[0] = port_monotonic_ns();
+        glxSwapPre(true);              t[1] = port_monotonic_ns();
+        glx_SendFrame(true);           t[2] = port_monotonic_ns();
+        glx_SendViews();               t[3] = port_monotonic_ns();
+        glxSwapPost(true);             t[4] = port_monotonic_ns();
+        glplatFrameAllocNextFrame();   t[5] = port_monotonic_ns();
+        for (unsigned int i = 0; i < 5; ++i)
+        {
+            const unsigned long long elapsed = t[i + 1] - t[i];
+            totals[i] += elapsed;
+            if (elapsed > maxima[i])
+                maxima[i] = elapsed;
+        }
+        if (++profileFrames >= 120)
+        {
+            static const char* names[5] = { "swap_pre", "send_frame", "send_views", "swap_post", "frame_alloc" };
+            for (unsigned int i = 0; i < 5; ++i)
+                std::fprintf(stderr, "[render-profile] %-12s mean_us=%llu max_us=%llu total_us=%llu\n",
+                             names[i], totals[i] / (1000ull * profileFrames), maxima[i] / 1000ull, totals[i] / 1000ull);
+            for (unsigned int i = 0; i < 5; ++i)
+                totals[i] = maxima[i] = 0;
+            profileFrames = 0;
+        }
+    }
     glx_NumVirtMisses = 0U;
     glx_VirtLatency = 0;
 }
