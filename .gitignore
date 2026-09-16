@@ -1,4 +1,6 @@
 smstrikers-port/build*/
+/build-aurora-*/
+/build-gxm-reference/
 
 smstrikers-port/data/
 *.iso

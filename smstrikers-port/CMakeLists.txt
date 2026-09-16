@@ -183,6 +183,13 @@ if(STRIKERS_AURORA AND STRIKERS_VITA)
     set(STRIKERS_AURORA_VITA_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/extern/aurora-vita"
         CACHE PATH "Aurora Vita source tree used by the Strikers Vita backend")
     set(AURORA_VITA_ROOT "${STRIKERS_AURORA_VITA_ROOT}")
+    include("${AURORA_VITA_ROOT}/cmake/AuroraVitaRendererSelection.cmake")
+    if(AURORA_VITA_RENDERER STREQUAL "GXM")
+        message(FATAL_ERROR
+            "Strikers still uses the vitaGL GX/EFB adapter. Select VITAGL for the game, "
+            "or build Aurora with the vita-gxm preset for the native probe. "
+            "The GXM game adapter is not implemented; no vitaGL fallback is performed.")
+    endif()
     set(AURORA_VITA_BACKEND_SOURCES
         "${AURORA_VITA_ROOT}/platforms/vita/aurora_vita_backend.cpp"
         "${AURORA_VITA_ROOT}/platforms/vita/gx/aurora_vita_draw_sink.cpp"
