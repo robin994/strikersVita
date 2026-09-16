@@ -183,92 +183,21 @@ if(STRIKERS_AURORA AND STRIKERS_VITA)
     set(STRIKERS_AURORA_VITA_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/extern/aurora-vita"
         CACHE PATH "Aurora Vita source tree used by the Strikers Vita backend")
     set(AURORA_VITA_ROOT "${STRIKERS_AURORA_VITA_ROOT}")
-    include("${AURORA_VITA_ROOT}/cmake/AuroraVitaRendererSelection.cmake")
-    if(AURORA_VITA_RENDERER STREQUAL "GXM")
-        message(FATAL_ERROR
-            "Strikers still uses the vitaGL GX/EFB adapter. Select VITAGL for the game, "
-            "or build Aurora with the vita-gxm preset for the native probe. "
-            "The GXM game adapter is not implemented; no vitaGL fallback is performed.")
-    endif()
-    set(AURORA_VITA_BACKEND_SOURCES
-        "${AURORA_VITA_ROOT}/platforms/vita/aurora_vita_backend.cpp"
-        "${AURORA_VITA_ROOT}/platforms/vita/gx/aurora_vita_draw_sink.cpp"
-        "${AURORA_VITA_ROOT}/platforms/vita/integration/vita_feature_coverage.cpp"
-        "${AURORA_VITA_ROOT}/platforms/vita/integration/vita_frame_trace.cpp"
-        "${AURORA_VITA_ROOT}/platforms/vita/integration/vita_fifo_packet_queue.cpp"
-        "${AURORA_VITA_ROOT}/platforms/vita/integration/vita_gx_capture.cpp"
-        "${AURORA_VITA_ROOT}/platforms/vita/integration/vita_gx_replay.cpp"
-        "${AURORA_VITA_ROOT}/platforms/vita/integration/wiicompiled_aurora_adapter.cpp"
-        "${AURORA_VITA_ROOT}/platforms/vita/integration/vita_gx_backend.cpp"
-        "${AURORA_VITA_ROOT}/platforms/vita/gfx/vita_telemetry.cpp"
-        "${AURORA_VITA_ROOT}/platforms/vita/gfx/vita_memory_budget.cpp"
-        "${AURORA_VITA_ROOT}/platforms/vita/gfx/vita_gl_util.cpp"
-        "${AURORA_VITA_ROOT}/platforms/vita/gfx/vita_cpu_workers.cpp"
-        "${AURORA_VITA_ROOT}/platforms/vita/gfx/vita_texture_decode.cpp"
-        "${AURORA_VITA_ROOT}/platforms/vita/gfx/vita_vertex_decode.cpp"
-        "${AURORA_VITA_ROOT}/platforms/vita/gfx/vita_vertex_pipeline.cpp"
-        "${AURORA_VITA_ROOT}/platforms/vita/gfx/vita_streaming_arena.cpp"
-        "${AURORA_VITA_ROOT}/platforms/vita/gfx/vita_draw_adapter.cpp"
-        "${AURORA_VITA_ROOT}/platforms/vita/gfx/vita_shader_gen.cpp"
-        "${AURORA_VITA_ROOT}/platforms/vita/gfx/vita_pipeline_key.cpp"
-        "${AURORA_VITA_ROOT}/platforms/vita/gfx/vita_buffer_pool.cpp"
-        "${AURORA_VITA_ROOT}/platforms/vita/gfx/vita_texture_cache.cpp"
-        "${AURORA_VITA_ROOT}/platforms/vita/gfx/vita_pipeline_cache.cpp"
-        "${AURORA_VITA_ROOT}/platforms/vita/gfx/vita_efb.cpp"
-        "${AURORA_VITA_ROOT}/platforms/vita/gfx/vita_renderer.cpp"
-        "${AURORA_VITA_ROOT}/platforms/vita/gx/aurora_gx_bridge.cpp"
-        "${AURORA_VITA_ROOT}/lib/vita/runtime.cpp"
-        "${AURORA_VITA_ROOT}/lib/vita/gx_frontend_state.cpp"
-        "${AURORA_VITA_ROOT}/lib/gx/fifo.cpp"
-        "${AURORA_VITA_ROOT}/lib/gx/command_processor.cpp"
-        "${AURORA_VITA_ROOT}/lib/dolphin/gx/GXBump.cpp"
-        "${AURORA_VITA_ROOT}/lib/dolphin/gx/GXCull.cpp"
-        "${AURORA_VITA_ROOT}/lib/dolphin/gx/GXCpu2Efb.cpp"
-        "${AURORA_VITA_ROOT}/lib/dolphin/gx/GXDispList.cpp"
-        "${AURORA_VITA_ROOT}/lib/dolphin/gx/GXDraw.cpp"
-        "${AURORA_VITA_ROOT}/lib/dolphin/gx/GXExtra.cpp"
-        "${AURORA_VITA_ROOT}/lib/dolphin/gx/GXFifo.cpp"
-        "${AURORA_VITA_ROOT}/lib/dolphin/gx/GXFrameBuffer.cpp"
-        "${AURORA_VITA_ROOT}/lib/dolphin/gx/GXGeometry.cpp"
-        "${AURORA_VITA_ROOT}/lib/dolphin/gx/GXGet.cpp"
-        "${AURORA_VITA_ROOT}/lib/dolphin/gx/GXLighting.cpp"
-        "${AURORA_VITA_ROOT}/lib/dolphin/gx/GXManage.cpp"
-        "${AURORA_VITA_ROOT}/lib/dolphin/gx/GXPixel.cpp"
-        "${AURORA_VITA_ROOT}/lib/dolphin/gx/GXTev.cpp"
-        "${AURORA_VITA_ROOT}/lib/dolphin/gx/GXTexture.cpp"
-        "${AURORA_VITA_ROOT}/lib/dolphin/gx/GXTransform.cpp"
-        "${AURORA_VITA_ROOT}/lib/dolphin/gx/GXVert.cpp"
-        "${AURORA_VITA_ROOT}/lib/dolphin/gx/GXAurora.cpp"
-        "${AURORA_VITA_ROOT}/lib/dolphin/vi/vi.cpp")
-    add_library(aurora_vita_backend STATIC ${AURORA_VITA_BACKEND_SOURCES})
-    add_library(aurora::vita_backend ALIAS aurora_vita_backend)
-    target_compile_features(aurora_vita_backend PUBLIC cxx_std_20)
-    target_include_directories(aurora_vita_backend PUBLIC
-        "${AURORA_VITA_ROOT}/include"
-        "${AURORA_VITA_ROOT}/platforms/vita"
-        "${AURORA_VITA_ROOT}/platforms/vita/gfx"
-        "${AURORA_VITA_ROOT}/platforms/vita/integration")
-    target_compile_definitions(aurora_vita_backend PUBLIC
-        AURORA_PLATFORM_VITA=1 AURORA_GFX_VITA=1 __vita__=1)
-    target_compile_definitions(aurora_vita_backend PRIVATE
-        AURORA_VITA_UPSTREAM=1 MKW_TARGET_VITA=1 TARGET_PC=1
-        # Strikers builds Aurora's source list directly instead of including
-        # aurora_vita.cmake, so Vita backend options must be mirrored here.
-        AURORA_VITA_NATIVE_CMPR=$<BOOL:${STRIKERS_VITA_NATIVE_CMPR}>)
-    target_compile_options(aurora_vita_backend PRIVATE
-        -O3 -ffunction-sections -fdata-sections -fno-exceptions -fno-rtti
-        -mtune=cortex-a9 -mfpu=neon -ffast-math -fsigned-char -fshort-wchar
-        -fno-short-enums)
-    include("${AURORA_VITA_ROOT}/cmake/AuroraVitaProgramCache.cmake")
-    aurora_vita_bind_vitagl(aurora_vita_backend)
-    target_link_libraries(aurora_vita_backend PUBLIC
-        vitashark SceShaccCgExt SceShaccCg_stub taihen_stub
-        SceGxm_stub SceDisplay_stub SceCtrl_stub SceAppMgr_stub
-        SceCommonDialog_stub SceKernelDmacMgr_stub SceSysmodule_stub SceLibKernel_stub
-        mathneon pthread m)
+    set(AURORA_VITA_WITH_GX_FRONTEND ON CACHE BOOL "" FORCE)
+    set(AURORA_VITA_WITH_UPSTREAM_GX OFF CACHE BOOL "" FORCE)
+    set(AURORA_VITA_PORT_ABI GAMECUBE CACHE STRING "" FORCE)
+    set(AURORA_VITA_NATIVE_CMPR ${STRIKERS_VITA_NATIVE_CMPR} CACHE BOOL "" FORCE)
+    # Preserve the prior conservative native-format policy for the vitaGL game.
+    set(AURORA_VITA_NATIVE_GX_TEXTURES OFF CACHE BOOL "" FORCE)
+    include("${AURORA_VITA_ROOT}/cmake/aurora_vita_embed.cmake")
+    aurora_add_vita_backend()
 endif()
 
 add_library(port_flags INTERFACE)
+if(STRIKERS_AURORA AND STRIKERS_VITA)
+    # Every object using public renderer types must see the same backend and ABI.
+    target_link_libraries(port_flags INTERFACE aurora::vita_backend)
+endif()
 target_include_directories(port_flags INTERFACE ${PORT_INCLUDES})
 target_compile_definitions(port_flags INTERFACE ${PORT_DEFINES})
 # The compile contract, in both of clang's command-line dialects.
@@ -719,6 +648,7 @@ endif()
 
 if(STRIKERS_VITA)
     find_package(SDL3 CONFIG REQUIRED)
+    target_link_options(strikers PRIVATE -Wl,-Map=${CMAKE_CURRENT_BINARY_DIR}/strikers.map)
     target_link_libraries(strikers PRIVATE
         aurora::vita_backend SDL3::SDL3-static
         SceCtrl_stub SceAudio_stub SceAudioIn_stub ScePower_stub SceRtc_stub
