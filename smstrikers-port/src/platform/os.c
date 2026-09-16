@@ -10,6 +10,13 @@
 #include "dolphin/types.h"
 #include "port/host.h"
 
+#if defined(STRIKERS_VITA) && defined(PORT_USE_AURORA)
+extern void aurora_vita_notify_memory_write(const void* address, size_t bytes);
+#define PORT_AURORA_MEMORY_WRITE(addr, bytes) aurora_vita_notify_memory_write((addr), (bytes))
+#else
+#define PORT_AURORA_MEMORY_WRITE(addr, bytes) ((void)0)
+#endif
+
 // A synthetic range: the game compares against the arena bounds and never dereferences them.
 
 #if defined(STRIKERS_VITA)
@@ -106,12 +113,12 @@ void OSFreeToHeap(int heap, void* ptr)
 }
 
 // DCZeroRange is the one cache call with an observable side effect callers depend on.
-void DCFlushRange(void* addr, u32 nBytes) { (void)addr; (void)nBytes; }
-void DCFlushRangeNoSync(void* addr, u32 nBytes) { (void)addr; (void)nBytes; }
-void DCStoreRange(void* addr, u32 nBytes) { (void)addr; (void)nBytes; }
-void DCStoreRangeNoSync(void* addr, u32 nBytes) { (void)addr; (void)nBytes; }
+void DCFlushRange(void* addr, u32 nBytes) { PORT_AURORA_MEMORY_WRITE(addr, nBytes); }
+void DCFlushRangeNoSync(void* addr, u32 nBytes) { PORT_AURORA_MEMORY_WRITE(addr, nBytes); }
+void DCStoreRange(void* addr, u32 nBytes) { PORT_AURORA_MEMORY_WRITE(addr, nBytes); }
+void DCStoreRangeNoSync(void* addr, u32 nBytes) { PORT_AURORA_MEMORY_WRITE(addr, nBytes); }
 void DCInvalidateRange(void* addr, u32 nBytes) { (void)addr; (void)nBytes; }
-void DCZeroRange(void* addr, u32 nBytes) { memset(addr, 0, nBytes); }
+void DCZeroRange(void* addr, u32 nBytes) { memset(addr, 0, nBytes); PORT_AURORA_MEMORY_WRITE(addr, nBytes); }
 void LCEnable(void) {}
 void LCDisable(void) {}
 void PPCSync(void) { __sync_synchronize(); }
