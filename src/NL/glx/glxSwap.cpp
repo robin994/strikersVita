@@ -5,8 +5,8 @@
 #include "NL/nlMemory.h"
 #include "NL/nlConfig.h"
 
-#include "dolphin/GX.h"
-#include "dolphin/VI.h"
+#include "dolphin/gx.h"
+#include "dolphin/vi.h"
 #include "dolphin/os/OSThread.h"
 #include "dolphin/PPCArch.h"
 #include "NL/glx/glxGX.h"
