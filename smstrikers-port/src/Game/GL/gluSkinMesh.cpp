@@ -54,7 +54,13 @@ void ShaderSkinMesh::StitchModel()
             *pWrite = (stitchArray[packetIndex][i] + 1) * 3;
             pWrite += (pPacket->numStreams - 1) * 2 + 1;
         }
+
+        // dlMakeDisplayList() flushed the list before the skin matrix indices
+        // were stitched in.  Publish the patched PNMTXIDX bytes as well so
+        // Vita/Aurora never observes the pre-stitch 0xff placeholders.
+        DCFlushRangeNoSync(dl->list, dl->size);
     }
+    PPCSync();
 }
 
 /**
