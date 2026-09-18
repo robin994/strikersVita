@@ -285,6 +285,15 @@ static void SetupRenderInfo()
         }
     }
 
+#if defined(AURORA_VITA_RENDERER_GXM)
+    // Diagnostic isolation for the mirrored/doubled field-player geometry on
+    // Vita. Mario and Toad both reproduce it in states that select the blend
+    // mesh; Toad's blend asset is entirely software-skinned. Keep the camera,
+    // GLV_Characters pass and material path unchanged, but select the rigid
+    // mesh so we can separate a shared render-pass issue from AttachSkinData().
+    cCharacter::m_ModelType = CharModel_Rigid;
+#endif
+
     if (!init)
     {
         bGotWait = false;
