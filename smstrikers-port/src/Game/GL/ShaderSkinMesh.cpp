@@ -25,14 +25,8 @@ ShaderSkinMesh::ShaderSkinMesh()
     boneMaps = NULL;
     morphIDs = NULL;
 
-    morphWeights[0] = 0.0f;
-    morphWeights[0] = 0.0f;
-    morphWeights[0] = 0.0f;
-    morphWeights[0] = 0.0f;
-    morphWeights[0] = 0.0f;
-    morphWeights[0] = 0.0f;
-    morphWeights[0] = 0.0f;
-    morphWeights[0] = 0.0f;
+    for (int i = 0; i < 8; ++i)
+        morphWeights[i] = 0.0f;
 
     numSoftwareVerts = 0;
     softwareVertices = NULL;
