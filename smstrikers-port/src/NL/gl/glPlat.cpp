@@ -273,12 +273,20 @@ void glplatSendFrame()
 {
     static int profile = -1;
     static unsigned int profileFrames;
+    static unsigned int profileWindow = 120;
     static unsigned long long totals[5]{};
     static unsigned long long maxima[5]{};
     if (profile < 0)
     {
         const char* value = std::getenv("STRIKERS_TASK_PROFILE");
         profile = value != nullptr && *value != '\0' && *value != '0';
+        const char* window = std::getenv("STRIKERS_TASK_PROFILE_FRAMES");
+        if (window != nullptr && *window != '\0')
+        {
+            const unsigned long parsed = std::strtoul(window, nullptr, 10);
+            if (parsed >= 10 && parsed <= 600)
+                profileWindow = (unsigned int)parsed;
+        }
     }
     if (!profile)
     {
@@ -304,7 +312,7 @@ void glplatSendFrame()
             if (elapsed > maxima[i])
                 maxima[i] = elapsed;
         }
-        if (++profileFrames >= 120)
+        if (++profileFrames >= profileWindow)
         {
             static const char* names[5] = { "swap_pre", "send_frame", "send_views", "swap_post", "frame_alloc" };
             for (unsigned int i = 0; i < 5; ++i)
