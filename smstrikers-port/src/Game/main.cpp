@@ -974,10 +974,10 @@ int main(int argc, char* argv[])
         // The native shader now reproduces GX channel lighting and COLOR0/COLOR1
         // texgen semantics. Keep an environment escape hatch for immediate A/B
         // validation against the graphics-proven CPU vertex path.
-        cfg.gxm_lit_fixed_vertex_gpu = true;
+        cfg.gxm_lit_fixed_vertex_gpu = false;
         const char* litGpu = getenv("STRIKERS_GXM_LIT_GPU");
         if (litGpu != NULL)
-            cfg.gxm_lit_fixed_vertex_gpu = litGpu[0] != '0';
+            cfg.gxm_lit_fixed_vertex_gpu = litGpu[0] == '1';
 #endif
         const char* staticGeometryMb = getenv("STRIKERS_STATIC_GEOMETRY_MB");
         const char* shaderCache = getenv("STRIKERS_SHADER_CACHE");
