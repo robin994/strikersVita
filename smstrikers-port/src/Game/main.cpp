@@ -971,6 +971,13 @@ int main(int argc, char* argv[])
         // perform fixed PN/texgen work in its vertex shader. Start conservatively
         // so gameplay still has ample RAM for stadium and character assets.
         cfg.static_geometry_budget = 8 * 1024 * 1024;
+        // The native shader now reproduces GX channel lighting and COLOR0/COLOR1
+        // texgen semantics. Keep an environment escape hatch for immediate A/B
+        // validation against the graphics-proven CPU vertex path.
+        cfg.gxm_lit_fixed_vertex_gpu = true;
+        const char* litGpu = getenv("STRIKERS_GXM_LIT_GPU");
+        if (litGpu != NULL)
+            cfg.gxm_lit_fixed_vertex_gpu = litGpu[0] != '0';
 #endif
         const char* staticGeometryMb = getenv("STRIKERS_STATIC_GEOMETRY_MB");
         const char* shaderCache = getenv("STRIKERS_SHADER_CACHE");
@@ -985,8 +992,9 @@ int main(int argc, char* argv[])
         const char* drawLimit = getenv("STRIKERS_VITA_DRAW_LIMIT");
         if (drawLimit != NULL)
             cfg.diagnostic_draw_limit = (unsigned int)strtoul(drawLimit, NULL, 10);
-        OSReport("[vita] static geometry budget=%u KB gpu_fixed_vertex=%d split_vertex_phases=%d\n",
+        OSReport("[vita] static geometry budget=%u KB gpu_fixed_vertex=%d lit_gpu=%d split_vertex_phases=%d\n",
                  (unsigned int)(cfg.static_geometry_budget >> 10), cfg.static_geometry_budget != 0,
+                 cfg.gxm_lit_fixed_vertex_gpu ? 1 : 0,
                  cfg.profile_split_vertex_phases ? 1 : 0);
         if (cfg.diagnostic_draw_limit != 0)
             OSReport("[vita] diagnostic draw limit=%u\n", (unsigned int)cfg.diagnostic_draw_limit);
