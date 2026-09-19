@@ -322,7 +322,10 @@ static void SetupRenderInfo()
     {
         bool useTwoRetraceLock = BeginFrameTask::s_FramerateLocked
             && nlTaskManager::m_pInstance->m_CurrState == 0x100;
-#if defined(PORT_VITA) && defined(STRIKERS_VITA_FORCE_60HZ)
+#if defined(PORT_VITA)
+        // The Vita port targets a 60 Hz presentation path. Never allow a
+        // presentation/cutscene state to request the GameCube two-retrace
+        // (30 Hz) render lock; simulation timing remains handled separately.
         useTwoRetraceLock = false;
 #endif
         if (useTwoRetraceLock)

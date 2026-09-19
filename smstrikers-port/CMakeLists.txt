@@ -120,13 +120,6 @@ if(STRIKERS_MAIN_COMPILE_DEFINITIONS)
     set_source_files_properties(src/Game/main.cpp PROPERTIES
         COMPILE_DEFINITIONS "${STRIKERS_MAIN_COMPILE_DEFINITIONS}")
 endif()
-if(STRIKERS_VITA AND STRIKERS_VITA_FORCE_60HZ)
-    # Frame-pacing policy is consumed by BeginFrameTask as well, where the
-    # original presentation scripts can request a two-retrace (30 Hz) lock.
-    set_source_files_properties(src/Game/BeginFrameTask.cpp PROPERTIES
-        COMPILE_DEFINITIONS STRIKERS_VITA_FORCE_60HZ=1)
-endif()
-
 if(MSVC AND STRIKERS_AURORA)
     # Aurora's Windows Dawn package contains only a Release archive, so its C++ ABI is /MT with
     # iterator debugging disabled even when this project is a Debug build.
