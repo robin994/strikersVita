@@ -975,6 +975,14 @@ int main(int argc, char* argv[])
         // perform fixed PN/texgen work in its vertex shader. Start conservatively
         // so gameplay still has ample RAM for stadium and character assets.
         cfg.static_geometry_budget = 8 * 1024 * 1024;
+        cfg.static_geometry_min_vertices = 16;
+        const char* fixedMin = getenv("STRIKERS_GXM_FIXED_MIN");
+        if (fixedMin != NULL)
+        {
+            const unsigned long value = strtoul(fixedMin, NULL, 10);
+            if (value >= 3 && value <= 256)
+                cfg.static_geometry_min_vertices = (unsigned int)value;
+        }
         // The observed Strikers working set is ~265-300 native pipelines. Warm
         // the entire known set during loading and keep headroom under Aurora's
         // 512-pipeline resident budget instead of paying first-use patching in
