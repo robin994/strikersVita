@@ -878,6 +878,11 @@ int main(int argc, char* argv[])
                      (unsigned int)memInfo.size_phycont);
         }
         aurora::vita::BackendConfig cfg = {};
+        // Strikers' GX presentation path assumes the logical render target is
+        // the Vita scanout size. Aurora's lower-resolution default introduced
+        // after the graphics-stable baseline leaves the final copy letterboxed.
+        cfg.render_width = 960;
+        cfg.render_height = 544;
         cfg.vgl_legacy_pool_size = 0;
         // Do not use vglInitExtended's threshold mode here: with zero CDRAM
         // and PHYCONT thresholds it turns almost every currently-free page into
