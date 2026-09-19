@@ -955,10 +955,11 @@ int main(int argc, char* argv[])
         }
         cfg.wait_vblank = true;
 #if defined(STRIKERS_VITA_FORCE_60HZ)
-        // The Vita panel is 60 Hz. Keep sceDisplayWaitVblankStart as the sole
-        // authoritative pacer. The emulated VI still advances retrace callbacks,
-        // but it must not sleep as well or we end up with two independent frame
-        // clocks fighting each other and producing 33/50 ms quantization.
+        // The display callback always schedules with SCE_DISPLAY_SETBUF_NEXTFRAME,
+        // which keeps swaps tear-free. Do not also wait inside that callback:
+        // holding the GXM display queue through the retrace can quantize a frame
+        // that narrowly misses 16.67 ms straight down to 30 FPS.
+        cfg.wait_vblank = false;
         PortSetDisplayRefresh(60.0, 1);
         PortSetFrameLimit(0.0);
 #else
@@ -966,7 +967,8 @@ int main(int argc, char* argv[])
         if (vitaVsync != NULL)
             cfg.wait_vblank = vitaVsync[0] != '0';
 #endif
-        OSReport("[vita] GXM vblank wait=%u\n", cfg.wait_vblank ? 1u : 0u);
+        OSReport("[vita] GXM callback vblank wait=%u (NEXTFRAME present always enabled)\n",
+                 cfg.wait_vblank ? 1u : 0u);
         // Keep lightweight timing telemetry enabled in normal builds, but do
         // not pay for per-draw coverage/trace/geometry diagnostics unless a
         // developer explicitly requests them in strikers.ini/environment.
