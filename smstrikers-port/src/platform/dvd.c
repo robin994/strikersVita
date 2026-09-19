@@ -354,7 +354,7 @@ static void pick_image(void* user, const char* name)
 #define DVD_SENTINEL "common.ini"
 
 // The paths tried, in the order tried, so the message can name them.
-#define DVD_MAX_TRIED 5
+#define DVD_MAX_TRIED 6
 
 void DVDInit(void)
 {
@@ -370,10 +370,22 @@ void DVDInit(void)
     PortConfigLoad();
 
 #if defined(PORT_VITA)
-    // Vita development layout: prefer the extracted disc tree copied to
-    // ux0:data/strikersVita/game/{sys,files}. This comes before STRIKERS_DATA so
-    // a stale ini that still points at a test ISO cannot shadow complete files.
-    // Require common.ini before scanning so a half-copied folder is ignored.
+    // Vita release layout: prefer the user's own GameCube image at the fixed
+    // application-data path.  Keeping one canonical filename avoids scanning
+    // ux0 and makes startup deterministic regardless of other disc images on
+    // the memory card.
+    {
+        static const char vitaIso[] = "ux0:data/strikersVita/sms.iso";
+        snprintf(tried[nTried], sizeof tried[0], "%s", vitaIso);
+        triedWhy[nTried++] = "the Vita sms.iso game disc";
+        if (is_regular_file(vitaIso))
+            open_image(vitaIso);
+    }
+
+    // Development fallback: an extracted disc tree copied to
+    // ux0:data/strikersVita/game/{sys,files}. Require common.ini before scanning
+    // so a half-copied folder is ignored.
+    if (s_count == 0)
     {
         char dir[1024];
         char sentinel[1200];
