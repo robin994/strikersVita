@@ -476,12 +476,27 @@ static void write_csv(void)
         return;
     }
 
-    fprintf(f, "# build=%s", PORT_BUILD_TYPE);
-    for (i = 0; i < s_labelCount; i++)
-        fprintf(f, " %s=%s", s_labelKey[i], s_labelVal[i]);
-    fprintf(f, "\nframe,busy_us,present_us,frame_us\n");
-    for (i = 0; i < s_count; i++)
-        fprintf(f, "%zu,%u,%u,%u\n", i, s_busyUs[i], s_presentUs[i], s_frameUs[i]);
+    // Vita/newlib has shown a reproducible vfprintf/strlen crash after the
+    // benchmark summary. Keep the CSV useful without sending its many rows
+    // through fprintf: format one bounded row at a time and write the bytes.
+    {
+        char line[512];
+        int n = snprintf(line, sizeof(line), "# build=%s", PORT_BUILD_TYPE);
+        if (n > 0) fwrite(line, 1, (size_t)n < sizeof(line) ? (size_t)n : sizeof(line) - 1, f);
+        for (i = 0; i < s_labelCount; i++)
+        {
+            n = snprintf(line, sizeof(line), " %s=%s", s_labelKey[i], s_labelVal[i]);
+            if (n > 0) fwrite(line, 1, (size_t)n < sizeof(line) ? (size_t)n : sizeof(line) - 1, f);
+        }
+        fwrite("\nframe,busy_us,present_us,frame_us\n", 1,
+               sizeof("\nframe,busy_us,present_us,frame_us\n") - 1, f);
+        for (i = 0; i < s_count; i++)
+        {
+            n = snprintf(line, sizeof(line), "%lu,%u,%u,%u\n",
+                         (unsigned long)i, s_busyUs[i], s_presentUs[i], s_frameUs[i]);
+            if (n > 0) fwrite(line, 1, (size_t)n < sizeof(line) ? (size_t)n : sizeof(line) - 1, f);
+        }
+    }
     fclose(f);
-    fprintf(stderr, "[bench] wrote %zu frames to %s\n", s_count, path);
+    fprintf(stderr, "[bench] wrote %lu frames\n", (unsigned long)s_count);
 }
