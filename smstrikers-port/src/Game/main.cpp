@@ -870,6 +870,13 @@ int main(int argc, char* argv[])
                      (unsigned int)memInfo.size_phycont);
         }
         aurora::vita::BackendConfig cfg = {};
+#if defined(STRIKERS_VITA_GC_NATIVE_RES)
+        // Experimental performance mode: retain the Vita 960x544 scanout while
+        // rasterizing the GameCube scene at its conventional 640x480 XFB size.
+        // Aurora scales the final image to the display extent.
+        cfg.render_width = 640;
+        cfg.render_height = 480;
+#endif
         cfg.vgl_legacy_pool_size = 0;
         // Do not use vglInitExtended's threshold mode here: with zero CDRAM
         // and PHYCONT thresholds it turns almost every currently-free page into
@@ -947,9 +954,19 @@ int main(int argc, char* argv[])
                 cfg.cpu_parallel_min_vertices = (unsigned int)value;
         }
         cfg.wait_vblank = true;
+#if defined(STRIKERS_VITA_FORCE_60HZ)
+        // The Vita panel is 60 Hz. Keep sceDisplayWaitVblankStart as the sole
+        // authoritative pacer and tell the emulated VI limiter about that
+        // refresh. vi.c deliberately runs its software deadline 5% faster when
+        // vsync is active, avoiding a second 60 Hz wait that could halve output
+        // to 30 FPS when the two pacers drift out of phase.
+        PortSetDisplayRefresh(60.0, 1);
+        PortSetFrameLimit(-1.0);
+#else
         const char* vitaVsync = getenv("STRIKERS_VITA_VSYNC");
         if (vitaVsync != NULL)
             cfg.wait_vblank = vitaVsync[0] != '0';
+#endif
         OSReport("[vita] GXM vblank wait=%u\n", cfg.wait_vblank ? 1u : 0u);
         // Keep lightweight timing telemetry enabled in normal builds, but do
         // not pay for per-draw coverage/trace/geometry diagnostics unless a

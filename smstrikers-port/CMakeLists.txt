@@ -39,6 +39,8 @@ endif()
 # pointer shows up as a crash inside malloc much later.
 option(STRIKERS_ASAN "Build with AddressSanitizer" OFF)
 option(STRIKERS_VITA_NO_LOGS "Build the Vita port without runtime log files or Aurora logging" OFF)
+option(STRIKERS_VITA_GC_NATIVE_RES "Render the Vita port internally at GameCube 640x480" OFF)
+option(STRIKERS_VITA_FORCE_60HZ "Force Vita GXM present pacing to the 60 Hz panel refresh" OFF)
 
 # Aurora is a drop-in replacement for the Dolphin SDK: it defines the real GX/VI/PAD/DVD/CARD/SI
 # symbols over WebGPU and SDL3.
@@ -102,11 +104,21 @@ if(STRIKERS_VITA)
     list(APPEND PORT_DEFINES STRIKERS_VITA=1 PORT_VITA=1)
 endif()
 
+set(STRIKERS_MAIN_COMPILE_DEFINITIONS)
 if(STRIKERS_VITA AND STRIKERS_VITA_NO_LOGS)
-    # Only main.cpp needs this switch. Keep it source-local so toggling the
-    # no-log performance build does not invalidate every game object file.
+    list(APPEND STRIKERS_MAIN_COMPILE_DEFINITIONS STRIKERS_VITA_NO_LOGS=1)
+endif()
+if(STRIKERS_VITA AND STRIKERS_VITA_GC_NATIVE_RES)
+    list(APPEND STRIKERS_MAIN_COMPILE_DEFINITIONS STRIKERS_VITA_GC_NATIVE_RES=1)
+endif()
+if(STRIKERS_VITA AND STRIKERS_VITA_FORCE_60HZ)
+    list(APPEND STRIKERS_MAIN_COMPILE_DEFINITIONS STRIKERS_VITA_FORCE_60HZ=1)
+endif()
+if(STRIKERS_MAIN_COMPILE_DEFINITIONS)
+    # These switches only affect backend setup in main.cpp. Keep them source-local
+    # so A/B performance builds do not invalidate every game object file.
     set_source_files_properties(src/Game/main.cpp PROPERTIES
-        COMPILE_DEFINITIONS STRIKERS_VITA_NO_LOGS=1)
+        COMPILE_DEFINITIONS "${STRIKERS_MAIN_COMPILE_DEFINITIONS}")
 endif()
 
 if(MSVC AND STRIKERS_AURORA)
