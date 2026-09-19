@@ -955,6 +955,10 @@ int main(int argc, char* argv[])
                 cfg.cpu_parallel_min_vertices = (unsigned int)value;
         }
         cfg.wait_vblank = true;
+        const char* vitaVsync = getenv("STRIKERS_VITA_VSYNC");
+        if (vitaVsync != NULL)
+            cfg.wait_vblank = vitaVsync[0] != '0';
+        OSReport("[vita] GXM vblank wait=%u\n", cfg.wait_vblank ? 1u : 0u);
         // Keep lightweight timing telemetry enabled in normal builds, but do
         // not pay for per-draw coverage/trace/geometry diagnostics unless a
         // developer explicitly requests them in strikers.ini/environment.
