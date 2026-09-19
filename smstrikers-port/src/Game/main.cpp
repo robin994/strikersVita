@@ -955,11 +955,9 @@ int main(int argc, char* argv[])
         }
         cfg.wait_vblank = true;
 #if defined(STRIKERS_VITA_FORCE_60HZ)
-        // The display callback always schedules with SCE_DISPLAY_SETBUF_NEXTFRAME,
-        // which keeps swaps tear-free. Do not also wait inside that callback:
-        // holding the GXM display queue through the retrace can quantize a frame
-        // that narrowly misses 16.67 ms straight down to 30 FPS.
-        cfg.wait_vblank = false;
+        // Keep presentation synchronized to the Vita panel. The emulated VI
+        // remains uncapped so this is the only active frame pacer.
+        cfg.wait_vblank = true;
         PortSetDisplayRefresh(60.0, 1);
         PortSetFrameLimit(0.0);
 #else
