@@ -956,12 +956,11 @@ int main(int argc, char* argv[])
         cfg.wait_vblank = true;
 #if defined(STRIKERS_VITA_FORCE_60HZ)
         // The Vita panel is 60 Hz. Keep sceDisplayWaitVblankStart as the sole
-        // authoritative pacer and tell the emulated VI limiter about that
-        // refresh. vi.c deliberately runs its software deadline 5% faster when
-        // vsync is active, avoiding a second 60 Hz wait that could halve output
-        // to 30 FPS when the two pacers drift out of phase.
+        // authoritative pacer. The emulated VI still advances retrace callbacks,
+        // but it must not sleep as well or we end up with two independent frame
+        // clocks fighting each other and producing 33/50 ms quantization.
         PortSetDisplayRefresh(60.0, 1);
-        PortSetFrameLimit(-1.0);
+        PortSetFrameLimit(0.0);
 #else
         const char* vitaVsync = getenv("STRIKERS_VITA_VSYNC");
         if (vitaVsync != NULL)

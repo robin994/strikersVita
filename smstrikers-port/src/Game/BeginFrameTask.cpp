@@ -320,7 +320,12 @@ static void SetupRenderInfo()
 
     if (g_eWaitMode == 0 || g_eWaitMode == 3)
     {
-        if (BeginFrameTask::s_FramerateLocked && nlTaskManager::m_pInstance->m_CurrState == 0x100)
+        bool useTwoRetraceLock = BeginFrameTask::s_FramerateLocked
+            && nlTaskManager::m_pInstance->m_CurrState == 0x100;
+#if defined(PORT_VITA) && defined(STRIKERS_VITA_FORCE_60HZ)
+        useTwoRetraceLock = false;
+#endif
+        if (useTwoRetraceLock)
         {
             vwait.x = 2.0f;
             vwait.y = 2.0f;
