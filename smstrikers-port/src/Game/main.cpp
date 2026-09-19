@@ -809,6 +809,7 @@ static void PortPumpAuroraEvents()
 int main(int argc, char* argv[])
 {
 #if defined(PORT_VITA)
+#if !defined(STRIKERS_VITA_NO_LOGS)
     // Keep the Vita diagnostics on the memory card. stderr is deliberately
     // unbuffered so the last useful line survives a crash or forced exit.
     char vitaLogDir[64];
@@ -818,6 +819,7 @@ int main(int argc, char* argv[])
         setvbuf(stderr, NULL, _IONBF, 0);
         fprintf(stderr, "[vita] runtime log started\n");
     }
+#endif
 #endif
 
     // PORT: strikers.ini -> environment, before anything reads one.
@@ -1007,9 +1009,23 @@ int main(int argc, char* argv[])
             OSReport("[vita] diagnostic draw limit=%u\n", (unsigned int)cfg.diagnostic_draw_limit);
         cfg.strict_unsupported = false;
         cfg.diagnostics_period_frames = 10;
+#if defined(STRIKERS_VITA_NO_LOGS)
+        // Use Aurora Vita's native runtime logging switch rather than compiling
+        // logging code out. This keeps renderer behavior identical while making
+        // the performance build silent and prevents diagnostic files being opened.
+        cfg.log_level = aurora::vita::RuntimeLogLevel::Silent;
+        cfg.diagnostics = false;
+        cfg.profile_split_vertex_phases = false;
+        cfg.texture_decode_diagnostics = false;
+        cfg.diagnostic_draw_limit = 0;
+        cfg.telemetry_log_path = NULL;
+        cfg.coverage_log_path = NULL;
+        cfg.trace_log_path = NULL;
+#else
         cfg.telemetry_log_path = "ux0:data/strikersVita/aurora_telemetry.log";
         cfg.coverage_log_path = fullAuroraDiagnostics ? "ux0:data/strikersVita/aurora_coverage.log" : NULL;
         cfg.trace_log_path = fullAuroraDiagnostics ? "ux0:data/strikersVita/aurora_trace.log" : NULL;
+#endif
         const char* vita3dDiagnostics = getenv("STRIKERS_VITA_3D_DIAGNOSTICS");
         const bool verboseVita3d = vita3dDiagnostics != NULL
             && vita3dDiagnostics[0] != '\0' && vita3dDiagnostics[0] != '0';
