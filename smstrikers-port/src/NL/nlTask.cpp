@@ -29,6 +29,7 @@ struct TaskProfileSlot
 TaskProfileSlot s_TaskProfile[32]{};
 unsigned int s_TaskProfileFrames;
 int s_TaskProfileEnabled = -1;
+unsigned int s_TaskProfileWindow = 120;
 
 bool TaskProfileEnabled()
 {
@@ -36,6 +37,13 @@ bool TaskProfileEnabled()
     {
         const char* value = std::getenv("STRIKERS_TASK_PROFILE");
         s_TaskProfileEnabled = value != nullptr && *value != '\0' && *value != '0';
+        const char* window = std::getenv("STRIKERS_TASK_PROFILE_FRAMES");
+        if (window != nullptr && *window != '\0')
+        {
+            const unsigned long parsed = std::strtoul(window, nullptr, 10);
+            if (parsed >= 10 && parsed <= 600)
+                s_TaskProfileWindow = (unsigned int)parsed;
+        }
     }
     return s_TaskProfileEnabled != 0;
 }
@@ -178,7 +186,7 @@ void nlTaskManager::RunAllTasks()
                 break;
             taskIterator = taskIterator->m_next;
         }
-        if (profileTasks && ++s_TaskProfileFrames >= 120)
+        if (profileTasks && ++s_TaskProfileFrames >= s_TaskProfileWindow)
             TaskProfileReport();
     }
 }

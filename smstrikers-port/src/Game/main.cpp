@@ -975,6 +975,11 @@ int main(int argc, char* argv[])
         // perform fixed PN/texgen work in its vertex shader. Start conservatively
         // so gameplay still has ample RAM for stadium and character assets.
         cfg.static_geometry_budget = 8 * 1024 * 1024;
+        // The observed Strikers working set is ~265-300 native pipelines. Warm
+        // the entire known set during loading and keep headroom under Aurora's
+        // 512-pipeline resident budget instead of paying first-use patching in
+        // the match.
+        cfg.pipeline_prewarm_limit = 384;
         // The native shader now reproduces GX channel lighting and COLOR0/COLOR1
         // texgen semantics. Keep an environment escape hatch for immediate A/B
         // validation against the graphics-proven CPU vertex path.
