@@ -295,16 +295,6 @@ static void Initialize()
     Config::Global().LoadFromFile("locale.ini");
     Config::Global().LoadFromFile("user.ini");
 
-    // PORT: After the ini files so it wins.
-    PortBenchInit();
-    if (PortBenchWantsDemo())
-    {
-        Config::Global().Set("dosoak", true);
-        // 0, not 5: TitleScene::Update already refuses to do anything for its first second.
-        Config::Global().Set("fe_demo_mode_time_out", 0.0f);
-        Config::Global().Set("be_demo_mode_time_out", 86400.0f);
-    }
-
     {
         static const char* const kTeamVars[4][2] = {
             {"STRIKERS_TEAM1", "team1"}, {"STRIKERS_TEAM2", "team2"},
@@ -1190,7 +1180,6 @@ int main(int argc, char* argv[])
     while (s_portRunning && !PortQuitRequested())
     {
         PortPumpAuroraEvents();
-        PortUpdateSyntheticInput(s_portFrame);
         PortDebugFrame();
 
 #if defined(PORT_VITA)
@@ -1200,72 +1189,26 @@ int main(int argc, char* argv[])
 #endif
             continue;              // minimised or surface lost; nothing to draw
 
-        PortBenchFrameBegin();
-
         // Sample the pad before the tasks that read it. main() registers VBlankPadUpdate through PADSetSamplingCallback.
         PortInvokePadSamplingCallback();
 
         nlTaskManager::RunAllTasks();
         UpdateProfile();
-        PortBenchAfterTasks();
 
         // PORT: the audio clock. MusyX runs only inside this call; see include/port/audio.h.
         PortAudioUpdate();
-
-        // PORT: Between begin_frame and end_frame, which is the window in which Aurora's ImGui frame is open.
-        PortOverlayDraw();
-
-        PortMaybeRequestCapture();
-        // PORT: STRIKERS_CAPTURE_EVERY, a shot every N frames, so a long run can be watched rather than sampled once.
-        {
-            static long s_everyN = -1;
-            if (s_everyN < 0)
-            {
-                const char* e = getenv("STRIKERS_CAPTURE_EVERY");
-                s_everyN = (e != NULL && *e != '\0') ? strtol(e, NULL, 10) : 0;
-                if (s_everyN < 0)
-                    s_everyN = 0;
-            }
-            if (s_everyN > 0 && s_portFrame > 0
-                && (s_portFrame % (unsigned long)s_everyN) == 0)
-            {
-                PortRequestManualShot();
-            }
-        }
 #if defined(PORT_VITA)
         aurora::vita::end_frame();
         VitaMaybeCaptureFrame();
 #else
         aurora_end_frame();
 #endif
-        PortBenchFrameEnd();
         s_portFrame++;
-
-        // Stop on the benchmark's own clock rather than a frame count: the question is always "how did it behave over N seconds".
-        if (PortBenchRunSeconds() > 0.0
-            && PortBenchElapsed() >= PortBenchRunSeconds())
-        {
-            s_portExitReason = "benchmark duration reached";
-            s_portRunning = false;
-        }
-
-        if (getenv("STRIKERS_CAPTURE") != NULL
-            && getenv("STRIKERS_CAPTURE_EXIT") != NULL)
-        {
-            const char* whichEnv = getenv("STRIKERS_CAPTURE_FRAME");
-            unsigned long which = whichEnv != NULL ? strtoul(whichEnv, NULL, 10) : 120;
-            if (s_portFrame >= which)
-            {
-                s_portExitReason = "capture exit frame reached";
-                s_portRunning = false;
-            }
-        }
     }
     if (s_portExitReason == NULL && PortQuitRequested())
         s_portExitReason = "PortQuitRequested";
     OSReport("[port] main loop ended at frame %lu: %s\n", s_portFrame,
              s_portExitReason != NULL ? s_portExitReason : "unknown reason");
-    PortBenchReport();
 #if defined(PORT_VITA)
     aurora::vita::shutdown();
     sceKernelExitProcess(0);

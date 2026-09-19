@@ -98,13 +98,6 @@ static int port_thp_movies_disabled(void)
 {
     const char* v;
 
-    // STRIKERS_BENCHMARK's demo run is measuring a match and has to get to one.
-    PortBenchInit();
-    if (PortBenchWantsDemo())
-    {
-        return 1;
-    }
-
     v = getenv("STRIKERS_NO_MOVIES");
     return v != NULL && v[0] != '\0' && v[0] != '0';
 }

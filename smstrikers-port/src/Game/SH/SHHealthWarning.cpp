@@ -163,12 +163,6 @@ void HealthWarningSceneV2::Update(float fDeltaT)
         proceed = true;
     }
 
-    // PORT: 60 of the 80 seconds in front of every measurement were spent here.
-    if (PortBenchWantsDemo())
-    {
-        proceed = true;
-    }
-
     if (proceed)
     {
         FEAudio::PlayAnimAudioEvent("sfx_screen_forward", false);
