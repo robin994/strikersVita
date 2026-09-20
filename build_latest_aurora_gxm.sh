@@ -10,6 +10,9 @@ BUILD_DIR="${BUILD_DIR:-$PORT_DIR/build-vita-gxm-latest}"
 VITASDK="${VITASDK:-/usr/local/vitasdk}"
 TOOLCHAIN_FILE="$VITASDK/share/vita.toolchain.cmake"
 PREFIX_PATH="$VITASDK/arm-vita-eabi"
+VITA_NO_LOGS="${VITA_NO_LOGS:-ON}"
+VITA_FORCE_60HZ="${VITA_FORCE_60HZ:-ON}"
+VITA_GC_NATIVE_RES="${VITA_GC_NATIVE_RES:-OFF}"
 
 usage() {
   cat <<'EOF'
@@ -22,6 +25,9 @@ Environment overrides:
   AURORA_BRANCH   Aurora branch to build (default: vita-experiment)
   BUILD_DIR       CMake build directory
   VITASDK         VitaSDK root (default: /usr/local/vitasdk)
+  VITA_NO_LOGS    Disable Strikers/Aurora runtime logs (default: ON)
+  VITA_FORCE_60HZ Force the Vita presentation path to 60 Hz (default: ON)
+  VITA_GC_NATIVE_RES Render internally at 640x480 (default: OFF)
 EOF
 }
 
@@ -97,9 +103,12 @@ echo "Aurora: $AURORA_DESC"
 echo "Aurora full revision: $AURORA_REV"
 echo "Build directory: $BUILD_DIR"
 echo "Parallel jobs: $CORES"
+echo "No-log performance build: $VITA_NO_LOGS"
+echo "Force 60 Hz present: $VITA_FORCE_60HZ"
+echo "GameCube native internal resolution: $VITA_GC_NATIVE_RES"
 echo
 
-cmake   -S "$PORT_DIR"   -B "$BUILD_DIR"   -G "Unix Makefiles"   -DCMAKE_TOOLCHAIN_FILE="$TOOLCHAIN_FILE"   -DCMAKE_BUILD_TYPE=Release   -DSTRIKERS_AURORA=ON   -DSTRIKERS_FFMPEG=OFF   -DAURORA_VITA_RENDERER=GXM   -DCMAKE_PREFIX_PATH="$PREFIX_PATH"
+cmake   -S "$PORT_DIR"   -B "$BUILD_DIR"   -G "Unix Makefiles"   -DCMAKE_TOOLCHAIN_FILE="$TOOLCHAIN_FILE"   -DCMAKE_BUILD_TYPE=Release   -DSTRIKERS_AURORA=ON   -DSTRIKERS_FFMPEG=OFF   -DAURORA_VITA_RENDERER=GXM   -DSTRIKERS_VITA_NO_LOGS="$VITA_NO_LOGS"   -DSTRIKERS_VITA_FORCE_60HZ="$VITA_FORCE_60HZ"   -DSTRIKERS_VITA_GC_NATIVE_RES="$VITA_GC_NATIVE_RES"   -DCMAKE_PREFIX_PATH="$PREFIX_PATH"
 
 cmake --build "$BUILD_DIR"   --target strikers_vita.vpk-vpk   --parallel "$CORES"
 

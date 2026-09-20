@@ -979,6 +979,10 @@ int main(int argc, char* argv[])
         const char* textureDiagnostics = getenv("STRIKERS_VITA_TEXTURE_DIAGNOSTICS");
         cfg.texture_decode_diagnostics = textureDiagnostics != NULL && textureDiagnostics[0] == '1';
 #if defined(AURORA_VITA_RENDERER_GXM)
+        // Keep all persistent Aurora data under Strikers' own ux0:data folder.
+        // Do not rely on TITLE_ID-derived paths: homebrew data roots are chosen
+        // by the application and must survive rebuilds/title metadata changes.
+        cfg.data_root_path = "ux0:data/strikersVita/aurora-vita";
         // Native GXM can keep immutable object-space GX geometry resident and
         // perform fixed PN/texgen work in its vertex shader. Start conservatively
         // so gameplay still has ample RAM for stadium and character assets.
@@ -991,11 +995,20 @@ int main(int argc, char* argv[])
             if (value >= 3 && value <= 256)
                 cfg.static_geometry_min_vertices = (unsigned int)value;
         }
-        // The observed Strikers working set is ~265-300 native pipelines. Warm
-        // the entire known set during loading and keep headroom under Aurora's
-        // 512-pipeline resident budget instead of paying first-use patching in
-        // the match.
-        cfg.pipeline_prewarm_limit = 384;
+        // The observed Strikers working set is ~265-300 native pipelines. Load
+        // persisted GXP stages before prewarm, then make the full 512-entry hot
+        // pipeline budget available to loading rather than paying disk I/O and
+        // shader patching on first use during gameplay.
+        cfg.gxm_preload_program_cache = true;
+        cfg.gxm_program_cache_preload_limit = 1024;
+        cfg.pipeline_prewarm_limit = 512;
+        // Sealing is deliberately opt-in until a training run has exercised all
+        // menus, characters, stadiums and effects. Once trained, this switch
+        // guarantees that a gameplay cache miss is blocked instead of invoking
+        // vitaShaRK in the middle of a frame.
+        const char* sealShaderCache = getenv("STRIKERS_GXM_SEAL_SHADER_CACHE");
+        cfg.gxm_seal_shader_cache_after_prewarm = sealShaderCache != NULL
+            && sealShaderCache[0] == '1';
         // The native shader now reproduces GX channel lighting and COLOR0/COLOR1
         // texgen semantics. Keep an environment escape hatch for immediate A/B
         // validation against the graphics-proven CPU vertex path.
@@ -1005,9 +1018,6 @@ int main(int argc, char* argv[])
             cfg.gxm_lit_fixed_vertex_gpu = litGpu[0] == '1';
 #endif
         const char* staticGeometryMb = getenv("STRIKERS_STATIC_GEOMETRY_MB");
-        const char* shaderCache = getenv("STRIKERS_SHADER_CACHE");
-        if (shaderCache != NULL && shaderCache[0] == '1')
-            cfg.program_binary_cache_path = "ux0:data/aurora-vita/program_cache";
         if (staticGeometryMb != NULL)
         {
             const unsigned long value = strtoul(staticGeometryMb, NULL, 10);
