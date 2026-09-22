@@ -6,6 +6,10 @@
 #include "dolphin/ai.h"
 #include "dolphin/types.h"
 
+#if defined(STRIKERS_VITA_AUDIO_THREAD)
+#include <pthread.h>
+#endif
+
 // ARAM ARInit hands the library a stack of chunk addresses; the game then calls ARAlloc to carve
 // the space up.
 
@@ -72,14 +76,48 @@ static AIDCallback s_ai_cb;
 static uintptr_t s_ai_dma_addr;
 static u32 s_ai_dma_len;
 
+#if defined(STRIKERS_VITA_AUDIO_THREAD)
+static pthread_once_t s_ai_callback_once = PTHREAD_ONCE_INIT;
+static pthread_mutex_t s_ai_callback_mutex;
+
+static void ai_callback_mutex_init(void)
+{
+    pthread_mutexattr_t attr;
+    pthread_mutexattr_init(&attr);
+    pthread_mutexattr_settype(&attr, PTHREAD_MUTEX_RECURSIVE);
+    pthread_mutex_init(&s_ai_callback_mutex, &attr);
+    pthread_mutexattr_destroy(&attr);
+}
+
+void AIPortLockCallbacks(void)
+{
+    pthread_once(&s_ai_callback_once, ai_callback_mutex_init);
+    pthread_mutex_lock(&s_ai_callback_mutex);
+}
+
+void AIPortUnlockCallbacks(void)
+{
+    pthread_mutex_unlock(&s_ai_callback_mutex);
+}
+#else
+void AIPortLockCallbacks(void) {}
+void AIPortUnlockCallbacks(void) {}
+#endif
+
 void AIInit(u8* stack) { (void)stack; }
 void AIReset(void) {}
 void AIResetStreamSampleCount(void) {}
 
 AIDCallback AIRegisterDMACallback(AIDCallback callback)
 {
+#if defined(STRIKERS_VITA_AUDIO_THREAD)
+    AIPortLockCallbacks();
+#endif
     AIDCallback prev = s_ai_cb;
     s_ai_cb = callback;
+#if defined(STRIKERS_VITA_AUDIO_THREAD)
+    AIPortUnlockCallbacks();
+#endif
     return prev;
 }
 
@@ -97,10 +135,37 @@ u32 AIGetDSPSampleRate(void) { return 1; }   // 1 = 48 kHz, as on retail
 // Called from hw_pc.c's salPortNextBuffer, once per buffer.
 void* AIPortDMADest(void) { return (void*)s_ai_dma_addr; }
 
-void AIPortRunDMACallback(void)
+// Atomically observe the buffer that was active at this DMA boundary and then
+// run the callback that schedules the next one.  THPSimple swaps both the AI
+// callback and DMA state while holding this same recursive mutex; keeping the
+// read + callback in one critical section prevents pairing an old DMA address
+// with a newly-installed movie callback (or vice versa).
+void* AIPortAdvanceDMA(void)
 {
+#if defined(STRIKERS_VITA_AUDIO_THREAD)
+    AIPortLockCallbacks();
+#endif
+    void* played = (void*)s_ai_dma_addr;
     if (s_ai_cb != NULL)
     {
         s_ai_cb();
     }
+#if defined(STRIKERS_VITA_AUDIO_THREAD)
+    AIPortUnlockCallbacks();
+#endif
+    return played;
+}
+
+void AIPortRunDMACallback(void)
+{
+#if defined(STRIKERS_VITA_AUDIO_THREAD)
+    AIPortLockCallbacks();
+#endif
+    if (s_ai_cb != NULL)
+    {
+        s_ai_cb();
+    }
+#if defined(STRIKERS_VITA_AUDIO_THREAD)
+    AIPortUnlockCallbacks();
+#endif
 }

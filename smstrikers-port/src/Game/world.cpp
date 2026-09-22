@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include "port/input.h"
+#include "port/benchmark.h"
 #include "NL/nlString.h"
 #include "NL/vmath.h"
 #include "Game/World.h"
@@ -1506,9 +1507,6 @@ static void RenderBoundingSphere(const nlMatrix4& matWorld, f32 fRadius);
 /**
  * Offset/Address/Size: 0x434 | 0x801950F8 | size: 0xB20
  */
-int g_portCullTested = 0;
-int g_portCullDropped = 0;
-
 void World::Render()
 {
     typedef nlAVLTreeIterator<unsigned long, DrawableObject*, DefaultKeyCompare<unsigned long> > DrawableIterator;
@@ -1525,17 +1523,6 @@ void World::Render()
     g_bDebugEqualsEnd = bFreezeEnd;
     if (!g_bFreezeFrustum && !bFreezeSide && !bFreezeEnd)
         ExtractFrustumPlanes();
-        {
-            static const bool bCullProbe = getenv("STRIKERS_PROBE_CULL") != NULL;
-            static unsigned long nLast = 0;
-            if (bCullProbe && PortInputFrame() - nLast >= 60)
-            {
-                nLast = PortInputFrame();
-                fprintf(stderr, "[cull] frame %lu: %d tested, %d dropped\n",
-                        nLast, g_portCullTested, g_portCullDropped);
-                g_portCullTested = g_portCullDropped = 0;
-            }
-        }
     u8 gameFlag = IsCaptainShootToScorePresentationOn();
     if (!gameFlag)
         DrawableCharacter::sSTSLighting = false;
@@ -1601,15 +1588,8 @@ void World::Render()
                     if (objectFlags & 0x1)
                     {
                         static const bool bNoCull = getenv("STRIKERS_NO_CULL") != NULL;
-                        static const bool bCullProbe = getenv("STRIKERS_PROBE_CULL") != NULL;
                         bool bPassed = (objectFlags & 0x10)
                             || World_IsSphereInFrustumInline(pWorld, pObject->GetWorldMatrix(), pObject->m_fBoundingRadius);
-                        if (bCullProbe)
-                        {
-                            extern int g_portCullTested, g_portCullDropped;
-                            ++g_portCullTested;
-                            if (!bPassed) ++g_portCullDropped;
-                        }
                         if (bNoCull) bPassed = true;
                         if (bPassed)
                         {
@@ -1675,6 +1655,9 @@ void World::Render()
     }
 
     delete iter;
+
+    PortBenchSetCullStats((unsigned int)nSubmitted,
+                          (unsigned int)(nSubmitted >= nDrawn ? nSubmitted - nDrawn : 0));
 
     if (g_bDrawCullingInfo)
     {

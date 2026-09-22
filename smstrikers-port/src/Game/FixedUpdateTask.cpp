@@ -13,6 +13,13 @@
 #include "Game/ReplayManager.h"
 #include "Game/Team.h"
 #include "NL/platpad.h"
+#include "NL/gl/gl.h"
+#include "port/determinism.h"
+#include "port/framerate.h"
+#include "port/host.h"
+
+#include <algorithm>
+#include <cstdlib>
 
 float g_fFixedUpdateTick = 0.02f;
 extern PhysicsWorld* g_PhysicsWorld;
@@ -24,6 +31,66 @@ float FixedUpdateTask::mAccumulatedDeltaT;
 float FixedUpdateTask::mSimulationTime;
 float FixedUpdateTask::mfFrameLockTime;
 float FixedUpdateTask::mTimeScale = 1.0f;
+
+namespace
+{
+#if defined(PORT_VITA)
+bool PortGameplayFrameskipEnabled()
+{
+    static int initialized;
+    static bool enabled;
+    if (!initialized)
+    {
+        const char* value = getenv("STRIKERS_VITA_FRAMESKIP");
+        enabled = value != NULL && value[0] != '\0' && value[0] != '0';
+        initialized = 1;
+    }
+    return enabled;
+}
+
+// Rendering can temporarily fall far below the 60 Hz target while the Vita GX
+// backend is being optimized. Do not turn that into slow motion: measure the
+// real wall time between gameplay updates, let the existing fixed-update loop
+// consume that elapsed time, and use the engine's native glDiscardFrame path to
+// drop a few presentations while the simulation catches up.
+float PortGameplayWallDelta(float fallbackDt)
+{
+    static unsigned long long s_lastNs;
+    const unsigned long long now = port_monotonic_ns();
+    float result = fallbackDt;
+
+    if (s_lastNs != 0 && now > s_lastNs)
+    {
+        const double seconds = (double)(now - s_lastNs) / 1000000000.0;
+        // Bound pathological pauses/loading hitches so one stalled frame cannot
+        // request hundreds of physics steps. 500 ms still covers the current
+        // 3-5 FPS debugging regime without forcing slow motion.
+        result = (float)std::min(seconds, 0.5);
+    }
+    s_lastNs = now;
+    return result;
+}
+
+void PortScheduleGameplayFrameSkip(float wallDt)
+{
+    double limitHz = 60.0;
+    PortFrameLimitInfo(&limitHz, nullptr, nullptr, nullptr);
+    if (limitHz < 20.0 || limitHz > 240.0)
+        limitHz = 60.0;
+
+    const double frameSeconds = 1.0 / limitHz;
+    if ((double)wallDt <= frameSeconds * 1.5)
+        return;
+
+    int missed = (int)((double)wallDt / frameSeconds) - 1;
+    if (missed < 1)
+        return;
+    if (missed > 3)
+        missed = 3;
+    glDiscardFrame(missed);
+}
+#endif
+} // namespace
 
 extern "C" float* PortSimTimeScalePtr(void)
 {
@@ -78,7 +145,18 @@ void FixedUpdateTask::Run(float dt)
     {
         float simulationTick;
 
-        mAccumulatedDeltaT += dt * mTimeScale;
+#if defined(PORT_VITA)
+        float gameplayDt = dt;
+        if (!PortFixedTimestep() && PortGameplayFrameskipEnabled())
+        {
+            gameplayDt = PortGameplayWallDelta(dt);
+            PortScheduleGameplayFrameSkip(gameplayDt);
+        }
+#else
+        const float gameplayDt = dt;
+#endif
+
+        mAccumulatedDeltaT += gameplayDt * mTimeScale;
 
         while (g_bRunSimAndRenderInLockStep || mAccumulatedDeltaT >= g_fFixedUpdateTick)
         {

@@ -131,6 +131,13 @@
 # heads-up form.
 # overlay = menu
 
+# Vita profiling builds can record a VitaDebugger v2 trace without running GDB. The file is
+# written by a dedicated consumer while the game, renderer and audio worker keep recording
+# into a bounded non-blocking ring. Copy the finished .vptrace back to the development machine
+# and open/export it with VitaDebugger's profiler tools.
+# vita_profile = 1
+# vita_profile_path = ux0:data/strikersVita/profile.vptrace
+
 # Force a stadium instead of letting the demo pick at random.
 # force_stadium = mario_stadium
 

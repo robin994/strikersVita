@@ -13,6 +13,10 @@ f32 cAIPad::GetMovementStickMagnitude()
 {
     f32 mag = m_pGlobalPad->m_polarAnalogLeft.r;
     f32 dz = g_fMovementDeadZone;
+    if (mag <= dz)
+        return 0.0f;
+    if (mag >= 1.0f)
+        return 1.0f;
     return (mag - dz) / (1.0f - dz);
 }
 
@@ -31,6 +35,10 @@ f32 cAIPad::GetCStickMovementStickMagnitude()
 {
     f32 mag = m_pGlobalPad->m_polarAnalogRight.r;
     f32 dz = g_fCStickDeadZone;
+    if (mag <= dz)
+        return 0.0f;
+    if (mag >= 1.0f)
+        return 1.0f;
     return (mag - dz) / (1.0f - dz);
 }
 

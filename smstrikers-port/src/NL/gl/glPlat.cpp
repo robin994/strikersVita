@@ -28,6 +28,7 @@
 #include "dolphin/vm/VM.h"
 #include "Game/Sys/debug.h"
 #include "port/host.h"
+#include "port/vita_profiler.h"
 #include <cstdlib>
 #if defined(PORT_VITA)
 #include <aurora_vita_backend.hpp>
@@ -290,21 +291,21 @@ void glplatSendFrame()
     }
     if (!profile)
     {
-        glxSwapPre(true);
-        glx_SendFrame(true);
-        glx_SendViews();
-        glxSwapPost(true);
-        glplatFrameAllocNextFrame();
+        PortProfilerRenderPhaseBegin(0); glxSwapPre(true);            PortProfilerRenderPhaseEnd();
+        PortProfilerRenderPhaseBegin(1); glx_SendFrame(true);         PortProfilerRenderPhaseEnd();
+        PortProfilerRenderPhaseBegin(2); glx_SendViews();             PortProfilerRenderPhaseEnd();
+        PortProfilerRenderPhaseBegin(3); glxSwapPost(true);           PortProfilerRenderPhaseEnd();
+        PortProfilerRenderPhaseBegin(4); glplatFrameAllocNextFrame(); PortProfilerRenderPhaseEnd();
     }
     else
     {
         unsigned long long t[6];
         t[0] = port_monotonic_ns();
-        glxSwapPre(true);              t[1] = port_monotonic_ns();
-        glx_SendFrame(true);           t[2] = port_monotonic_ns();
-        glx_SendViews();               t[3] = port_monotonic_ns();
-        glxSwapPost(true);             t[4] = port_monotonic_ns();
-        glplatFrameAllocNextFrame();   t[5] = port_monotonic_ns();
+        PortProfilerRenderPhaseBegin(0); glxSwapPre(true);            PortProfilerRenderPhaseEnd(); t[1] = port_monotonic_ns();
+        PortProfilerRenderPhaseBegin(1); glx_SendFrame(true);         PortProfilerRenderPhaseEnd(); t[2] = port_monotonic_ns();
+        PortProfilerRenderPhaseBegin(2); glx_SendViews();             PortProfilerRenderPhaseEnd(); t[3] = port_monotonic_ns();
+        PortProfilerRenderPhaseBegin(3); glxSwapPost(true);           PortProfilerRenderPhaseEnd(); t[4] = port_monotonic_ns();
+        PortProfilerRenderPhaseBegin(4); glplatFrameAllocNextFrame(); PortProfilerRenderPhaseEnd(); t[5] = port_monotonic_ns();
         for (unsigned int i = 0; i < 5; ++i)
         {
             const unsigned long long elapsed = t[i + 1] - t[i];
@@ -371,6 +372,19 @@ static inline GXColor glx_GetFogColour()
     return c;
 }
 
+struct PortProfilerRenderViewScope
+{
+    explicit PortProfilerRenderViewScope(unsigned int view)
+    {
+        PortProfilerRenderViewBegin(view);
+    }
+
+    ~PortProfilerRenderViewScope()
+    {
+        PortProfilerRenderViewEnd();
+    }
+};
+
 /**
  * Offset/Address/Size: 0x45C | 0x801B4A50 | size: 0x470
  */
@@ -408,6 +422,8 @@ static void glx_SendViews()
         {
             continue;
         }
+
+        PortProfilerRenderViewScope viewProfile((unsigned int)view);
 
         renderList = gl_ViewGetRenderList((eGLView)view);
         isEmpty = renderList->IsEmpty();

@@ -40,7 +40,22 @@ endif()
 option(STRIKERS_ASAN "Build with AddressSanitizer" OFF)
 option(STRIKERS_VITA_NO_LOGS "Build the Vita port without runtime log files or Aurora logging" OFF)
 option(STRIKERS_VITA_GC_NATIVE_RES "Render the Vita port internally at GameCube 640x480" OFF)
-option(STRIKERS_VITA_FORCE_60HZ "Force Vita GXM present pacing to the 60 Hz panel refresh" OFF)
+option(STRIKERS_VITA_FORCE_60HZ "Force Vita GXM present pacing to the 60 Hz panel refresh" ON)
+option(STRIKERS_VITA_HOT_LTO "Use LTO/fast math only on Vita render/matrix hot paths" ON)
+set(STRIKERS_VITA_LTO_JOBS "auto" CACHE STRING
+    "Vita hot-path LTO parallelism: auto or a positive GCC -flto job count")
+option(STRIKERS_VITA_AURORA_LTO "Build the embedded Aurora Vita renderer with LTO" ON)
+option(STRIKERS_VITA_FAST_PROFILER_BUILD
+    "Compile the embedded Aurora Vita GXM backend at -O1 for short profiler/debug build cycles"
+    OFF)
+option(STRIKERS_VITA_AUDIO_THREAD "Run the Vita MusyX software mixer on a dedicated worker" ON)
+option(STRIKERS_VITA_GX_THREAD "Run the Vita GX FIFO frontend on a dedicated consumer thread" OFF)
+option(STRIKERS_VITA_PROFILER "Build VitaDebugger's user-mode profiler into the Vita port" OFF)
+set(STRIKERS_VITADEBUGGER_ROOT "" CACHE PATH
+    "Path to a VitaDebugger checkout when STRIKERS_VITA_PROFILER is enabled")
+set(STRIKERS_VITA_SHADER_PROFILE "SEALED" CACHE STRING
+    "Vita GXM shader-cache profile: CONTROL, WARM, or SEALED")
+set_property(CACHE STRIKERS_VITA_SHADER_PROFILE PROPERTY STRINGS CONTROL WARM SEALED)
 
 # Aurora is a drop-in replacement for the Dolphin SDK: it defines the real GX/VI/PAD/DVD/CARD/SI
 # symbols over WebGPU and SDL3.
@@ -67,6 +82,20 @@ if(STRIKERS_VITA)
         "${CMAKE_CURRENT_SOURCE_DIR}/extern/aurora-vita/platforms/vita"
         "${CMAKE_CURRENT_SOURCE_DIR}/extern/aurora-vita/platforms/vita/gfx"
         "${CMAKE_CURRENT_SOURCE_DIR}/extern/aurora-vita/platforms/vita/integration")
+endif()
+if(STRIKERS_VITA AND STRIKERS_VITA_PROFILER)
+    if(NOT STRIKERS_VITADEBUGGER_ROOT)
+        message(FATAL_ERROR
+            "STRIKERS_VITA_PROFILER requires STRIKERS_VITADEBUGGER_ROOT=<VitaDebugger checkout>")
+    endif()
+    set(_strikers_vitaprofiler_dir "${STRIKERS_VITADEBUGGER_ROOT}/profiler")
+    if(NOT EXISTS "${_strikers_vitaprofiler_dir}/include/vitaprofiler.h"
+       OR NOT EXISTS "${_strikers_vitaprofiler_dir}/src/vitaprofiler.c")
+        message(FATAL_ERROR
+            "STRIKERS_VITADEBUGGER_ROOT does not contain a usable profiler checkout: "
+            "${STRIKERS_VITADEBUGGER_ROOT}")
+    endif()
+    list(APPEND PORT_INCLUDES "${_strikers_vitaprofiler_dir}/include")
 endif()
 
 # The build type, as a string, so a measurement can say which build produced it.
@@ -103,6 +132,15 @@ endif()
 if(STRIKERS_VITA)
     list(APPEND PORT_DEFINES STRIKERS_VITA=1 PORT_VITA=1)
 endif()
+if(STRIKERS_VITA AND STRIKERS_VITA_AUDIO_THREAD)
+    list(APPEND PORT_DEFINES STRIKERS_VITA_AUDIO_THREAD=1)
+endif()
+if(STRIKERS_VITA AND STRIKERS_VITA_GX_THREAD)
+    list(APPEND PORT_DEFINES STRIKERS_VITA_GX_THREAD=1)
+endif()
+if(STRIKERS_VITA AND STRIKERS_VITA_PROFILER)
+    list(APPEND PORT_DEFINES STRIKERS_VITA_PROFILER=1)
+endif()
 
 set(STRIKERS_MAIN_COMPILE_DEFINITIONS)
 if(STRIKERS_VITA AND STRIKERS_VITA_NO_LOGS)
@@ -113,6 +151,17 @@ if(STRIKERS_VITA AND STRIKERS_VITA_GC_NATIVE_RES)
 endif()
 if(STRIKERS_VITA AND STRIKERS_VITA_FORCE_60HZ)
     list(APPEND STRIKERS_MAIN_COMPILE_DEFINITIONS STRIKERS_VITA_FORCE_60HZ=1)
+endif()
+if(STRIKERS_VITA)
+    string(TOUPPER "${STRIKERS_VITA_SHADER_PROFILE}" _strikers_vita_shader_profile)
+    if(NOT _strikers_vita_shader_profile STREQUAL "CONTROL"
+       AND NOT _strikers_vita_shader_profile STREQUAL "WARM"
+       AND NOT _strikers_vita_shader_profile STREQUAL "SEALED")
+        message(FATAL_ERROR
+            "STRIKERS_VITA_SHADER_PROFILE must be CONTROL, WARM, or SEALED")
+    endif()
+    list(APPEND STRIKERS_MAIN_COMPILE_DEFINITIONS
+        STRIKERS_VITA_SHADER_PROFILE_DEFAULT=\"${_strikers_vita_shader_profile}\")
 endif()
 if(STRIKERS_MAIN_COMPILE_DEFINITIONS)
     # These switches only affect backend setup in main.cpp. Keep them source-local
@@ -199,17 +248,29 @@ if(STRIKERS_AURORA AND STRIKERS_VITA)
     # The RGBA8 fallback is slower, but gives us a clean A/B against the
     # fused/multithreaded vertex path without modifying the Aurora submodule.
     option(STRIKERS_VITA_NATIVE_CMPR "Use Aurora Vita native CMPR/DXT1 uploads" OFF)
+    option(STRIKERS_VITA_NATIVE_GX_TEXTURES "Use Aurora Vita native GX I/I+A/RGB565 texture uploads" ON)
     set(STRIKERS_AURORA_VITA_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/extern/aurora-vita"
         CACHE PATH "Aurora Vita source tree used by the Strikers Vita backend")
     set(AURORA_VITA_ROOT "${STRIKERS_AURORA_VITA_ROOT}")
     set(AURORA_VITA_WITH_GX_FRONTEND ON CACHE BOOL "" FORCE)
     set(AURORA_VITA_WITH_UPSTREAM_GX OFF CACHE BOOL "" FORCE)
+    set(AURORA_VITA_RENDERER GXM CACHE STRING "" FORCE)
     set(AURORA_VITA_PORT_ABI GAMECUBE CACHE STRING "" FORCE)
+    set(AURORA_VITA_LTO ${STRIKERS_VITA_AURORA_LTO} CACHE BOOL "" FORCE)
+    set(AURORA_VITA_ASYNC_GX ${STRIKERS_VITA_GX_THREAD} CACHE BOOL "" FORCE)
+    if(STRIKERS_VITA_NO_LOGS)
+        set(AURORA_VITA_RUNTIME_LOGGING OFF CACHE BOOL "" FORCE)
+    endif()
     set(AURORA_VITA_NATIVE_CMPR ${STRIKERS_VITA_NATIVE_CMPR} CACHE BOOL "" FORCE)
-    # Preserve the prior conservative native-format policy for the vitaGL game.
-    set(AURORA_VITA_NATIVE_GX_TEXTURES OFF CACHE BOOL "" FORCE)
+    set(AURORA_VITA_NATIVE_GX_TEXTURES ${STRIKERS_VITA_NATIVE_GX_TEXTURES} CACHE BOOL "" FORCE)
     include("${AURORA_VITA_ROOT}/cmake/aurora_vita_embed.cmake")
     aurora_add_vita_backend()
+    if(STRIKERS_VITA_FAST_PROFILER_BUILD)
+        # Aurora's target-local -O3 is intentionally overridden only for diagnostic
+        # builds.  This keeps the normal Vita release profile unchanged while making
+        # profiler iterations practical on the cross compiler.
+        target_compile_options(aurora_vita_gxm_backend PRIVATE -O1)
+    endif()
 endif()
 
 add_library(port_flags INTERFACE)
@@ -366,6 +427,17 @@ set(SDK_SOURCES
 )
 add_library(strikers_sdk      OBJECT ${SDK_SOURCES})
 
+if(STRIKERS_VITA AND STRIKERS_VITA_HOT_LTO)
+    # Match the proven ACGC strategy without changing gameplay/physics FP
+    # semantics globally: optimize only render submission and pure matrix math.
+    set(_strikers_vita_hot_sources
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/NL/glx/glxSend.cpp"
+        ${SDK_SOURCES})
+    set_source_files_properties(${_strikers_vita_hot_sources} PROPERTIES
+        COMPILE_OPTIONS
+            "-O3;-flto=${STRIKERS_VITA_LTO_JOBS};-ffat-lto-objects;-funroll-loops;-ftree-vectorize;-fno-math-errno;-funsafe-math-optimizations;-fno-signed-zeros;-ffp-contract=fast;-mfpu=neon")
+endif()
+
 # MusyX, from the decomp submodule. It is self-contained and must NOT get the port prelude: musyx.h
 # typedefs `bool` itself under C99, which collides with the <stdbool.h> the prelude pulls in for C
 # translation units.
@@ -421,6 +493,9 @@ if(STRIKERS_VITA)
     # MusyX is intentionally kept off port_flags, but it still exchanges enums
     # and enum-containing structures with the game runtime.  Match the 32-bit
     # GameCube enum ABI used by every other Vita object.
+    if(STRIKERS_VITA_AUDIO_THREAD)
+        target_compile_definitions(strikers_musyx PRIVATE MUSYX_THREADED_AUDIO=1)
+    endif()
     target_compile_options(strikers_musyx PRIVATE -w -std=gnu11 -fshort-wchar -fno-short-enums)
 else()
     target_compile_options(strikers_musyx PRIVATE -fdeclspec -w -std=gnu11)
@@ -429,6 +504,22 @@ endif()
 add_library(strikers_ode      OBJECT ${ODE_SOURCES})
 add_library(strikers_game     OBJECT ${GAME_SOURCES})
 add_library(strikers_platform OBJECT ${PLATFORM_SOURCES})
+
+if(STRIKERS_VITA AND STRIKERS_VITA_PROFILER)
+    # Compile only the allocation-free user-mode core needed by Strikers. TCP,
+    # PMU and debugger/kernel pieces stay out of the game binary.
+    add_library(strikers_vitaprofiler STATIC
+        "${_strikers_vitaprofiler_dir}/src/vitaprofiler.c"
+        "${_strikers_vitaprofiler_dir}/src/vitaprofiler_vita.c"
+        "${_strikers_vitaprofiler_dir}/src/vitaprofiler_names.c"
+        "${_strikers_vitaprofiler_dir}/src/vitaprofiler_stream.c")
+    set_target_properties(strikers_vitaprofiler PROPERTIES
+        C_STANDARD 11
+        C_STANDARD_REQUIRED ON)
+    target_include_directories(strikers_vitaprofiler PUBLIC
+        "${_strikers_vitaprofiler_dir}/include")
+    target_compile_options(strikers_vitaprofiler PRIVATE -O2 -Wall -Wextra)
+endif()
 
 foreach(_t strikers_ode strikers_game strikers_platform strikers_sdk
           strikers_operators)
@@ -451,6 +542,9 @@ add_executable(strikers
     $<TARGET_OBJECTS:strikers_operators>
     $<TARGET_OBJECTS:strikers_musyx>
 )
+if(STRIKERS_VITA AND STRIKERS_VITA_HOT_LTO)
+    target_link_options(strikers PRIVATE "-flto=${STRIKERS_VITA_LTO_JOBS}")
+endif()
 target_link_libraries(strikers PRIVATE port_flags)
 
 # The executable's icon on Windows: the game's memory card icon, from assets/icon. The files are
@@ -673,6 +767,10 @@ if(STRIKERS_VITA)
         SceCtrl_stub SceAudio_stub SceAudioIn_stub ScePower_stub SceRtc_stub
         SceIofilemgr_stub SceAppMgr_stub SceDisplay_stub SceGxm_stub
         SceSysmodule_stub SceLibKernel_stub pthread m)
+    if(STRIKERS_VITA_PROFILER)
+        target_link_libraries(strikers PRIVATE
+            strikers_vitaprofiler SceKernelThreadMgr_stub SceProcessmgr_stub SceSysmem_stub)
+    endif()
 
     include("${VITASDK}/share/vita.cmake")
     # Request the extended user-memory mode in param.sfo. vita-mksfoex uses

@@ -516,6 +516,12 @@ long MemCard::WriteFileIconData(MemCard::MC_FILE* pFile, void* pData, const MemC
     m_LastTransferSize = CARDGetXferredBytes(m_Slot);
     m_TargetTransferSize = pFile->TotalHeaderSize + 0x4000;
 
+    // Vita's CARD backend completes "Async" operations synchronously. Publish the
+    // continuation state before CARDSetStatusAsync so SetStatusDoneCB never sees
+    // stale pointers when it is invoked re-entrantly.
+    m_pFileCB = pFile;
+    m_pDataCB = pData;
+
     s32 result = CARDSetStatusAsync(m_Slot, pFile->FileInfo.fileNo, &stat, SetStatusDoneCB);
 
     if (result != 0)
@@ -523,12 +529,6 @@ long MemCard::WriteFileIconData(MemCard::MC_FILE* pFile, void* pData, const MemC
         m_State = IS_MOUNTED;
         m_CardState = CS_MOUNTED;
     }
-    else
-    {
-        m_pFileCB = pFile;
-        m_pDataCB = pData;
-    }
-
     return result;
 }
 

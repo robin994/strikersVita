@@ -376,6 +376,18 @@ void TransitionTask::StateTransition(unsigned int from, unsigned int to)
     bool bLoadingIndicator = false;
     int i;
 
+#if defined(PORT_VITA)
+    const bool shaderLoadingWindow = to == 4 || to == 2 || to == 0x80000;
+    if (shaderLoadingWindow)
+    {
+        // Exclude transition/loading work from the gameplay benchmark before
+        // reopening vitaShaRK for any variants that genuinely belong to load.
+        if (g_pGame != NULL)
+            PortVitaShaderCacheLeaveGameplay();
+        PortVitaShaderCacheBeginLoading();
+    }
+#endif
+
     if (to == 4 || to == 2)
     {
         glxSwapLoading(true, false);
@@ -535,6 +547,16 @@ void TransitionTask::StateTransition(unsigned int from, unsigned int to)
     {
         glxSwapLoading(false, false);
     }
+
+#if defined(PORT_VITA)
+    if (shaderLoadingWindow)
+    {
+        // Last chance to compile/prewarm before interactive rendering resumes.
+        PortVitaShaderCacheEndLoading(to == 2 && g_pGame != NULL);
+        if (to == 2 && g_pGame != NULL)
+            PortVitaShaderCacheEnterGameplay();
+    }
+#endif
 }
 
 /**

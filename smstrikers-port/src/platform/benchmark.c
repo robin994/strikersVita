@@ -63,6 +63,53 @@ static char s_labelKey[LABEL_MAX][LABEL_LEN];
 static char s_labelVal[LABEL_MAX][LABEL_LEN];
 static size_t s_labelCount;
 
+static PortBenchRendererStats s_rendererStats;
+static unsigned long long s_rendererGameplayStartCompiles;
+static unsigned long long s_rendererGameplayStartBlocked;
+static unsigned long long s_rendererGameplayFinalCompiles;
+static unsigned long long s_rendererGameplayFinalBlocked;
+static unsigned long long s_rendererGameplayStartQueueUs;
+static unsigned long long s_rendererGameplayStartQueueSamples;
+static unsigned long long s_rendererGameplayStartQueueBlocked;
+static unsigned long long s_rendererGameplayFinalQueueUs;
+static unsigned long long s_rendererGameplayFinalQueueSamples;
+static unsigned long long s_rendererGameplayFinalQueueBlocked;
+static int s_rendererGameplayBaselineValid;
+static int s_rendererGameplayEnded;
+static unsigned int s_worldCullTested;
+static unsigned int s_worldCullDropped;
+
+static void update_gameplay_display_queue_stats(void)
+{
+    unsigned long long totalUs;
+    unsigned long long samples;
+    unsigned long long blocked;
+
+    if (!s_rendererGameplayBaselineValid)
+        return;
+
+    totalUs = s_rendererGameplayEnded ? s_rendererGameplayFinalQueueUs
+                                      : s_rendererStats.displayQueueTotalUs;
+    samples = s_rendererGameplayEnded ? s_rendererGameplayFinalQueueSamples
+                                      : s_rendererStats.displayQueueSamples;
+    blocked = s_rendererGameplayEnded ? s_rendererGameplayFinalQueueBlocked
+                                      : s_rendererStats.displayQueueBlockedSamples;
+
+    totalUs = totalUs >= s_rendererGameplayStartQueueUs
+                  ? totalUs - s_rendererGameplayStartQueueUs
+                  : 0;
+    samples = samples >= s_rendererGameplayStartQueueSamples
+                  ? samples - s_rendererGameplayStartQueueSamples
+                  : 0;
+    blocked = blocked >= s_rendererGameplayStartQueueBlocked
+                  ? blocked - s_rendererGameplayStartQueueBlocked
+                  : 0;
+
+    s_rendererStats.displayQueueAverageUs = samples ? totalUs / samples : 0;
+    s_rendererStats.displayQueueBlockedPercent =
+        samples ? (unsigned int)((blocked * 100ull) / samples) : 0;
+}
+
 static void copy_label(char* dst, const char* src)
 {
     size_t i = 0;
@@ -91,6 +138,95 @@ void PortBenchSetLabel(const char* key, const char* value)
     copy_label(s_labelKey[s_labelCount], key);
     copy_label(s_labelVal[s_labelCount], value);
     s_labelCount++;
+}
+
+void PortBenchSetRendererStats(const PortBenchRendererStats* stats)
+{
+    if (stats == NULL)
+        return;
+    s_rendererStats = *stats;
+    s_rendererStats.worldCullTested = s_worldCullTested;
+    s_rendererStats.worldCullDropped = s_worldCullDropped;
+    if (s_rendererGameplayBaselineValid)
+    {
+        s_rendererStats.shaderRuntimeCompilesAtGameplayStart = s_rendererGameplayStartCompiles;
+        if (s_rendererGameplayEnded)
+        {
+            s_rendererStats.shaderRuntimeCompilesDuringGameplay = s_rendererGameplayFinalCompiles;
+            s_rendererStats.shaderCompileBlockedMissesDuringGameplay = s_rendererGameplayFinalBlocked;
+        }
+        else
+        {
+            s_rendererStats.shaderRuntimeCompilesDuringGameplay =
+                stats->shaderRuntimeCompiles >= s_rendererGameplayStartCompiles
+                    ? stats->shaderRuntimeCompiles - s_rendererGameplayStartCompiles
+                    : 0;
+            s_rendererStats.shaderCompileBlockedMissesDuringGameplay =
+                stats->shaderCompileBlockedMisses >= s_rendererGameplayStartBlocked
+                    ? stats->shaderCompileBlockedMisses - s_rendererGameplayStartBlocked
+                    : 0;
+        }
+        update_gameplay_display_queue_stats();
+    }
+}
+
+void PortBenchRendererGameplayStart(void)
+{
+    s_rendererGameplayStartCompiles = s_rendererStats.shaderRuntimeCompiles;
+    s_rendererGameplayStartBlocked = s_rendererStats.shaderCompileBlockedMisses;
+    s_rendererGameplayStartQueueUs = s_rendererStats.displayQueueTotalUs;
+    s_rendererGameplayStartQueueSamples = s_rendererStats.displayQueueSamples;
+    s_rendererGameplayStartQueueBlocked = s_rendererStats.displayQueueBlockedSamples;
+    s_rendererGameplayBaselineValid = s_rendererStats.valid;
+    s_rendererGameplayEnded = 0;
+    s_rendererGameplayFinalCompiles = 0;
+    s_rendererGameplayFinalBlocked = 0;
+    s_rendererGameplayFinalQueueUs = 0;
+    s_rendererGameplayFinalQueueSamples = 0;
+    s_rendererGameplayFinalQueueBlocked = 0;
+    if (s_rendererGameplayBaselineValid)
+    {
+        s_rendererStats.shaderRuntimeCompilesAtGameplayStart = s_rendererGameplayStartCompiles;
+        s_rendererStats.shaderRuntimeCompilesDuringGameplay = 0;
+        s_rendererStats.shaderCompileBlockedMissesDuringGameplay = 0;
+        s_rendererStats.displayQueueAverageUs = 0;
+        s_rendererStats.displayQueueBlockedPercent = 0;
+    }
+}
+
+void PortBenchRendererGameplayEnd(void)
+{
+    if (!s_rendererGameplayBaselineValid)
+        return;
+    s_rendererGameplayFinalCompiles =
+        s_rendererStats.shaderRuntimeCompiles >= s_rendererGameplayStartCompiles
+            ? s_rendererStats.shaderRuntimeCompiles - s_rendererGameplayStartCompiles
+            : 0;
+    s_rendererGameplayFinalBlocked =
+        s_rendererStats.shaderCompileBlockedMisses >= s_rendererGameplayStartBlocked
+            ? s_rendererStats.shaderCompileBlockedMisses - s_rendererGameplayStartBlocked
+            : 0;
+    s_rendererGameplayFinalQueueUs = s_rendererStats.displayQueueTotalUs;
+    s_rendererGameplayFinalQueueSamples = s_rendererStats.displayQueueSamples;
+    s_rendererGameplayFinalQueueBlocked = s_rendererStats.displayQueueBlockedSamples;
+    s_rendererStats.shaderRuntimeCompilesDuringGameplay = s_rendererGameplayFinalCompiles;
+    s_rendererStats.shaderCompileBlockedMissesDuringGameplay = s_rendererGameplayFinalBlocked;
+    s_rendererGameplayEnded = 1;
+    update_gameplay_display_queue_stats();
+}
+
+void PortBenchGetRendererStats(PortBenchRendererStats* out)
+{
+    if (out != NULL)
+        *out = s_rendererStats;
+}
+
+void PortBenchSetCullStats(unsigned int tested, unsigned int dropped)
+{
+    s_worldCullTested = tested;
+    s_worldCullDropped = dropped;
+    s_rendererStats.worldCullTested = tested;
+    s_rendererStats.worldCullDropped = dropped;
 }
 
 void PortBenchInit(void)
@@ -413,6 +549,90 @@ void PortBenchReport(void)
         fMean, fP50, fP95, fP99, fMax,
         sleepMean);
 
+    if (s_rendererStats.valid)
+    {
+        fprintf(stderr,
+            "  shader cache     enabled=%d pregame=%llu gameplay=%llu blocked=%llu "
+            "disk=%u/%u compile=%.3fms\n"
+            "  renderer         frame=%.3fms cpu=%.3fms dq_avg=%.3fms blocked=%u%% "
+            "scenes=%u efb=%u pipelines=%lu/%lu evict=%llu\n"
+            "  hot phases       frontend=%.3f state=%.3f vtx_decode=%.3f vtx_xform=%.3f "
+            "tex=%.3f pipe=%.3f cmd=%.3f submit=%.3f\n"
+            "  hot phases 2     upload=%.3f wait=%.3f pack=%.3f geo=%.3f key=%.3f "
+            "validate=%.3f efb=%.3f present=%.3f\n"
+            "  workload         draws=%llu vertices=%llu triangles=%llu pipe=%llu/%llu "
+            "tex=%llu/%llu uploads=%llu bytes=%llu arena_overflow=%llu\n"
+            "  gxm reuse        stages=%lu create/reuse=%llu/%llu "
+            "vp=%lu create/reuse/evict=%llu/%llu/%llu "
+            "fp=%lu create/reuse/evict=%llu/%llu/%llu\n"
+            "  geometry         hit=%llu miss=%llu fallback=%llu bytes=%lu entries=%lu\n",
+            s_rendererStats.shaderRuntimeCompilationEnabled,
+            s_rendererStats.shaderRuntimeCompilesAtGameplayStart,
+            s_rendererStats.shaderRuntimeCompilesDuringGameplay,
+            s_rendererStats.shaderCompileBlockedMissesDuringGameplay,
+            s_rendererStats.shaderDiskCacheHits,
+            s_rendererStats.shaderDiskCacheMisses,
+            (double)s_rendererStats.shaderRuntimeCompileUs / 1000.0,
+            (double)s_rendererStats.frameUs / 1000.0,
+            (double)s_rendererStats.rendererCpuFrameUs / 1000.0,
+            (double)s_rendererStats.displayQueueAverageUs / 1000.0,
+            s_rendererStats.displayQueueBlockedPercent,
+            s_rendererStats.nativeSceneCount,
+            s_rendererStats.nativeEfbCopies,
+            (unsigned long)s_rendererStats.pipelineEntries,
+            (unsigned long)s_rendererStats.pipelineBudget,
+            s_rendererStats.pipelineEvictions,
+            (double)s_rendererStats.drawFrontendUs / 1000.0,
+            (double)s_rendererStats.stateTranslateUs / 1000.0,
+            (double)s_rendererStats.vertexDecodeUs / 1000.0,
+            (double)s_rendererStats.vertexTransformUs / 1000.0,
+            (double)s_rendererStats.textureResolveUs / 1000.0,
+            (double)s_rendererStats.pipelineResolveUs / 1000.0,
+            (double)s_rendererStats.commandBuildUs / 1000.0,
+            (double)s_rendererStats.submitUs / 1000.0,
+            (double)s_rendererStats.bufferUploadUs / 1000.0,
+            (double)s_rendererStats.streamWaitUs / 1000.0,
+            (double)s_rendererStats.vertexPackUs / 1000.0,
+            (double)s_rendererStats.geometryCacheUs / 1000.0,
+            (double)s_rendererStats.geometryKeyUs / 1000.0,
+            (double)s_rendererStats.geometryValidateUs / 1000.0,
+            (double)s_rendererStats.efbCopyUs / 1000.0,
+            (double)s_rendererStats.presentUs / 1000.0,
+            s_rendererStats.draws,
+            s_rendererStats.vertices,
+            s_rendererStats.triangles,
+            s_rendererStats.pipelineHits,
+            s_rendererStats.pipelineMisses,
+            s_rendererStats.textureHits,
+            s_rendererStats.textureMisses,
+            s_rendererStats.textureUploads,
+            s_rendererStats.textureUploadBytes,
+            s_rendererStats.arenaOverflows,
+            (unsigned long)s_rendererStats.registeredStageCount,
+            s_rendererStats.stageRegistrationCreates,
+            s_rendererStats.stageRegistrationReuses,
+            (unsigned long)s_rendererStats.sharedVertexProgramCount,
+            s_rendererStats.sharedVertexProgramCreates,
+            s_rendererStats.sharedVertexProgramReuses,
+            s_rendererStats.sharedVertexProgramEvictions,
+            (unsigned long)s_rendererStats.sharedFragmentProgramCount,
+            s_rendererStats.sharedFragmentProgramCreates,
+            s_rendererStats.sharedFragmentProgramReuses,
+            s_rendererStats.sharedFragmentProgramEvictions,
+            s_rendererStats.staticGeometryHits,
+            s_rendererStats.staticGeometryMisses,
+            s_rendererStats.staticGeometryLookupFallbacks,
+            (unsigned long)s_rendererStats.staticGeometryBytes,
+            (unsigned long)s_rendererStats.staticGeometryEntries);
+        fprintf(stderr, "  culling          tested=%u dropped=%u (%.1f%%)\n",
+            s_rendererStats.worldCullTested,
+            s_rendererStats.worldCullDropped,
+            s_rendererStats.worldCullTested
+                ? 100.0 * (double)s_rendererStats.worldCullDropped
+                    / (double)s_rendererStats.worldCullTested
+                : 0.0);
+    }
+
     // Headroom: how much slower a machine could be and still hold the frame rate it runs to.
     double field = 1000.0 / 59.94;
     int uncapped = 0;
@@ -480,13 +700,83 @@ static void write_csv(void)
     // benchmark summary. Keep the CSV useful without sending its many rows
     // through fprintf: format one bounded row at a time and write the bytes.
     {
-        char line[512];
+        char line[2048];
         int n = snprintf(line, sizeof(line), "# build=%s", PORT_BUILD_TYPE);
         if (n > 0) fwrite(line, 1, (size_t)n < sizeof(line) ? (size_t)n : sizeof(line) - 1, f);
         for (i = 0; i < s_labelCount; i++)
         {
             n = snprintf(line, sizeof(line), " %s=%s", s_labelKey[i], s_labelVal[i]);
             if (n > 0) fwrite(line, 1, (size_t)n < sizeof(line) ? (size_t)n : sizeof(line) - 1, f);
+        }
+        if (s_rendererStats.valid)
+        {
+            n = snprintf(line, sizeof(line),
+                "\n# shader_enabled=%d shader_pregame=%llu shader_gameplay=%llu "
+                "shader_blocked=%llu disk_hits=%u disk_misses=%u shader_compile_us=%llu "
+                "frame_us=%llu renderer_cpu_us=%llu dq_avg_us=%llu dq_blocked_pct=%u "
+                "pipeline_entries=%lu pipeline_budget=%lu pipeline_evictions=%llu "
+                "draw_frontend_us=%llu state_translate_us=%llu vertex_decode_us=%llu "
+                "vertex_transform_us=%llu texture_resolve_us=%llu pipeline_resolve_us=%llu "
+                "command_build_us=%llu submit_us=%llu buffer_upload_us=%llu stream_wait_us=%llu "
+                "vertex_pack_us=%llu geometry_cache_us=%llu geometry_key_us=%llu "
+                "geometry_validate_us=%llu efb_copy_us=%llu present_us=%llu "
+                "draws=%llu vertices=%llu triangles=%llu pipeline_hits=%llu pipeline_misses=%llu "
+                "texture_hits=%llu texture_misses=%llu texture_uploads=%llu texture_upload_bytes=%llu "
+                "arena_overflows=%llu "
+                "scenes=%u efb=%u geometry_hits=%llu geometry_misses=%llu "
+                "geometry_fallbacks=%llu geometry_bytes=%lu geometry_entries=%lu "
+                "cull_tested=%u cull_dropped=%u",
+                s_rendererStats.shaderRuntimeCompilationEnabled,
+                s_rendererStats.shaderRuntimeCompilesAtGameplayStart,
+                s_rendererStats.shaderRuntimeCompilesDuringGameplay,
+                s_rendererStats.shaderCompileBlockedMissesDuringGameplay,
+                s_rendererStats.shaderDiskCacheHits,
+                s_rendererStats.shaderDiskCacheMisses,
+                s_rendererStats.shaderRuntimeCompileUs,
+                s_rendererStats.frameUs,
+                s_rendererStats.rendererCpuFrameUs,
+                s_rendererStats.displayQueueAverageUs,
+                s_rendererStats.displayQueueBlockedPercent,
+                (unsigned long)s_rendererStats.pipelineEntries,
+                (unsigned long)s_rendererStats.pipelineBudget,
+                s_rendererStats.pipelineEvictions,
+                s_rendererStats.drawFrontendUs,
+                s_rendererStats.stateTranslateUs,
+                s_rendererStats.vertexDecodeUs,
+                s_rendererStats.vertexTransformUs,
+                s_rendererStats.textureResolveUs,
+                s_rendererStats.pipelineResolveUs,
+                s_rendererStats.commandBuildUs,
+                s_rendererStats.submitUs,
+                s_rendererStats.bufferUploadUs,
+                s_rendererStats.streamWaitUs,
+                s_rendererStats.vertexPackUs,
+                s_rendererStats.geometryCacheUs,
+                s_rendererStats.geometryKeyUs,
+                s_rendererStats.geometryValidateUs,
+                s_rendererStats.efbCopyUs,
+                s_rendererStats.presentUs,
+                s_rendererStats.draws,
+                s_rendererStats.vertices,
+                s_rendererStats.triangles,
+                s_rendererStats.pipelineHits,
+                s_rendererStats.pipelineMisses,
+                s_rendererStats.textureHits,
+                s_rendererStats.textureMisses,
+                s_rendererStats.textureUploads,
+                s_rendererStats.textureUploadBytes,
+                s_rendererStats.arenaOverflows,
+                s_rendererStats.nativeSceneCount,
+                s_rendererStats.nativeEfbCopies,
+                s_rendererStats.staticGeometryHits,
+                s_rendererStats.staticGeometryMisses,
+                s_rendererStats.staticGeometryLookupFallbacks,
+                (unsigned long)s_rendererStats.staticGeometryBytes,
+                (unsigned long)s_rendererStats.staticGeometryEntries,
+                s_rendererStats.worldCullTested,
+                s_rendererStats.worldCullDropped);
+            if (n > 0)
+                fwrite(line, 1, (size_t)n < sizeof(line) ? (size_t)n : sizeof(line) - 1, f);
         }
         fwrite("\nframe,busy_us,present_us,frame_us\n", 1,
                sizeof("\nframe,busy_us,present_us,frame_us\n") - 1, f);

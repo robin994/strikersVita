@@ -47,12 +47,24 @@ static void snd_handle_irq() {
     return;
   }
 
+#if defined(MUSYX_THREADED_AUDIO)
+  /* streamCorrectLoops touches the same streaming state as game-thread MusyX
+     calls. On GameCube this ran with interrupt exclusion; on Vita the audio
+     worker needs the explicit recursive IRQ lock too. */
+  hwIRQEnterCritical();
+  streamCorrectLoops();
+  // sndProfStartPCM(&prof.dspCtrl);
+  salCtrlDsp(salAiGetDest());
+  // sndProfStopPMC(&prof.dspCtrl);
+  hwIRQLeaveCritical();
+#else
   streamCorrectLoops();
   hwIRQEnterCritical();
   // sndProfStartPCM(&prof.dspCtrl);
   salCtrlDsp(salAiGetDest());
   // sndProfStopPMC(&prof.dspCtrl);
   hwIRQLeaveCritical();
+#endif
   hwIRQEnterCritical();
   // sndProfStartPCM(&prof.auxProcessing);
   salHandleAuxProcessing();
@@ -142,11 +154,22 @@ s32 hwInit(u32* frq, u16 numVoices, u16 numStudios, u32 flags) {
 }
 
 void hwExit() {
+#if defined(MUSYX_THREADED_AUDIO)
+  /* salExitAi() stops and joins the Vita audio worker. Do that before taking
+     the IRQ mutex: a worker already waiting for the mutex must be allowed to
+     finish its final tick or joining it here would deadlock. */
+  salExitAi();
+  hwDisableIrq();
+  salExitDsp();
+  salExitDspCtrl();
+  hwEnableIrq();
+#else
   hwDisableIrq();
   salExitDsp();
   salExitDspCtrl();
   salExitAi();
   hwEnableIrq();
+#endif
   hwExitIrq();
 }
 

@@ -11,6 +11,7 @@
 #include <psp2/ctrl.h>
 #include <psp2/kernel/processmgr.h>
 #include <psp2/kernel/sysmem.h>
+#include <psp2/kernel/threadmgr/thread.h>
 #include <psp2/power.h>
 #include <psp2/display.h>
 #include <psp2/gxm.h>
@@ -36,6 +37,7 @@ extern "C" void PortDebugFrame(void);   // PORT: defined in Game.cpp
 #endif
 #include "port/benchmark.h"
 #include "port/audio.h"
+#include "port/vita_profiler.h"
 #include "port/determinism.h"
 #include "port/config.h"
 #include "Game/Audio/AudioStream.h"
@@ -166,7 +168,13 @@ static void VitaMaybeCaptureFrame()
         if (value != NULL)
             target = strtoul(value, NULL, 10);
     }
-    if (target == 0 || aurora::vita::telemetry().frame().counters.triangles < 10000)
+    if (target == 0)
+        return;
+#if defined(STRIKERS_VITA_GX_THREAD)
+    // Async-GX builds need an explicit fence before reading renderer state.
+    aurora::vita::wait_for_render_idle();
+#endif
+    if (aurora::vita::telemetry().frame().counters.triangles < 10000)
         return;
     if (++heavyFrames != target)
         return;
@@ -618,6 +626,130 @@ extern "C" void PortInvokePadSamplingCallback(void);
 
 static unsigned long s_portFrame = 0;
 
+#if defined(PORT_VITA)
+enum VitaShaderProfile
+{
+    VITA_SHADER_CONTROL = 0,
+    VITA_SHADER_WARM,
+    VITA_SHADER_SEALED,
+};
+
+#ifndef STRIKERS_VITA_SHADER_PROFILE_DEFAULT
+#define STRIKERS_VITA_SHADER_PROFILE_DEFAULT "SEALED"
+#endif
+
+static VitaShaderProfile s_vitaShaderProfile = VITA_SHADER_SEALED;
+static bool s_vitaShaderGameplayActive = false;
+
+static bool PortAsciiEqualIgnoreCase(const char* a, const char* b)
+{
+    if (a == NULL || b == NULL)
+        return false;
+    while (*a != '\0' && *b != '\0')
+    {
+        char ca = *a++;
+        char cb = *b++;
+        if (ca >= 'a' && ca <= 'z') ca = (char)(ca - 'a' + 'A');
+        if (cb >= 'a' && cb <= 'z') cb = (char)(cb - 'a' + 'A');
+        if (ca != cb)
+            return false;
+    }
+    return *a == '\0' && *b == '\0';
+}
+
+static VitaShaderProfile PortVitaReadShaderProfile()
+{
+    const char* value = getenv("STRIKERS_GXM_SHADER_PROFILE");
+    if (value == NULL || *value == '\0')
+        value = STRIKERS_VITA_SHADER_PROFILE_DEFAULT;
+
+    if (PortAsciiEqualIgnoreCase(value, "CONTROL"))
+        return VITA_SHADER_CONTROL;
+    if (PortAsciiEqualIgnoreCase(value, "WARM"))
+        return VITA_SHADER_WARM;
+    return VITA_SHADER_SEALED;
+}
+
+static const char* PortVitaShaderProfileName(VitaShaderProfile profile)
+{
+    switch (profile)
+    {
+    case VITA_SHADER_CONTROL: return "CONTROL";
+    case VITA_SHADER_WARM: return "WARM";
+    default: return "SEALED";
+    }
+}
+
+static void PortVitaSampleRendererStats()
+{
+    const aurora::vita::PerformanceSnapshot perf = aurora::vita::performance_snapshot();
+    PortBenchRendererStats stats = {};
+    stats.valid = 1;
+    stats.shaderRuntimeCompilationEnabled = perf.shaderRuntimeCompilationEnabled ? 1 : 0;
+    stats.shaderRuntimeCompiles = perf.shaderRuntimeCompiles;
+    stats.shaderRuntimeCompileUs = perf.shaderRuntimeCompileUs;
+    stats.shaderCompileBlockedMisses = perf.shaderCompileBlockedMisses;
+    stats.shaderDiskCacheHits = perf.shaderDiskCacheHits;
+    stats.shaderDiskCacheMisses = perf.shaderDiskCacheMisses;
+    stats.frameUs = perf.frameUs;
+    stats.rendererCpuFrameUs = perf.rendererCpuFrameUs;
+    stats.displayQueueAverageUs = perf.displayQueueAverageUs;
+    stats.displayQueueSamples = perf.displayQueueSamples;
+    stats.displayQueueBlockedPercent = perf.displayQueueBlockedPercent;
+    stats.nativeSceneCount = perf.nativeSceneCount;
+    stats.nativeEfbCopies = perf.nativeEfbCopies;
+    stats.staticGeometryHits = perf.staticGeometryHits;
+    stats.staticGeometryMisses = perf.staticGeometryMisses;
+    stats.staticGeometryLookupFallbacks = perf.staticGeometryLookupFallbacks;
+    stats.staticGeometryBytes = perf.staticGeometryBytes;
+    stats.staticGeometryEntries = perf.staticGeometryEntries;
+    PortBenchSetRendererStats(&stats);
+}
+
+void PortVitaShaderCacheBeginLoading()
+{
+    if (s_vitaShaderProfile != VITA_SHADER_SEALED)
+        return;
+    if (!aurora::vita::runtime_shader_compilation_enabled())
+        aurora::vita::set_runtime_shader_compilation_enabled(true);
+}
+
+void PortVitaShaderCacheEndLoading(bool enteringGameplay)
+{
+    if (s_vitaShaderProfile == VITA_SHADER_CONTROL)
+        return;
+
+    // The stable Aurora backend performs manifest/program-cache prewarm during
+    // renderer initialization. It has no post-loading prewarm entry point.
+    (void)enteringGameplay;
+
+    if (s_vitaShaderProfile == VITA_SHADER_SEALED)
+        aurora::vita::set_runtime_shader_compilation_enabled(false);
+}
+
+void PortVitaShaderCacheEnterGameplay()
+{
+    if (s_vitaShaderGameplayActive)
+        return;
+
+    PortVitaSampleRendererStats();
+    PortBenchRendererGameplayStart();
+    s_vitaShaderGameplayActive = true;
+}
+
+void PortVitaShaderCacheLeaveGameplay()
+{
+    if (!s_vitaShaderGameplayActive)
+        return;
+
+    // Snapshot before reopening the compiler so the gameplay delta cannot be
+    // polluted by front-end variants compiled immediately after the transition.
+    PortVitaSampleRendererStats();
+    PortBenchRendererGameplayEnd();
+    s_vitaShaderGameplayActive = false;
+}
+#endif
+
 // Numeric environment overrides for the graphics configuration.
 static unsigned long PortEnvU32(const char* name, unsigned long fallback)
 {
@@ -829,11 +961,17 @@ int main(int argc, char* argv[])
             OSReport("[port] %s: %d setting(s)\n",
                      PortConfigPath(), applied);
     }
+    PortBenchInit();
 
 #if defined(PORT_USE_AURORA)
 #if defined(PORT_VITA)
     {
         sceCtrlSetSamplingMode(SCE_CTRL_MODE_ANALOG);
+        // Keep the producer/game thread on core 0. With async GX enabled, core
+        // 2 is the sole GX/GXM owner while core 1 is the helper core used by
+        // Aurora's single CPU worker and the low-duty audio thread.
+        (void)sceKernelChangeThreadCpuAffinityMask(
+            sceKernelGetThreadId(), SCE_KERNEL_CPU_MASK_USER_0);
         OSReport("[vita] clocks at boot: cpu=%d bus=%d gpu=%d xbar=%d MHz\n",
                  scePowerGetArmClockFrequency(), scePowerGetBusClockFrequency(),
                  scePowerGetGpuClockFrequency(), scePowerGetGpuXbarClockFrequency());
@@ -847,9 +985,12 @@ int main(int argc, char* argv[])
         if (gpuMHz != NULL && strcmp(gpuMHz, "222") == 0)
         {
             const int gpuResult = scePowerSetGpuClockFrequency(222);
+            const int busResult = scePowerSetBusClockFrequency(222);
             const int xbarResult = scePowerSetGpuXbarClockFrequency(166);
-            OSReport("[vita] requested gpu=222 xbar=166 rc=%d/%d reported=%d/%d\n",
-                     gpuResult, xbarResult, scePowerGetGpuClockFrequency(), scePowerGetGpuXbarClockFrequency());
+            OSReport("[vita] requested gpu=222 bus=222 xbar=166 rc=%d/%d/%d reported=%d/%d/%d\n",
+                     gpuResult, busResult, xbarResult,
+                     scePowerGetGpuClockFrequency(), scePowerGetBusClockFrequency(),
+                     scePowerGetGpuXbarClockFrequency());
         }
         SceKernelFreeMemorySizeInfo memInfo = {};
         memInfo.size = sizeof(memInfo);
@@ -938,14 +1079,24 @@ int main(int argc, char* argv[])
         cfg.stream_vertex_bytes = 8 * 1024 * 1024;
         cfg.stream_index_bytes = 512 * 1024;
         cfg.stream_slots = 3;
-        cfg.cpu_worker_threads = 2;
+        // Stable three-core topology. Keep GX/GXM ownership on the proven
+        // synchronous game thread for now: core 0 runs the game and renderer
+        // control path, core 1 is reserved for audio, and one Aurora helper is
+        // pinned to core 2 for parallel vertex/decode work. This preserves the
+        // stable renderer lifetime while removing helper contention from CPU0.
+        cfg.cpu_worker_threads = 1;
         // The worker scheduler treats this as the minimum useful work per lane.
-        // Gameplay's common ~198-vertex packets therefore need ~64 vertices per
-        // lane to keep all three Vita CPU lanes busy during decode/transform.
-        cfg.cpu_parallel_min_vertices = 64;
+        // Avoid waking the helper for tiny draws. Common ~200-vertex Strikers
+        // packets still split across the GX owner + helper, while smaller UI
+        // draws remain entirely on the render owner.
+        cfg.cpu_parallel_min_vertices = 96;
         const char* workerCount = getenv("STRIKERS_AURORA_CPU_WORKERS");
         if (workerCount != NULL && workerCount[0] >= '0' && workerCount[0] <= '2' && workerCount[1] == '\0')
+        {
             cfg.cpu_worker_threads = (unsigned int)(workerCount[0] - '0');
+            if (cfg.cpu_worker_threads > 1)
+                cfg.cpu_worker_threads = 1;
+        }
         const char* parallelMin = getenv("STRIKERS_AURORA_PARALLEL_MIN");
         if (parallelMin != NULL)
         {
@@ -955,11 +1106,15 @@ int main(int argc, char* argv[])
         }
         cfg.wait_vblank = true;
 #if defined(STRIKERS_VITA_FORCE_60HZ)
-        // Keep presentation synchronized to the Vita panel. The emulated VI
-        // remains uncapped so this is the only active frame pacer.
-        cfg.wait_vblank = true;
-        PortSetDisplayRefresh(60.0, 1);
-        PortSetFrameLimit(0.0);
+        // NEXTFRAME remains tear-free, but waiting in the display callback can
+        // quantize a frame that barely misses vblank straight down to 30 Hz.
+        // Pace the producer in VI instead; the callback itself stays nonblocking.
+        cfg.wait_vblank = false;
+        float displayHz = 60.0f;
+        if (sceDisplayGetRefreshRate(&displayHz) < 0 || displayHz < 50.0f || displayHz > 70.0f)
+            displayHz = 60.0f;
+        PortSetDisplayRefresh((double)displayHz, 0);
+        PortSetFrameLimit((double)displayHz);
 #else
         const char* vitaVsync = getenv("STRIKERS_VITA_VSYNC");
         if (vitaVsync != NULL)
@@ -983,10 +1138,24 @@ int main(int argc, char* argv[])
         // Do not rely on TITLE_ID-derived paths: homebrew data roots are chosen
         // by the application and must survive rebuilds/title metadata changes.
         cfg.data_root_path = "ux0:data/strikersVita/aurora-vita";
+
+        // D16 halves native depth storage/bandwidth versus the conservative
+        // higher-precision path. Keep a runtime escape hatch for hardware A/B
+        // checks on stages that expose precision-sensitive depth ranges.
+        cfg.gxm_d16_depth = true;
+        const char* gxmD16 = getenv("STRIKERS_GXM_D16");
+        if (gxmD16 != NULL)
+            cfg.gxm_d16_depth = gxmD16[0] != '0';
         // Native GXM can keep immutable object-space GX geometry resident and
-        // perform fixed PN/texgen work in its vertex shader. Start conservatively
-        // so gameplay still has ample RAM for stadium and character assets.
+        // perform fixed PN/texgen work in its vertex shader. The separated GX
+        // bring-up must start from the CPU vertex path: the experimental static
+        // geometry/fixed-vertex path is the current freeze suspect and Aurora's
+        // own regression audit recommends budget=0 for the control profile.
+#if defined(STRIKERS_VITA_GX_THREAD)
+        cfg.static_geometry_budget = 0;
+#else
         cfg.static_geometry_budget = 8 * 1024 * 1024;
+#endif
         cfg.static_geometry_min_vertices = 16;
         const char* fixedMin = getenv("STRIKERS_GXM_FIXED_MIN");
         if (fixedMin != NULL)
@@ -995,24 +1164,31 @@ int main(int argc, char* argv[])
             if (value >= 3 && value <= 256)
                 cfg.static_geometry_min_vertices = (unsigned int)value;
         }
-        // The observed Strikers working set is ~265-300 native pipelines. Load
-        // persisted GXP stages before prewarm, then make the full 512-entry hot
-        // pipeline budget available to loading rather than paying disk I/O and
-        // shader patching on first use during gameplay.
-        cfg.gxm_preload_program_cache = true;
+        s_vitaShaderProfile = PortVitaReadShaderProfile();
+        PortBenchSetLabel("shader", PortVitaShaderProfileName(s_vitaShaderProfile));
+#if defined(STRIKERS_VITA_GX_THREAD)
+        PortBenchSetLabel("gx_thread", "ON");
+#else
+        PortBenchSetLabel("gx_thread", "OFF");
+#endif
+        // Reuse the persistent GXP cache introduced by the upstream preload
+        // path, while keeping CONTROL as a true no-preload baseline.
+        cfg.gxm_preload_program_cache = s_vitaShaderProfile != VITA_SHADER_CONTROL;
         cfg.gxm_program_cache_preload_limit = 1024;
-        cfg.pipeline_prewarm_limit = 512;
-        // Sealing is deliberately opt-in until a training run has exercised all
-        // menus, characters, stadiums and effects. Once trained, this switch
-        // guarantees that a gameplay cache miss is blocked instead of invoking
-        // vitaShaRK in the middle of a frame.
-        const char* sealShaderCache = getenv("STRIKERS_GXM_SEAL_SHADER_CACHE");
-        cfg.gxm_seal_shader_cache_after_prewarm = sealShaderCache != NULL
-            && sealShaderCache[0] == '1';
+        // Stable Aurora performs this prewarm during renderer initialization.
+        cfg.pipeline_prewarm_limit = s_vitaShaderProfile == VITA_SHADER_CONTROL ? 0 : 64;
+        // Strikers seals manually at the loading -> gameplay boundary. Menus,
+        // stage loading and training runs must retain the ability to discover
+        // and persist new variants.
+        cfg.gxm_seal_shader_cache_after_prewarm = false;
         // The native shader now reproduces GX channel lighting and COLOR0/COLOR1
         // texgen semantics. Keep an environment escape hatch for immediate A/B
         // validation against the graphics-proven CPU vertex path.
+#if defined(STRIKERS_VITA_GX_THREAD)
         cfg.gxm_lit_fixed_vertex_gpu = false;
+#else
+        cfg.gxm_lit_fixed_vertex_gpu = true;
+#endif
         const char* litGpu = getenv("STRIKERS_GXM_LIT_GPU");
         if (litGpu != NULL)
             cfg.gxm_lit_fixed_vertex_gpu = litGpu[0] == '1';
@@ -1068,6 +1244,10 @@ int main(int argc, char* argv[])
                      aurora::vita::last_init_failure_detail());
             return 1;
         }
+        // Boot starts inside a loading window. TransitionTask closes it after
+        // the first front-end state is fully materialized.
+        aurora::vita::set_runtime_shader_compilation_enabled(true);
+        PortVitaSampleRendererStats();
         PortSetWindowAspect(960, 544);
         PortSetDisplayRefresh(60.0, 1);
         VILockAspectRatio((int)(PortTargetAspect() * 10000.0f), 10000);
@@ -1203,6 +1383,7 @@ int main(int argc, char* argv[])
     }
 
     Initialize();
+    PortProfilerStart();
 
     fopen("flushfile.txt", "r");
 
@@ -1223,6 +1404,8 @@ int main(int argc, char* argv[])
     {
         PortPumpAuroraEvents();
         PortDebugFrame();
+        PortBenchFrameBegin();
+        PortProfilerFrameMark();
 
 #if defined(PORT_VITA)
         if (!aurora::vita::begin_frame())
@@ -1234,8 +1417,11 @@ int main(int argc, char* argv[])
         // Sample the pad before the tasks that read it. main() registers VBlankPadUpdate through PADSetSamplingCallback.
         PortInvokePadSamplingCallback();
 
+        PortProfilerTasksBegin();
         nlTaskManager::RunAllTasks();
+        PortProfilerTasksEnd();
         UpdateProfile();
+        PortBenchAfterTasks();
 
         // PORT: the audio clock. MusyX runs only inside this call; see include/port/audio.h.
         PortAudioUpdate();
@@ -1246,12 +1432,28 @@ int main(int argc, char* argv[])
         aurora_end_frame();
 #endif
         s_portFrame++;
+#if defined(PORT_VITA)
+        if ((s_portFrame % 60u) == 0u)
+            PortVitaSampleRendererStats();
+#endif
+        PortBenchFrameEnd();
+        if (PortBenchRunSeconds() > 0.0 && PortBenchElapsed() >= PortBenchRunSeconds())
+        {
+#if defined(PORT_VITA)
+            PortVitaSampleRendererStats();
+#endif
+            PortBenchReport();
+            s_portExitReason = "benchmark complete";
+            break;
+        }
     }
     if (s_portExitReason == NULL && PortQuitRequested())
         s_portExitReason = "PortQuitRequested";
     OSReport("[port] main loop ended at frame %lu: %s\n", s_portFrame,
              s_portExitReason != NULL ? s_portExitReason : "unknown reason");
 #if defined(PORT_VITA)
+    PortAudioStop();
+    PortProfilerStop();
     aurora::vita::shutdown();
     sceKernelExitProcess(0);
 #else

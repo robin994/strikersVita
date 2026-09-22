@@ -22,8 +22,8 @@ void PortAudioStats(unsigned long* outBuffers, unsigned long* outUnderruns,
                     int* outEverNonSilent);
 int PortAudioDeviceOpen(void);
 
-// What PortAudioUpdate has cost the frame: calls, mean and worst milliseconds, and how many
-// exceeded two.
+// Cost of actual queue-fill runs: calls, mean and worst milliseconds, and how many exceeded two.
+// With the Vita worker enabled these measurements belong to that worker rather than the main frame.
 void PortAudioUpdateCost(unsigned long* calls, double* meanMs, double* maxMs,
                          unsigned long* over2ms);
 

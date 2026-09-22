@@ -556,7 +556,9 @@ inline long SaveCallbacks::DoSave(unsigned long Slot)
     }
 
     unsigned long DataSize = nlSingleton<GameInfoManager>::Instance()->GetMemoryCardDataSize() + 12;
-    m_pSaveGameBuffer = nlMalloc(DataSize, 0x20, true);
+    const unsigned long writeSize = g_MemCards[Slot]->AlignBytesToSectorSize(DataSize);
+    m_pSaveGameBuffer = nlMalloc(writeSize, 0x20, true);
+    memset(m_pSaveGameBuffer, 0, writeSize);
     GameInfoManager* pGIM = nlSingleton<GameInfoManager>::s_pInstance;
     pGIM->mUserInfo.mSaveID = nlRandom(-1, &nlDefaultSeed);
     PortLogUserInfo("before-save");

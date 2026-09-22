@@ -3,6 +3,7 @@
 #include "NL/nlTicker.h"
 #include "NL/nlDLRing.h"
 #include "port/host.h"
+#include "port/vita_profiler.h"
 
 #include <cstdio>
 #include <cstdlib>
@@ -135,7 +136,9 @@ void nlTaskManager::RunAllTasks()
         {
             for (;;)
             {
+                PortProfilerTaskTransitionBegin(currentTask);
                 currentTask->StateTransition(m_pInstance->m_CurrState, m_pInstance->m_PendingState);
+                PortProfilerTaskTransitionEnd();
                 if (nlDLRingIsEnd<nlTask>(m_pInstance->m_lTaskList, currentTask) != 0)
                     break;
                 currentTask = currentTask->m_next;
@@ -166,7 +169,9 @@ void nlTaskManager::RunAllTasks()
                 if (profileTasks)
                 {
                     const unsigned long long started = port_monotonic_ns();
+                    PortProfilerTaskRunBegin(taskIterator);
                     taskIterator->Run(deltaTime);
+                    PortProfilerTaskRunEnd();
                     const unsigned long long elapsed = port_monotonic_ns() - started;
                     TaskProfileSlot* slot = TaskProfileGet(taskIterator);
                     if (slot != nullptr)
@@ -179,7 +184,9 @@ void nlTaskManager::RunAllTasks()
                 }
                 else
                 {
+                    PortProfilerTaskRunBegin(taskIterator);
                     taskIterator->Run(deltaTime);
+                    PortProfilerTaskRunEnd();
                 }
             }
             if (taskIterator == m_pInstance->m_lTaskList)
