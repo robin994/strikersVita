@@ -4,6 +4,7 @@
 #include "port/control.h"
 #include "port/input.h"
 #include "port/overlay.h"
+#include "port/prompts.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -132,13 +133,13 @@ void do_dump(void)
     fprintf(stderr, " pres_t=%.2f\n", (double)m->presentationTime);
 }
 
-enum Verb { kUnknown, kPress, kStick, kCmd, kShot, kDump, kQuit, kEcho };
+enum Verb { kUnknown, kPress, kStick, kCmd, kShot, kDump, kQuit, kEcho, kPrompts };
 
 Verb verb_from_name(const char* w)
 {
     static const struct { const char* name; Verb verb; } kVerbs[] = {
-        { "press", kPress }, { "stick", kStick }, { "cmd", kCmd },  { "shot", kShot },
-        { "dump", kDump },   { "quit", kQuit },   { "echo", kEcho },
+        { "press", kPress }, { "stick", kStick }, { "cmd", kCmd },   { "shot", kShot },
+        { "dump", kDump },   { "quit", kQuit },   { "echo", kEcho }, { "prompts", kPrompts },
     };
     for (size_t i = 0; i < sizeof kVerbs / sizeof kVerbs[0]; i++)
         if (strcmp(w, kVerbs[i].name) == 0)
@@ -229,6 +230,14 @@ void execute(char* line, unsigned long frame)
             aurora_capture_frame(path);
         else
             fprintf(stderr, "[control] shot needs a path\n");
+        return;
+    }
+
+    if (v == kPrompts)
+    {
+        if (!PortPromptsSetFamily(next_word(&p)))
+            fprintf(stderr, "[control] prompts: expected auto, gamecube, xbox, playstation, "
+                            "nintendo, steamdeck, generic or keyboard\n");
         return;
     }
 

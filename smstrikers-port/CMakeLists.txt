@@ -1,5 +1,6 @@
 cmake_minimum_required(VERSION 3.24)
 project(smstrikers-port CXX C)
+include(cmake/StrikersVersion.cmake)
 
 if(VITA)
     set(STRIKERS_VITA ON)
@@ -20,8 +21,9 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_C_STANDARD 99)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-# Toolchain contract: clang, on every platform.
-if(NOT STRIKERS_VITA AND NOT CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+# Toolchain contract: clang on desktop; VitaSDK and devkitA64 use GCC.
+if(NOT STRIKERS_VITA AND NOT CMAKE_CXX_COMPILER_ID MATCHES "Clang"
+   AND NOT (NX AND CMAKE_CXX_COMPILER_ID STREQUAL "GNU"))
     message(FATAL_ERROR
         "This port requires clang (found ${CMAKE_CXX_COMPILER_ID}). "
         "See the toolchain contract in CMakeLists.txt.")
@@ -179,6 +181,10 @@ if(STRIKERS_AURORA AND NOT STRIKERS_VITA)
     # OFF: src/platform/dvd.c provides DVD, reading an extracted disc directory rather than a disc
     # image.
     set(AURORA_ENABLE_DVD   OFF CACHE BOOL "" FORCE)
+    if(NX)
+        # The shader cache inside the .nro is stored zstd-compressed.
+        set(AURORA_CACHE_USE_ZSTD ON CACHE BOOL "" FORCE)
+    endif()
     set(AURORA_ENABLE_CARD  ON  CACHE BOOL "" FORCE)
     set(AURORA_ENABLE_RMLUI OFF CACHE BOOL "" FORCE)
 
@@ -239,7 +245,72 @@ int main() { std::jthread t([](std::stop_token) {}); }
             "the FetchContent_Declare(Freetype) override above is stale; "
             "re-review it. If upstream's own URL works now, delete it.")
     endif()
+
+    if(NX)
+        set(STRIKERS_SWITCH_DAWN_DIR "${CMAKE_CURRENT_SOURCE_DIR}/extern/dawn-switch" CACHE PATH
+            "Dawn source tree with the Switch changes, from tools/fetch-switch-deps.sh")
+        set(STRIKERS_SWITCH_NVK_DIR "${CMAKE_CURRENT_SOURCE_DIR}/extern/nvk-switch" CACHE PATH
+            "NVK for Switch: lib/libvulkan.a and include/vulkan")
+        foreach(_nx_dep "${STRIKERS_SWITCH_DAWN_DIR}/CMakeLists.txt" "${STRIKERS_SWITCH_NVK_DIR}/lib/libvulkan.a")
+            if(NOT EXISTS "${_nx_dep}")
+                message(FATAL_ERROR "${_nx_dep} is missing; run tools/fetch-switch-deps.sh and tools/switch/build-nvk.sh.")
+            endif()
+        endforeach()
+
+        # devkitPro ships only SDL2, which sdl3on2 exposes as SDL3. Listed in SDL2's link order.
+        set(SDL2_LIBRARIES
+            "${DEVKITPRO}/portlibs/switch/lib/libSDL2.a"
+            "${DEVKITPRO}/portlibs/switch/lib/libEGL.a"
+            "${DEVKITPRO}/portlibs/switch/lib/libglapi.a"
+            "${DEVKITPRO}/portlibs/switch/lib/libdrm_nouveau.a"
+            "${DEVKITPRO}/portlibs/switch/lib/libGLESv2.a"
+            nx stdc++ m)
+        FetchContent_Declare(sdl3on2
+            GIT_REPOSITORY https://github.com/new-coke/sdl3on2.git
+            GIT_TAG main
+            GIT_SHALLOW TRUE
+            EXCLUDE_FROM_ALL
+        )
+        FetchContent_MakeAvailable(sdl3on2)
+        add_library(SDL3::SDL3-static ALIAS sdl3on2)
+        set(SDL3_FOUND TRUE)
+        set(AURORA_SDL3_PROVIDER system CACHE STRING "" FORCE)
+        set(AURORA_SDL3_LINKAGE static CACHE STRING "" FORCE)
+
+        # Point Aurora's vendored Dawn build at the patched local tree.
+        set(AURORA_DAWN_PROVIDER vendor CACHE STRING "" FORCE)
+        set(AURORA_DAWN_LINKAGE static CACHE STRING "" FORCE)
+        set(FETCHCONTENT_SOURCE_DIR_DAWN "${STRIKERS_SWITCH_DAWN_DIR}" CACHE PATH "" FORCE)
+        set(DAWN_PLATFORM_SWITCH ON CACHE BOOL "" FORCE)
+        foreach(_nx_off DAWN_ENABLE_D3D11 DAWN_ENABLE_D3D12 DAWN_ENABLE_METAL DAWN_ENABLE_DESKTOP_GL
+                        DAWN_USE_WAYLAND DAWN_USE_X11 DAWN_BUILD_TESTS
+                        # Tint's IR binary format needs a host protoc when cross-compiling.
+                        DAWN_BUILD_PROTOBUF)
+            set(${_nx_off} OFF CACHE BOOL "" FORCE)
+        endforeach()
+        set(DAWN_ENABLE_VULKAN ON CACHE BOOL "" FORCE)
+        set(DAWN_ENABLE_OPENGLES OFF CACHE BOOL "" FORCE)
+        set(DAWN_ENABLE_NULL ON CACHE BOOL "" FORCE)
+
+        # Defined before Aurora so it does not fetch Tracy's client.
+        add_library(TracyClient INTERFACE)
+        target_include_directories(TracyClient INTERFACE
+            "${CMAKE_CURRENT_SOURCE_DIR}/src/platform/switch/tracy")
+    endif()
+
     add_subdirectory(extern/aurora EXCLUDE_FROM_ALL)
+
+    # The Switch has no Discord client.
+    if(NOT NX)
+        add_subdirectory(extern/borealis EXCLUDE_FROM_ALL)
+    endif()
+
+    if(NX AND TARGET sqlite3)
+        # The Horizon VFS has no shared memory, mmap, dynamic loading or temporary files.
+        target_compile_definitions(sqlite3 PRIVATE
+            SQLITE_OMIT_WAL=1 SQLITE_MAX_MMAP_SIZE=0 SQLITE_OMIT_LOAD_EXTENSION=1
+            SQLITE_TEMP_STORE=3)
+    endif()
 endif()
 
 if(STRIKERS_AURORA AND STRIKERS_VITA)
@@ -312,12 +383,14 @@ elseif(MSVC)
     )
 else()
     target_compile_options(port_flags INTERFACE
-        -fdeclspec
+        $<$<NOT:$<BOOL:${NX}>>:-fdeclspec>
         -fshort-wchar
         -include "${CMAKE_CURRENT_SOURCE_DIR}/include/port/prelude.h"
         -fno-strict-aliasing
         -fsigned-char
         -Wno-invalid-offsetof
+        # GCC rejects a member named after its own type, which the decompiled structs use.
+        $<$<AND:$<BOOL:${NX}>,$<COMPILE_LANGUAGE:CXX>>:-Wno-changes-meaning>
         $<$<BOOL:${STRIKERS_ASAN}>:-fsanitize=address>
         $<$<BOOL:${STRIKERS_ASAN}>:-fno-omit-frame-pointer>
     )
@@ -394,12 +467,41 @@ set_target_properties(strikers_operators PROPERTIES
     CXX_STANDARD 17
     CXX_STANDARD_REQUIRED ON)
 
+# borealis headers need C++20, so discord.cpp is a target of its own.
+list(REMOVE_ITEM PLATFORM_SOURCES
+     "${CMAKE_CURRENT_SOURCE_DIR}/src/platform/discord.cpp")
+if(STRIKERS_AURORA AND NOT NX AND NOT STRIKERS_VITA)
+    add_library(strikers_discord OBJECT
+         "${CMAKE_CURRENT_SOURCE_DIR}/src/platform/discord.cpp")
+    set_target_properties(strikers_discord PROPERTIES
+        CXX_STANDARD 20
+        CXX_STANDARD_REQUIRED ON)
+    target_include_directories(strikers_discord PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/include")
+    target_link_libraries(strikers_discord PRIVATE borealis::discord)
+endif()
+
 # The debug overlay is ImGui, and ImGui arrives with Aurora and only with Aurora: with
 # STRIKERS_AURORA=OFF none of overlay.cpp's includes are on the path, so it leaves the source set
 # rather than becoming an empty translation unit.
 if(NOT STRIKERS_AURORA OR STRIKERS_VITA)
     list(REMOVE_ITEM PLATFORM_SOURCES
         "${CMAKE_CURRENT_SOURCE_DIR}/src/platform/overlay.cpp")
+endif()
+
+if(NX)
+    list(REMOVE_ITEM PLATFORM_SOURCES
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/platform/overlay.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/platform/host.c"
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/platform/stubs_generated.c")
+    # The tree's stubs use host symbol names; the Switch rebuild writes ELF stubs here.
+    set(_nx_stubs "${CMAKE_CURRENT_BINARY_DIR}/stubs_generated.c")
+    if(NOT EXISTS "${_nx_stubs}")
+        file(WRITE "${_nx_stubs}" "// Filled by tools/switch/rebuild.sh.\n")
+    endif()
+    list(APPEND PLATFORM_SOURCES "${_nx_stubs}")
+else()
+    list(FILTER PLATFORM_SOURCES EXCLUDE REGEX "/src/platform/switch/")
 endif()
 
 if(STRIKERS_AURORA AND NOT STRIKERS_VITA)
@@ -497,6 +599,11 @@ if(STRIKERS_VITA)
         target_compile_definitions(strikers_musyx PRIVATE MUSYX_THREADED_AUDIO=1)
     endif()
     target_compile_options(strikers_musyx PRIVATE -w -std=gnu11 -fshort-wchar -fno-short-enums)
+elseif(NX)
+    target_compile_options(strikers_musyx PRIVATE
+        -w -std=gnu11
+        # GCC 14 makes mismatched C pointer arguments an error; clang only warns, and -w hides that.
+        -Wno-error=incompatible-pointer-types)
 else()
     target_compile_options(strikers_musyx PRIVATE -fdeclspec -w -std=gnu11)
 endif()
@@ -504,6 +611,8 @@ endif()
 add_library(strikers_ode      OBJECT ${ODE_SOURCES})
 add_library(strikers_game     OBJECT ${GAME_SOURCES})
 add_library(strikers_platform OBJECT ${PLATFORM_SOURCES})
+# The crash log stamps the build into every file it writes.
+target_include_directories(strikers_platform PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/version")
 
 if(STRIKERS_VITA AND STRIKERS_VITA_PROFILER)
     # Compile only the allocation-free user-mode core needed by Strikers. TCP,
@@ -531,6 +640,9 @@ endforeach()
 add_custom_target(strikers_scan
     DEPENDS strikers_ode strikers_game strikers_platform strikers_sdk
             strikers_musyx strikers_operators)
+if(TARGET strikers_discord)
+    add_dependencies(strikers_scan strikers_discord)
+endif()
 
 # The link test. Aurora, MusyX and the THP decoder are not wired up, so tools/genstubs.py supplies
 # an abort-on-call definition for each symbol they would provide.
@@ -546,11 +658,18 @@ if(STRIKERS_VITA AND STRIKERS_VITA_HOT_LTO)
     target_link_options(strikers PRIVATE "-flto=${STRIKERS_VITA_LTO_JOBS}")
 endif()
 target_link_libraries(strikers PRIVATE port_flags)
+if(TARGET strikers_discord)
+    target_sources(strikers PRIVATE $<TARGET_OBJECTS:strikers_discord>)
+    target_link_libraries(strikers PRIVATE borealis::discord)
+endif()
 
 # The executable's icon on Windows: the game's memory card icon, from assets/icon. The files are
 # checked in; the build only compiles the resource.
 if(WIN32)
     target_sources(strikers PRIVATE assets/icon/strikers.rc)
+    set_source_files_properties(assets/icon/strikers.rc PROPERTIES
+        INCLUDE_DIRECTORIES "${CMAKE_CURRENT_BINARY_DIR}/version"
+        OBJECT_DEPENDS "${CMAKE_CURRENT_BINARY_DIR}/version/strikers_version.h")
 
     # /ENTRY:mainCRTStartup keeps main() as the entry point of a GUI-subsystem executable.
     set_target_properties(strikers PROPERTIES WIN32_EXECUTABLE TRUE)
@@ -561,19 +680,27 @@ endif()
 
 # The name macOS shows in the menu bar, from assets/macos/Info.plist.
 if(APPLE)
+    configure_file(assets/macos/Info.plist "${CMAKE_CURRENT_BINARY_DIR}/Info.plist" @ONLY)
     target_link_options(strikers PRIVATE
-        "-Wl,-sectcreate,__TEXT,__info_plist,${CMAKE_CURRENT_SOURCE_DIR}/assets/macos/Info.plist")
+        "-Wl,-sectcreate,__TEXT,__info_plist,${CMAKE_CURRENT_BINARY_DIR}/Info.plist")
     # Relink when the plist changes; a link option is not a dependency.
     set_property(TARGET strikers APPEND PROPERTY
-        LINK_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/assets/macos/Info.plist")
+        LINK_DEPENDS "${CMAKE_CURRENT_BINARY_DIR}/Info.plist")
 endif()
 
-# ffmpeg, for THP video: keep it disabled on Vita; desktop may use the upstream static build.
+# ffmpeg, for THP video: keep it disabled on Vita. Switch prefers the THP-only
+# build over devkitPro's portlib; desktop keeps the upstream default.
 if(STRIKERS_VITA)
-    option(STRIKERS_FFMPEG "Decode THP movies with libavcodec" OFF)
+    set(_strikers_ffmpeg_default OFF)
+elseif(NX AND NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/extern/ffmpeg-switch/lib/libavcodec.a"
+       AND NOT EXISTS "$ENV{DEVKITPRO}/portlibs/switch/lib/libavcodec.a")
+    set(_strikers_ffmpeg_default OFF)
+    message(STATUS "THP movies: off; `tools/build-ffmpeg.sh --switch` builds the decoder")
 else()
-    option(STRIKERS_FFMPEG "Decode THP movies with libavcodec" ON)
+    set(_strikers_ffmpeg_default ON)
 endif()
+set(_ff_switch "${CMAKE_CURRENT_SOURCE_DIR}/extern/ffmpeg-switch")
+option(STRIKERS_FFMPEG "Decode THP movies with libavcodec" ${_strikers_ffmpeg_default})
 set(STRIKERS_FFMPEG_ROOT "" CACHE PATH
     "An unpacked ffmpeg (include/, lib/, and bin/ on Windows), for hosts with no pkg-config")
 set(_ff_static "${CMAKE_CURRENT_SOURCE_DIR}/extern/ffmpeg-static")
@@ -581,7 +708,8 @@ set(_ff_static "${CMAKE_CURRENT_SOURCE_DIR}/extern/ffmpeg-static")
 if(STRIKERS_FFMPEG)
     find_package(PkgConfig QUIET)
     if(PKG_CONFIG_FOUND AND NOT STRIKERS_FFMPEG_ROOT AND NOT DEFINED ENV{STRIKERS_FFMPEG_ROOT}
-       AND NOT EXISTS "${_ff_static}/lib/libavcodec.a" AND NOT EXISTS "${_ff_static}/lib/avcodec.lib")
+       AND NOT EXISTS "${_ff_static}/lib/libavcodec.a" AND NOT EXISTS "${_ff_static}/lib/avcodec.lib"
+       AND NOT (NX AND EXISTS "${_ff_switch}/lib/libavcodec.a"))
         if(APPLE AND EXISTS "/opt/homebrew/opt/ffmpeg/lib/pkgconfig")
             set(ENV{PKG_CONFIG_PATH}
                 "/opt/homebrew/opt/ffmpeg/lib/pkgconfig:$ENV{PKG_CONFIG_PATH}")
@@ -590,7 +718,13 @@ if(STRIKERS_FFMPEG)
     endif()
 endif()
 
-if(STRIKERS_FFMPEG AND FFMPEG_FOUND)
+if(STRIKERS_FFMPEG AND FFMPEG_FOUND AND NX)
+    # The portlib is static, so its own dependencies come from pkg-config's Libs.private.
+    target_compile_definitions(strikers_platform PRIVATE STRIKERS_FFMPEG=1)
+    target_include_directories(strikers_platform PRIVATE ${FFMPEG_STATIC_INCLUDE_DIRS})
+    target_link_libraries(strikers PRIVATE ${FFMPEG_STATIC_LDFLAGS})
+    message(STATUS "THP movies: libavcodec ${FFMPEG_libavcodec_VERSION} (devkitPro portlib)")
+elseif(STRIKERS_FFMPEG AND FFMPEG_FOUND)
     target_compile_definitions(strikers_platform PRIVATE STRIKERS_FFMPEG=1)
     target_include_directories(strikers_platform PRIVATE ${FFMPEG_INCLUDE_DIRS})
     target_link_libraries(strikers PRIVATE PkgConfig::FFMPEG)
@@ -605,6 +739,9 @@ elseif(STRIKERS_FFMPEG)
     endif()
     if(DEFINED ENV{STRIKERS_FFMPEG_ROOT})
         list(APPEND _ff_roots "$ENV{STRIKERS_FFMPEG_ROOT}")
+    endif()
+    if(NX)
+        list(APPEND _ff_roots "${_ff_switch}")
     endif()
     list(APPEND _ff_roots "${_ff_static}")
     list(APPEND _ff_roots "${CMAKE_CURRENT_SOURCE_DIR}/extern/ffmpeg-windows-x86_64")
@@ -739,7 +876,7 @@ if(APPLE)
     foreach(_sym __Znwm __Znam __ZdlPv __ZdaPv)
         target_link_options(strikers PRIVATE "-Wl,-unexported_symbol,${_sym}")
     endforeach()
-elseif(NOT MSVC AND NOT STRIKERS_VITA)
+elseif(NOT MSVC AND NOT STRIKERS_VITA AND NOT NX)
     # An ELF executable exports a definition a shared library needs, so libc++ would bind to the
     # game's operators exactly as dyld does.
     set(_local_ops "${CMAKE_CURRENT_BINARY_DIR}/local-operators.map")
@@ -779,6 +916,78 @@ if(STRIKERS_VITA)
     vita_create_self(strikers_vita.self strikers UNSAFE)
     vita_create_vpk(strikers_vita.vpk SMSVITA01 strikers_vita.self
         VERSION 01.00 NAME "Super Mario Strikers Vita")
+elseif(NX)
+    # Horizon has no dynamic loader, so the Vulkan driver is linked statically.
+    target_link_libraries(strikers PRIVATE
+        "${STRIKERS_SWITCH_NVK_DIR}/lib/libvulkan.a"
+        "${DEVKITPRO}/portlibs/switch/lib/libdrm_nouveau.a")
+    # Dawn references the entry point but links after the driver, so force it in.
+    target_link_options(strikers PRIVATE "-Wl,--undefined=vk_icdGetInstanceProcAddr")
+    target_link_libraries(strikers_platform PRIVATE sqlite3)
+    target_link_libraries(strikers PRIVATE nx m)
+    # Increase default pthread stacks for Tint and Dawn.
+    target_link_options(strikers PRIVATE -Wl,--wrap=pthread_create)
+    nx_generate_nacp(strikers.nacp
+        NAME "Strikers, a Super Mario Strikers port"
+        AUTHOR "new-coke"
+        VERSION "${STRIKERS_VERSION}")
+    # romfs holds the shader seeds, when present, and the Switch prompt art.
+    set(_strikers_nx_romfs "${CMAKE_CURRENT_BINARY_DIR}/romfs")
+    file(REMOVE_RECURSE "${_strikers_nx_romfs}")
+    set(_strikers_nx_seeds "${CMAKE_CURRENT_SOURCE_DIR}/assets/switch/romfs/initial_pipeline_cache.db")
+    set(STRIKERS_SWITCH_DAWN_SEED "${CMAKE_CURRENT_SOURCE_DIR}/assets/switch/romfs/initial_dawn_cache.db"
+        CACHE FILEPATH "Compiled shader seed; packed when its .stamp names this build's Dawn and Mesa")
+    set(_strikers_nx_dawn_seed OFF)
+    if(EXISTS "${STRIKERS_SWITCH_DAWN_SEED}")
+        # Its blobs load only under the Dawn commit and Mesa ref in its .stamp, "<Dawn> <Mesa>".
+        set(_seed_refs "")
+        set(_build_refs "")
+        foreach(_stamp "${STRIKERS_SWITCH_DAWN_SEED}.stamp" "${STRIKERS_SWITCH_DAWN_DIR}/.strikers-dawn"
+                "${STRIKERS_SWITCH_NVK_DIR}/.strikers-nvk")
+            set(_line "")
+            if(EXISTS "${_stamp}")
+                set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${_stamp}")
+                file(STRINGS "${_stamp}" _line LIMIT_COUNT 1)
+            endif()
+            if(_stamp STREQUAL "${STRIKERS_SWITCH_DAWN_SEED}.stamp")
+                set(_seed_refs "${_line}")
+            else()
+                string(REGEX MATCH "^[0-9a-f]*" _line "${_line}")
+                string(STRIP "${_build_refs} ${_line}" _build_refs)
+            endif()
+        endforeach()
+        if(_seed_refs STREQUAL _build_refs)
+            set(_strikers_nx_dawn_seed ON)
+            configure_file("${STRIKERS_SWITCH_DAWN_SEED}" "${_strikers_nx_romfs}/initial_dawn_cache.db" COPYONLY)
+        else()
+            message(WARNING "Not packing ${STRIKERS_SWITCH_DAWN_SEED}: compiled for Dawn and Mesa "
+                "'${_seed_refs}', this build has '${_build_refs}'.")
+        endif()
+    endif()
+    # Only Switch prompt glyphs; no other controller family appears on the console.
+    file(GLOB _strikers_nx_prompts CONFIGURE_DEPENDS RELATIVE "${CMAKE_CURRENT_SOURCE_DIR}/assets"
+        "${CMAKE_CURRENT_SOURCE_DIR}/assets/input-prompts/kenney/Nintendo Switch/*.png"
+        "${CMAKE_CURRENT_SOURCE_DIR}/assets/input-prompts/LICENSE-Kenney.txt")
+    set(_strikers_nx_romfs_files "")
+    if(_strikers_nx_dawn_seed)
+        list(APPEND _strikers_nx_romfs_files "${_strikers_nx_romfs}/initial_dawn_cache.db")
+    endif()
+    foreach(_src IN LISTS _strikers_nx_seeds)
+        get_filename_component(_name "${_src}" NAME)
+        configure_file("${_src}" "${_strikers_nx_romfs}/${_name}" COPYONLY)
+        list(APPEND _strikers_nx_romfs_files "${_strikers_nx_romfs}/${_name}")
+    endforeach()
+    foreach(_rel IN LISTS _strikers_nx_prompts)
+        configure_file("${CMAKE_CURRENT_SOURCE_DIR}/assets/${_rel}" "${_strikers_nx_romfs}/${_rel}" COPYONLY)
+        list(APPEND _strikers_nx_romfs_files "${_strikers_nx_romfs}/${_rel}")
+    endforeach()
+    include(dkp-asset-folder)
+    dkp_add_asset_target(strikers_romfs "${_strikers_nx_romfs}")
+    set_target_properties(strikers_romfs PROPERTIES DKP_ASSET_FILES "${_strikers_nx_romfs_files}")
+    nx_create_nro(strikers
+        ICON "${CMAKE_CURRENT_SOURCE_DIR}/assets/switch/icon.jpg"
+        NACP strikers.nacp
+        ROMFS strikers_romfs)
 endif()
 
 # Windows: what a runnable build needs that a linkable one does not.

@@ -11,6 +11,7 @@
 #include "port/host.h"
 #include "port/input.h"
 #include "port/launch.h"
+#include "port/texture_packs.h"
 
 #include <cstdio>
 #include <cstdlib>
@@ -521,7 +522,7 @@ static bool vsync_state()
     {
         s_vsyncRead = true;
         const char* e = std::getenv("STRIKERS_VSYNC");
-        s_vsyncOn = !(e != nullptr && std::strcmp(e, "0") == 0);
+        s_vsyncOn = e != nullptr && *e != '\0' && std::strtoul(e, nullptr, 10) != 0;
     }
     return s_vsyncOn;
 }
@@ -533,7 +534,7 @@ static void set_vsync(bool on)
     aurora_enable_vsync(on);
     double displayHz = 0.0;
     PortFrameLimitInfo(nullptr, &displayHz, nullptr, nullptr);
-    PortSetDisplayRefresh(displayHz, on ? 1 : 0);
+    PortSetDisplayRefresh(displayHz, aurora_present_waits_for_vblank() ? 1 : 0);
 }
 
 // The game's lockstep switch, with what it means said out loud: one 20 ms step per rendered frame
@@ -568,6 +569,10 @@ static int platform_command(const PortDebugCommand& c)
         return 1;
     case PDBG_SET_LOCKSTEP:
         set_lockstep(c.a != 0);
+        return 1;
+    case PDBG_SET_DT_SNAP:
+        PortSetTaskClockSnap(c.a);
+        std::fprintf(stderr, "[limiter] task step snapping %s\n", c.a < 0 ? "follows STRIKERS_DT_SNAP" : c.a ? "on" : "off");
         return 1;
     case PDBG_SET_WINDOW:
     {
@@ -1652,6 +1657,31 @@ void draw_system_tab()
         aurora_capture_frame(s_shotPath);
     help("Binary PPM of the game's render target, without this menu: Aurora captures "
          "before ImGui is composited. F12 writes numbered shots to STRIKERS_SHOT_DIR.");
+
+    ImGui::SeparatorText("texture packs");
+    {
+        int count = 0;
+        const char* folder = nullptr;
+        for (int i = 0; (folder = PortTexturesFolder(i, &count)) != nullptr; i++)
+            ImGui::Text("%5d  %s", count, folder);
+        if (PortTexturesFolder(0, nullptr) == nullptr)
+            ImGui::TextDisabled("no textures folder beside the game or in the user folder");
+        if (ImGui::SmallButton("reload textures"))
+            PortTexturesReload();
+        help("Looks for the folders again and rescans them, so added or edited files show "
+             "without a restart. Later folders in the list win.");
+        bool dump = PortTextureDumpEnabled() != 0;
+        if (ImGui::Checkbox("dump textures as they load", &dump))
+            PortTextureDumpEnable(dump ? 1 : 0);
+        if (dump)
+        {
+            ImGui::SameLine();
+            ImGui::TextDisabled("%u written", PortTextureDumpWritten());
+            ImGui::TextDisabled("%s", PortTextureDumpDir());
+        }
+        help("PNGs named for a texture pack, one folder per disc file. Only textures loaded "
+             "after this is ticked; STRIKERS_TEXTURE_DUMP=1 dumps from the start.");
+    }
 
     ImGui::SeparatorText("memory");
     {

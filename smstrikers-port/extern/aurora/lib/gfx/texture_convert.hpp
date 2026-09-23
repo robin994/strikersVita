@@ -39,6 +39,9 @@ inline wgpu::TextureFormat to_wgpu(u32 gxFormat) noexcept {
   }
 }
 
+// smstrikers-port: true if this CMPR texture uploads as BC1 instead of RGBA8.
+bool cmpr_uses_bc1(uint32_t width, uint32_t height, uint32_t mips, ArrayRef<uint8_t> data) noexcept;
+
 struct ConvertedTexture {
   wgpu::TextureFormat format;
   uint32_t width;
@@ -57,4 +60,7 @@ ConvertedTexture convert_texture_palette(u32 textureFormat, uint32_t width, uint
                                          ArrayRef<uint8_t> tlutData);
 ConvertedTexture convert_tlut(u32 format, uint32_t width, ArrayRef<uint8_t> data);
 GXTexFmt tlut_texture_format(GXTlutFmt format) noexcept;
+// smstrikers-port: the base level as RGBA8 whatever it uploads as, for texture dumps; not counted in the texture stats.
+ByteBuffer decode_rgba8(u32 format, uint32_t width, uint32_t height, ArrayRef<uint8_t> data, GXTlutFmt tlutFormat,
+                        uint16_t tlutEntries, ArrayRef<uint8_t> tlutData);
 } // namespace aurora::gfx

@@ -17,6 +17,10 @@
 
 #include "direct_io.h"
 
+#if defined(__SWITCH__)
+#include "port/switch/clocks.h"
+#endif
+
 static u8 glx_bAllowDrawSync = true;
 static int LoadWaitSeconds = 2;
 
@@ -591,6 +595,10 @@ void glxSwapLoading(bool bBegin, bool bOtherPosition)
     nSelected = 0;
     LoadWaitSeconds = 0;
     glx_nLoadWaitFrames = loadWaitFrames;
+#if defined(__SWITCH__)
+    // PORT: the per-frame boost check cannot run while the load this brackets blocks the main thread.
+    PortSwitchLoadingIndicator(bBegin ? 1 : 0);
+#endif
 }
 
 static u8 glxSwapAllowDrawSync()

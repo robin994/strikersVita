@@ -59,7 +59,7 @@ void* nlMalloc(size_t size)
  */
 void* operator new(size_t size)
 {
-    // PORT: the host heap, not nlMalloc, see the note in tools/vendor.py.
+    // PORT: malloc, not nlMalloc: a system library may free this without calling the game's operator delete.
     void* p = malloc(size ? size : 1);
     if (p == NULL)
     {

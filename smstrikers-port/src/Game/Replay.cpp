@@ -1,6 +1,7 @@
 #include "Game/Replay.h"
 #include "NL/nlConfig.h"
 #include "NL/nlLexicalCast.h"
+#include <cstdio> // PORT: fprintf
 
 SlotPool<Replay::Frame> Replay::Frame::mSlotPool(0x400, 0x80);
 
@@ -19,6 +20,7 @@ Replay::Replay(char* memory, int memorySize, int maxFrameSize)
     , mMemorySize(memorySize)
     , mMaxFrameSize(maxFrameSize)
     , mActualMaxFrameSize(0)
+    , mMemory(memory) // PORT: for RecoverRing
 {
     mFree->mNext = mFree;
     mReels[0].mBegin = mReels[0].mLast = mFree;
@@ -96,6 +98,11 @@ inline Replay::Frame* GetFrame(const Replay::Reel* reels, int reelIdx)
 float Replay::TimeOfLastOccurence(unsigned int events) const
 {
     Frame* frame = GetFrame(mReels, mReelIdx);
+    // PORT: a reel can be empty.
+    if (frame == nullptr)
+    {
+        return 0.0f;
+    }
     float time = frame->mTime;
 
     while (frame != nullptr)
@@ -110,29 +117,135 @@ float Replay::TimeOfLastOccurence(unsigned int events) const
     return time;
 }
 
+static inline void ReleaseReel(Replay* replay, int idx);
+
+namespace
+{
+// PORT: NewFrame's walk limits, many laps of a ring that holds a few thousand frames.
+const int kNoRoomSteps = 200000;
+const int kBrokenWalk = 1000000;
+}
+
+// PORT: releases the lowest-quality highlight reel, the older of two equals; false when none is held.
+bool Replay::DropWeakestHighlight()
+{
+    int weakest = 0;
+    for (int i = 1; i < 4; i++)
+    {
+        if (mReels[i].mBegin == nullptr || mReels[i].mLast == nullptr)
+            continue;
+        if (weakest == 0 || mReels[i].mAge < mReels[weakest].mAge ||
+            (mReels[i].mAge == mReels[weakest].mAge &&
+             mReels[i].mLast->mTime < mReels[weakest].mLast->mTime))
+        {
+            weakest = i;
+        }
+    }
+    if (weakest == 0)
+    {
+        return false;
+    }
+    std::fprintf(stderr,
+                 "[replay] no room for a frame beside the goal highlights; dropping highlight %d "
+                 "(quality %d)\n",
+                 weakest, mReels[weakest].mAge);
+    ReleaseReel(this, weakest);
+    mReels[weakest].mAge = 0;
+    if (mReelIdx == weakest)
+    {
+        mReelIdx = 0;
+    }
+    return true;
+}
+
+// PORT: resets the ring to the constructor's single free frame; frames off the cycle stay in the pool.
+void Replay::RecoverRing()
+{
+    int frames = 0, locked = 0, live = 0;
+    Frame* f = mFree;
+    do
+    {
+        frames++;
+        if (f->mReelIdx > 0)
+            locked++;
+        else if (f->mReelIdx == 0)
+            live++;
+        f = f->mNext;
+    } while (f != mFree && frames < kBrokenWalk);
+    const bool cameBack = f == mFree;
+    std::fprintf(stderr,
+                 "[replay] the replay ring is broken (%d frames, %d locked, %d live, %s); starting it "
+                 "again\n",
+                 frames, locked, live, cameBack ? "a closed cycle" : "no closed cycle");
+    Frame* keep = mFree;
+    if (cameBack)
+    {
+        for (f = keep->mNext; f != keep;)
+        {
+            Frame* n = f->mNext;
+            Frame::mSlotPool.Free(f);
+            f = n;
+        }
+    }
+    keep->mBegin = mMemory;
+    keep->mSize = mMemorySize;
+    keep->mReelIdx = -1;
+    keep->mNext = keep;
+    for (int i = 1; i < 4; i++)
+    {
+        mReels[i].mBegin = nullptr;
+        mReels[i].mLast = nullptr;
+        mReels[i].mAge = 0;
+    }
+    mReels[0].mBegin = nullptr; // PORT: Record restarts the live reel at its next frame
+    mReels[0].mLast = keep;
+    mReelIdx = 0;
+}
+
 /**
  * Offset/Address/Size: 0x49C | 0x80213D48 | size: 0x17C
  */
 void Replay::NewFrame()
 {
+    // PORT: bounded, since locked highlight frames can leave every free stretch shorter than mMaxFrameSize.
+    int steps = 0;
     while (mFree->mSize < mMaxFrameSize)
     {
+        if (steps >= kNoRoomSteps)
+        {
+            steps = 0;
+            if (!DropWeakestHighlight())
+            {
+                RecoverRing();
+                continue;
+            }
+        }
+
         Frame* next = mFree->mNext;
 
         if (next->mReelIdx > 0)
         {
+            int walked = 0;
             do
             {
+                if (++walked > kBrokenWalk)
+                {
+                    RecoverRing();
+                    break;
+                }
                 if (mReels[0].mBegin == mFree->mNext)
                 {
                     mReels[0].mBegin = Next(mReels[0].mBegin, 0);
                 }
                 mFree = mFree->mNext;
             } while (mFree->mReelIdx > 0);
+            steps += walked;
             mFree->mReelIdx = -1;
         }
         else
         {
+            steps++;
+
             if (mReels[0].mBegin == next)
             {
                 mReels[0].mBegin = Next(mReels[0].mBegin, 0);
@@ -350,6 +463,11 @@ static float ReplayLayoutBarWidth(const Replay::Frame* frame, int memorySize)
  */
 float Replay::BeginTime() const
 {
+    // PORT: a reel can be empty.
+    if (mReels[mReelIdx].mBegin == nullptr)
+    {
+        return 0.0f;
+    }
     return mReels[mReelIdx].mBegin->mTime;
 }
 
@@ -358,6 +476,11 @@ float Replay::BeginTime() const
  */
 float Replay::EndTime() const
 {
+    // PORT: a reel can be empty.
+    if (mReels[mReelIdx].mLast == nullptr)
+    {
+        return 0.0f;
+    }
     return mReels[mReelIdx].mLast->mTime;
 }
 

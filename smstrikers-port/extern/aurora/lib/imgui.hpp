@@ -16,6 +16,8 @@ class DrawData {
 public:
   DrawData() noexcept = default;
   [[nodiscard]] explicit operator bool() const noexcept { return m_impl != nullptr; }
+  // smstrikers-port: no draw lists, so the overlay pass can be skipped.
+  [[nodiscard]] bool empty() const noexcept;
 
 private:
   struct Impl;

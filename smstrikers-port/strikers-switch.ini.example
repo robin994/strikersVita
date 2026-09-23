@@ -1,0 +1,38 @@
+# strikers.ini for Nintendo Switch. Rename this file to strikers.ini, then remove the # in front of
+# a setting to use it.
+
+[display]
+# Internal render resolution in handheld and docked play, as a multiple of the game's 448 lines:
+# 1.607 is 720p and 2.411 is 1080p. Unset, the game renders at the screen's own resolution.
+# res_scale_handheld = 1.607
+# res_scale_docked = 2.411
+
+# 0 stops the game reserving 96 MiB for video recording. Holding Capture saves the last 30 seconds
+# as a video when the game you launch through allows recording.
+# video_capture = 0
+
+[input]
+# Rumble strength, 0 to 100. The default is 50.
+# pad_rumble_strength = 50
+
+[paths]
+# The disc image, when it is not in this folder.
+# data = sdmc:/games/Super Mario Strikers.iso
+
+# 1 copies the disc image into memory in the background after launch, so play never waits on the
+# SD card.
+# disc_in_ram = 1
+
+# Menu language: english, german, french, spanish or italian, and japanese on the Japanese disc.
+# Unset, the game uses the console's language if the disc has it. The American disc is English only.
+# language = german
+
+# Texture packs load from mods/textures/ here and from user/mods/textures/. 0 turns them off.
+# textures = 0
+
+# 1 writes strikers-log.txt in this folder. Attach it to a bug report.
+# log = 1
+
+[game]
+# Every stadium, team and cup mode available.
+# unlock_all = 1

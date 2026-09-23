@@ -20,6 +20,7 @@
 #include <mutex>
 #include <optional>
 #include <thread>
+#include <vector>
 
 #include <SDL3/SDL_iostream.h>
 #include <absl/container/flat_hash_map.h>
@@ -67,7 +68,7 @@ constexpr size_t BuildPipelinesPerFrame = 5;
 #else
 constexpr size_t BuildPipelinesPerFrame = 1;
 #endif
-static std::thread g_pipelineThread;
+static std::vector<std::thread> g_pipelineThreads;
 static std::atomic_bool g_pipelineThreadEnd = false;
 static std::condition_variable g_pipelineQueueCv;
 static std::condition_variable g_pipelineReadyCv;
@@ -329,6 +330,7 @@ struct AtomicStatRef {
     __atomic_store_n(&ref, val, __ATOMIC_RELAXED);
     return val;
   }
+  uint32_t load() const { return __atomic_load_n(&ref, __ATOMIC_RELAXED); }
 };
 static AtomicStatRef queuedPipelines{detail::resources().stats.queuedPipelines};
 static AtomicStatRef createdPipelines{detail::resources().stats.createdPipelines};
@@ -968,17 +970,15 @@ static void pipeline_worker() {
   tracy::SetThreadName("Pipeline compilation thread");
 #endif
 
-  bool hasMore = false;
   while (g_hasPipelineThread || g_pipelinesPerFrame < BuildPipelinesPerFrame) {
     PendingPipeline pending;
     {
       std::unique_lock lock{g_pipelineMutex};
       if (g_hasPipelineThread) {
-        if (!hasMore) {
-          g_pipelineQueueCv.wait(lock, [] {
-            return !g_pipelineQueue.empty() || !g_backgroundPipelineQueue.empty() || g_pipelineThreadEnd;
-          });
-        }
+        // smstrikers-port: every pass, under the lock; another worker may have taken the item this one last saw queued.
+        g_pipelineQueueCv.wait(lock, [] {
+          return !g_pipelineQueue.empty() || !g_backgroundPipelineQueue.empty() || g_pipelineThreadEnd;
+        });
       } else if (g_pipelineQueue.empty() && g_backgroundPipelineQueue.empty()) {
         return;
       }
@@ -997,7 +997,6 @@ static void pipeline_worker() {
                                                 .firstFrameUsed = pending.firstFrameUsed,
                                             });
       g_pendingPipelines.erase(pending.hash);
-      hasMore = !g_pipelineQueue.empty() || !g_backgroundPipelineQueue.empty();
     }
     if (!g_hasPipelineThread) {
       ++g_pipelinesPerFrame;
@@ -1038,6 +1037,12 @@ static size_t load_pipeline_cache_entries(ShaderType type, uint32_t configVersio
     std::memcpy(&config, configBlob, sizeof(config));
     if (config.version != configVersion) {
       continue;
+    }
+    if constexpr (requires { config.msaaSamples; }) {
+      // smstrikers-port: a row for another sample count compiles a pipeline this run cannot use; it stays for one that can.
+      if (config.msaaSamples != webgpu::g_graphicsConfig.msaaSamples) {
+        continue;
+      }
     }
 
     find_pipeline_impl(type, config, [=] { return create(config); }, PipelinePriority::Background, firstFrameUsed);
@@ -1126,7 +1131,21 @@ void initialize_pipeline_cache() {
     g_hasPipelineThread = false;
   } else {
     g_hasPipelineThread = true;
-    g_pipelineThread = std::thread(pipeline_worker);
+    // smstrikers-port: automatic leaves the main and render threads two cores.
+    constexpr uint32_t MaxPipelineJobs = 16;
+    const uint32_t cores = std::max(std::thread::hardware_concurrency(), 1u);
+    const uint32_t limit = std::min(cores, MaxPipelineJobs);
+    uint32_t jobs = g_config.pipelineJobs;
+    if (jobs == 0) {
+      jobs = cores > 4 ? std::min(cores - 2, 8u) : 2u;
+    } else if (jobs > limit) {
+      Log.warn("Pipeline compilation: {} threads asked for, capped at {}", jobs, limit);
+      jobs = limit;
+    }
+    Log.info("Pipeline compilation: {} at a time", jobs);
+    for (uint32_t i = 0; i < jobs; ++i) {
+      g_pipelineThreads.emplace_back(pipeline_worker);
+    }
   }
 
   const size_t loadedCount = load_pipeline_cache();
@@ -1144,7 +1163,10 @@ void shutdown_pipeline_cache() {
     g_pipelineThreadEnd = true;
     g_pipelineQueueCv.notify_all();
     g_pipelineReadyCv.notify_all();
-    g_pipelineThread.join();
+    for (auto& thread : g_pipelineThreads) {
+      thread.join();
+    }
+    g_pipelineThreads.clear();
   }
   g_hasPipelineThread = false;
 
@@ -1172,6 +1194,11 @@ void end_pipeline_frame() {
   if (!g_hasPipelineThread) {
     pipeline_worker();
   }
+}
+
+void get_pipeline_counts(uint32_t& queued, uint32_t& created) {
+  queued = queuedPipelines.load();
+  created = createdPipelines.load();
 }
 
 bool get_pipeline(PipelineRef ref, wgpu::RenderPipeline& pipeline) {

@@ -75,7 +75,8 @@ QVector<Setting> makeDisplay()
         "The resolution the game renders at, independent of your window size. "
         "Higher is sharper and costs graphics performance."),
         QStringLiteral(
-        "Internal render resolution, as a multiple of the console's 448 rows.")));
+        "Internal render resolution, as a multiple of the console's 448 rows. Unset, it follows the "
+        "window; on a Steam Deck it is the panel's 800 rows (1.786) even when docked.")));
 
     // Only 1 and 4 are offered because only 1 and 4 exist: the value goes straight to the swap
     // chain's sample count, and WebGPU guarantees those two and nothing between them.
@@ -106,17 +107,17 @@ QVector<Setting> makeDisplay()
         QStringLiteral(
         "Frame rate cap in Hz, or 0 for unlimited.")));
 
-    v.push_back(choice("vsync", "display", Text::tr("Vertical sync"), "1",
+    v.push_back(choice("vsync", "display", Text::tr("Vertical sync"), "0",
         Text::tr(
         "Synchronises each frame with your display's refresh, so the image "
         "cannot tear into two mismatched halves as the camera pans."),
         QStringLiteral(
-        "1 blocks on the vblank (Fifo). 0 selects Mailbox where the driver has it, which is still "
-        "tear-free but does not drop to half rate when a frame lands late, worth ~10 fps on a GPU "
-        "that is close to its limit."),
+        "1 waits for each refresh of your display and gives the steadiest picture. 0 makes the "
+        "controls more responsive and keeps the frame rate up when your graphics card struggles. "
+        "Where your system supports it, 0 still avoids tearing."),
         { QStringLiteral("1"), QStringLiteral("0") },
         { Text::tr("On (steadiest)"),
-          Text::tr("Relaxed (tear-free, without dropping to half rate)") }));
+          Text::tr("Relaxed (more responsive)") }));
 
     v.push_back(scalar("aspect", "display", Text::tr("Aspect ratio"), "",
         Text::tr(
@@ -131,19 +132,22 @@ QVector<Setting> makeDisplay()
         "right one for your system; change it only to work around a driver "
         "problem."),
         QStringLiteral(
-        "Graphics backend: auto, d3d12, vulkan, metal."),
+        "Graphics backend: auto, d3d12, vulkan, metal, opengl, opengles."),
         { QString(), QStringLiteral("d3d12"), QStringLiteral("vulkan"),
-          QStringLiteral("metal") },
+          QStringLiteral("metal"), QStringLiteral("opengl"), QStringLiteral("opengles") },
         { Text::tr("Automatic (recommended)"), Text::tr("Direct3D 12"),
-          Text::tr("Vulkan"), Text::tr("Metal") }));
+          Text::tr("Vulkan"), Text::tr("Metal"), Text::tr("OpenGL"), Text::tr("OpenGL ES") }));
 
-    v.push_back(toggle("fullscreen", "display", Text::tr("Fullscreen"), "0",
-        Text::tr("Start the game in fullscreen"),
+    // Three states, because unset is fullscreen under Steam's Game Mode and 0 has to survive a save.
+    v.push_back(choice("fullscreen", "display", Text::tr("Fullscreen"), "",
         Text::tr(
         "Whether the game starts fullscreen. F11 toggles it at any time, so "
         "this only sets the initial state."),
         QStringLiteral(
-        "Open fullscreen instead of in a window.")));
+        "1 opens fullscreen and 0 a window. Unset, it is fullscreen under Steam's Game Mode (gamescope), "
+        "which scales a window into the screen with black bars, and a window everywhere else."),
+        { QString(), QStringLiteral("1"), QStringLiteral("0") },
+        { Text::tr("Automatic (fullscreen in Steam's Game Mode)"), Text::tr("On"), Text::tr("Off") }));
 
     v.push_back(toggle("pause_on_focus_lost", "display", Text::tr("Pause"), "0",
         Text::tr("Pause when you click away from the game"),
@@ -192,20 +196,44 @@ QVector<Setting> makeGame()
         QStringLiteral(
         "Where the game data is: either the `files` folder of an extracted disc, or a disc image.")));
 
+    // Unset or a folder means on and 0 means off; the switch keeps a folder the file names.
+    v.push_back(toggle("textures", "paths", Text::tr("Packs"), "",
+        Text::tr("Use texture packs"),
+        Text::tr("Replacement textures, including packs made for Dolphin."),
+        QStringLiteral(
+        "Texture packs load from mods/textures/ beside the game and mods/textures/ in the user folder. A folder named "
+        "here loads too and wins over both; 0 turns texture packs off.")));
+
+    v.push_back(scalar("texture_pack", "paths", Text::tr("Pack"), "",
+        Text::tr("Loads one pack when the textures folders hold several."),
+        QStringLiteral(
+        "One pack out of the textures folders, by its folder name. Unset loads every pack.")));
+
+    v.push_back(toggle("texture_dump", "paths", Text::tr("Pack making"), "0",
+        Text::tr("Save the game's textures as it loads them"),
+        Text::tr(
+        "Saves each texture as a picture. An edited copy that keeps its file "
+        "name and proportions replaces the original when put in a pack."),
+        QStringLiteral(
+        "Save each texture the game loads as a PNG named for a texture pack, in a folder per disc file. "
+        "1 saves to texture_dumps/ in the user folder; a path saves there.")));
+
     // This is the *game's* language, OSGetLanguage(), the setting a European GameCube kept in SRAM;
     // and it has nothing to do with the language this window is written in.
     v.push_back(choice("language", "paths", Text::tr("Language"), "",
         Text::tr(
-        "Menu and commentary language. Only the European disc reads it; the "
-        "others take it from the disc id."),
+        "The language of menus and on-screen text. The American release is "
+        "English only, and Japanese needs the Japanese release."),
         QStringLiteral(
-        "The console's own language setting, which only a European disc reads."),
-        { QString(), QStringLiteral("german"), QStringLiteral("french"),
-          QStringLiteral("spanish"), QStringLiteral("italian") },
+        "Menu language: english, german, french, spanish or italian, and japanese on the Japanese disc. "
+        "Unset keeps the disc's own language. The American disc ignores this."),
+        { QString(), QStringLiteral("english"), QStringLiteral("german"),
+          QStringLiteral("french"), QStringLiteral("spanish"), QStringLiteral("italian"),
+          QStringLiteral("japanese") },
         // The languages the disc can be played in, named in the reader's language rather than each
         // in its own; this is a list to choose from.
-        { Text::tr("English"), Text::tr("German"), Text::tr("French"),
-          Text::tr("Spanish"), Text::tr("Italian") }));
+        { Text::tr("Disc default"), Text::tr("English"), Text::tr("German"), Text::tr("French"),
+          Text::tr("Spanish"), Text::tr("Italian"), Text::tr("Japanese") }));
 
     v.push_back(toggle("unlock_all", "game", Text::tr("Extras"), "0",
         Text::tr("Unlock every stadium, team and cup"),
@@ -214,6 +242,15 @@ QVector<Setting> makeGame()
         "them first."),
         QStringLiteral(
         "Every stadium, team and cup mode available.")));
+
+    v.push_back(toggle("discord", "discord", Text::tr("Discord (Rich Presence)"), "0",
+        Text::tr("Show what you're playing on Discord"),
+        Text::tr(
+        "Your Discord profile shows the mode, the captains and the score "
+        "while you play. Discord has to be open on this computer."),
+        QStringLiteral(
+        "Your Discord status while the game runs: in the menus, or a match's mode, cup round, stadium, "
+        "captains, score and time left. Off by default; 1 turns it on while Discord's desktop app runs.")));
 
     // The default is off and the on value is `menu`, not `1`, because `1` is the compact heads-up
     // form and a player who turns "debug mode" on and sees a frame counter has not been given the
@@ -242,6 +279,18 @@ QVector<Setting> makeInputSwitches()
         "0 disables the keyboard pad. The keys below are then not installed at all,\n"
         "for a machine that plays with a pad and wants them back.")));
 
+    v.push_back(choice("button_prompts", "input", Text::tr("Button prompts"), "auto",
+        Text::tr(
+        "Show the controls bound on the active device, or choose a controller style."),
+        QStringLiteral(
+        "Button art: auto follows the last input device; a named family overrides the art."),
+        { QStringLiteral("auto"), QStringLiteral("gamecube"), QStringLiteral("xbox"),
+          QStringLiteral("playstation"), QStringLiteral("nintendo"), QStringLiteral("steamdeck"),
+          QStringLiteral("generic"), QStringLiteral("keyboard") },
+        { Text::tr("Automatic"), Text::tr("GameCube"), Text::tr("Xbox"), Text::tr("PlayStation"),
+          Text::tr("Nintendo"), Text::tr("Steam Deck"), Text::tr("Generic"),
+          Text::tr("Keyboard") }));
+
     v.push_back(toggle("pad_swap_sticks", "input", Text::tr("Sticks"), "0",
         Text::tr("Swap the two sticks"),
         Text::tr(
@@ -250,7 +299,8 @@ QVector<Setting> makeInputSwitches()
         "1 swaps the left and right sticks, so the right stick moves the player and\n"
         "the left one aims. The GameCube's own layout is the other way round.")));
 
-    v.push_back(scalar("pad_deadzone", "input", Text::tr("Stick deadzone"), "0.15",
+    // What the game uses unset (Aurora's 8000 and 31150 of 32767), since a default is saved commented out.
+    v.push_back(scalar("pad_deadzone", "input", Text::tr("Stick deadzone"), "0.24",
         Text::tr(
         "How far a stick must travel before input registers. Raise it if a "
         "worn stick drifts at rest."),
@@ -258,7 +308,7 @@ QVector<Setting> makeInputSwitches()
         "How far a stick has to move before the game sees it, as a fraction of full\n"
         "travel. Raise it on a worn pad that drifts; lower it for finer control.")));
 
-    v.push_back(scalar("pad_trigger_threshold", "input", Text::tr("Trigger point"), "0.5",
+    v.push_back(scalar("pad_trigger_threshold", "input", Text::tr("Trigger point"), "0.95",
         Text::tr(
         "How far a trigger must travel to register as a press."),
         QStringLiteral(

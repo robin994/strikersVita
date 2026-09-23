@@ -22,16 +22,16 @@ IDI_ICON1 ICON "strikers.ico"
 // a person reads and the name a script types are allowed to differ, and this is
 // the block that lets them.
 //
-// 1.0.0 is the port's own version, not the game's. There is no tag in the
-// repository to derive it from yet; the only other place it is written is
-// settings/CMakeLists.txt, and the two are meant to move together.
+// The port's own version, not the game's, generated from the release tag at configure time.
+#include "strikers_version.h"
+
 #ifndef VS_VERSION_INFO
 #define VS_VERSION_INFO 1
 #endif
 
 VS_VERSION_INFO VERSIONINFO
-FILEVERSION    1,0,0,0
-PRODUCTVERSION 1,0,0,0
+FILEVERSION    STRIKERS_VERSION_RC
+PRODUCTVERSION STRIKERS_VERSION_RC
 FILEFLAGSMASK  0x3fL
 FILEFLAGS      0x0L
 FILEOS         0x40004L   // VOS_NT_WINDOWS32
@@ -48,8 +48,8 @@ BEGIN
         BEGIN
             VALUE "FileDescription",  "Super Mario Strikers"
             VALUE "ProductName",      "Super Mario Strikers"
-            VALUE "FileVersion",      "1.0.0"
-            VALUE "ProductVersion",   "1.0.0"
+            VALUE "FileVersion",      STRIKERS_VERSION_STR
+            VALUE "ProductVersion",   STRIKERS_VERSION_STR
             VALUE "InternalName",     "strikers"
             VALUE "OriginalFilename", "strikers.exe"
             // Said here because this is the one description of the program that travels inside the program.

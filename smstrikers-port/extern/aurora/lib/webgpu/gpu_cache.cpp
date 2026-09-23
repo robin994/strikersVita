@@ -99,6 +99,89 @@ INSERT INTO aurora_schema VALUES ({});)",
   return true;
 }
 
+#ifdef __SWITCH__
+// smstrikers-port: bundled shader blobs must match the Dawn and NVK builds in this executable.
+constexpr const char* InitialDawnCacheName = "initial_dawn_cache.db";
+
+static std::string dawn_cache_seed_path() {
+  std::string path;
+  if (g_config.resourcesPath != nullptr && g_config.resourcesPath[0] != '\0') {
+    path = g_config.resourcesPath;
+    if (path.back() != '/' && path.back() != '\\') {
+      path += '/';
+    }
+  }
+  path += InitialDawnCacheName;
+  return path;
+}
+
+// Merge missing entries so upgrades receive new seeds without replacing local blobs.
+static void seed_dawn_cache() {
+  if (db == nullptr || cache_broken) {
+    return;
+  }
+  const auto seedPath = dawn_cache_seed_path();
+  sqlite3* seedDb = nullptr;
+  if (sqlite3_open_v2(seedPath.c_str(), &seedDb, SQLITE_OPEN_READONLY | SQLITE_OPEN_PRIVATECACHE, nullptr) !=
+      SQLITE_OK) {
+    if (seedDb != nullptr) {
+      sqlite3_close(seedDb);
+    }
+    return;   // no seed shipped, which is not an error
+  }
+
+  sqlite3_stmt* read = nullptr;
+  if (sqlite3_prepare_v3(seedDb, "SELECT key, value, size, compressed FROM cache", -1, 0, &read, nullptr) !=
+      SQLITE_OK) {
+    Log.warn("Bundled Dawn cache '{}' could not be read: {}", seedPath, sqlite3_errmsg(seedDb));
+    sqlite3_close(seedDb);
+    return;
+  }
+
+  sqlite3_stmt* insert = nullptr;
+  if (sqlite3_prepare_v3(db, "INSERT OR IGNORE INTO cache (key, value, size, compressed) VALUES (?, ?, ?, ?)",
+                         -1, 0, &insert, nullptr) != SQLITE_OK) {
+    sqlite3_finalize(read);
+    sqlite3_close(seedDb);
+    return;
+  }
+
+  uint32_t merged = 0;
+  {
+    sqlite::Transaction tx(db, Log, true);
+    if (!tx) {
+      sqlite3_finalize(insert);
+      sqlite3_finalize(read);
+      sqlite3_close(seedDb);
+      return;
+    }
+    while (sqlite3_step(read) == SQLITE_ROW) {
+      const auto* keyBlob = sqlite3_column_blob(read, 0);
+      const auto keyBytes = sqlite3_column_bytes(read, 0);
+      const auto* valueBlob = sqlite3_column_blob(read, 1);
+      const auto valueBytes = sqlite3_column_bytes(read, 1);
+      if (keyBlob == nullptr || valueBlob == nullptr || keyBytes <= 0 || valueBytes <= 0) {
+        continue;
+      }
+      sqlite3_reset(insert);
+      sqlite3_bind_blob(insert, 1, keyBlob, keyBytes, SQLITE_TRANSIENT);
+      sqlite3_bind_blob(insert, 2, valueBlob, valueBytes, SQLITE_TRANSIENT);
+      sqlite3_bind_int64(insert, 3, sqlite3_column_int64(read, 2));
+      sqlite3_bind_int(insert, 4, sqlite3_column_int(read, 3));
+      if (sqlite3_step(insert) == SQLITE_DONE) {
+        merged += sqlite3_changes(db);
+      }
+    }
+    sqlite3_reset(insert);
+    tx.commit();
+  }
+  sqlite3_finalize(insert);
+  sqlite3_finalize(read);
+  sqlite3_close(seedDb);
+  Log.info("Seeded Dawn cache from '{}' ({} blobs)", seedPath, merged);
+}
+#endif
+
 static bool cache_init_core() {
   Log.debug("SQLite version {}", sqlite3_libversion());
 
@@ -216,6 +299,9 @@ static bool cache_init() {
   }
 
   Log.debug("SQLite cache init succeeded");
+#ifdef __SWITCH__
+  seed_dawn_cache();
+#endif
 
   return true;
 }

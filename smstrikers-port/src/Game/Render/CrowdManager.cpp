@@ -93,6 +93,9 @@ void CrowdManager::Replay(LoadFrame& frame)
     int replayState = 0;
     Replayable<1, LoadFrame, int>(frame, replayState);
 
+    if (frame.mReplayNonBlendables != REPLAY_NON_BLENDABLES)
+        return;
+
     if (replayState != (int)m_State)
     {
         m_State = (eCrowdState)replayState;

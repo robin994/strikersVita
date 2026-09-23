@@ -1,5 +1,10 @@
 #include "Game/RumbleActions.h"
 
+#if defined(__SWITCH__)
+#include "NL/platpad.h"
+#include "port/switch/rumble.h"
+#endif
+
 static struct RumbleActionState rumbleActionState[4];
 
 RumbleOp opArrayShootToScoreContact[] = {
@@ -143,6 +148,15 @@ void BeginRumbleAction(eRumbleActionPreset preset, cGlobalPad* pad)
             return;
         }
 
+#if defined(__SWITCH__)
+        // PORT: the GameCube motor only switched on and off; HD rumble plays the preset instead.
+        if (!cPlatPad::m_bDisableRumble && PortSwitchRumblePlay(idx, preset))
+        {
+            rumbleActionState[idx].active = 0;
+            return;
+        }
+#endif
+
         rumbleActionState[idx].active = 1;
         rumbleActionState[idx].pending = 0;
         rumbleActionState[idx].current = 0;
@@ -159,6 +173,9 @@ void StopRumbleAction(cGlobalPad* pad)
     {
         s32 idx = pad->m_padIndex;
         pad->StopRumble();
+#if defined(__SWITCH__)
+        PortSwitchRumbleStop(idx);   // PORT: and any HD rumble effect playing
+#endif
 
         rumbleActionState[idx].active = 0;
         rumbleActionState[idx].pending = 0;

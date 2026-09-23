@@ -275,7 +275,7 @@ uintptr_t cWorldSFX::Play(Audio::SoundAttributes& attributes)
     attributes.me_ClassType = WORLD;
     if (attributes.mu_Type == 0)
     {
-        return Audio::GetSndIDError();
+        return Audio::NothingPlayed(attributes); // PORT: a null emitter for a caller that asked for one
     }
     return cGameSFX::Play(attributes);
 }

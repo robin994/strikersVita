@@ -1,6 +1,9 @@
 #include "settingspage.h"
 
+#include <QApplication>
+#include <QCheckBox>
 #include <QFont>
+#include <QStyle>
 #include <QFormLayout>
 #include <QFrame>
 #include <QHBoxLayout>
@@ -106,6 +109,13 @@ void SettingsPage::beginSection(const QString& title)
     m_haveSection = true;
 }
 
+int SettingsPage::trailingGap(const QWidget* w)
+{
+    // The macOS style draws check box text up to the widget's edge, where a combo box keeps a margin.
+    const bool mac = QApplication::style()->name().compare(QLatin1String("macos"), Qt::CaseInsensitive) == 0;
+    return mac && qobject_cast<const QCheckBox*>(w) != nullptr ? 4 : 0;
+}
+
 void SettingsPage::addSetting(const QString& label, QWidget* field, QWidget* info)
 {
     QWidget* cell = field;
@@ -116,6 +126,7 @@ void SettingsPage::addSetting(const QString& label, QWidget* field, QWidget* inf
         h->setContentsMargins(0, 0, 0, 0);
         h->setSpacing(6);
         h->addWidget(field);
+        h->addSpacing(trailingGap(field));
         h->addWidget(info, 0, Qt::AlignVCenter);
         h->addStretch(1);
     }

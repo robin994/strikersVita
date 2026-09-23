@@ -10,6 +10,8 @@
 #ifdef STRIKERS_VITA
 #include <psp2/io/fcntl.h>
 #endif
+#include "port/disc_reader.h"
+#include "port/host.h"
 
 #ifdef STRIKERS_ZLIB
 #include <zlib.h>
@@ -79,6 +81,14 @@ struct PortDisc
     unsigned* cacheLen;       // and how many bytes of it are real
     unsigned* cacheAge;
     unsigned cacheSlots;
+
+    // Background copy of a raw image; reads below ramLoaded use it and the rest use the file.
+    unsigned char* ram;
+    unsigned long long ramSize;
+    unsigned long long ramLoaded;
+    char* ramPath;
+    void* ramThread;
+    int32_t ramStop;
     unsigned cacheClock;
 };
 
@@ -126,6 +136,13 @@ void port_disc_close(PortDisc* disc)
     if (disc->rawFd >= 0)
         sceIoClose(disc->rawFd);
 #endif
+    if (disc->ramThread != NULL)
+    {
+        port_store_release_i32(&disc->ramStop, 1);
+        PortDiscJoin(disc->ramThread);
+    }
+    free(disc->ram);
+    free(disc->ramPath);
     if (disc->f)
         fclose(disc->f);
     free(disc->map);
@@ -354,6 +371,73 @@ static PortDisc* ciso_open(PortDisc* d, const unsigned char* head, char* err,
 }
 
 
+#if defined(__SWITCH__)
+// Use a separate handle so background reads cannot change d->f's seek position.
+static void ram_load(void* ctx)
+{
+    PortDisc* d = (PortDisc*)ctx;
+    const unsigned long long start = port_monotonic_ns();
+    const size_t chunk = 4u * 1024u * 1024u;
+    unsigned long long at = 0;
+    FILE* f = fopen(d->ramPath, "rb");
+    if (f == NULL)
+    {
+        fprintf(stderr, "[disc] could not reopen %s for the memory copy; reading from the file\n",
+                d->ramPath);
+        return;
+    }
+    while (at < d->ramSize && !port_load_acquire_i32(&d->ramStop))
+    {
+        size_t want = d->ramSize - at < chunk ? (size_t)(d->ramSize - at) : chunk;
+        size_t got = fread(d->ram + at, 1, want, f);
+        if (got == 0)
+            break;
+        at += got;
+        port_store_release_u64(&d->ramLoaded, at);
+    }
+    fclose(f);
+    fprintf(stderr, "[disc] %llu of %llu MiB in memory after %.1f s\n", at >> 20, d->ramSize >> 20,
+            (double)(port_monotonic_ns() - start) / 1e9);
+}
+
+// STRIKERS_DISC_IN_RAM=1 copies a raw image into memory in the background, if it fits.
+static void ram_start(PortDisc* d, const char* path)
+{
+    const char* e = getenv("STRIKERS_DISC_IN_RAM");
+    long long size;
+    if (e == NULL || *e == '\0' || atoi(e) == 0)
+        return;
+    if (disc_seek(d->f, 0) != 0 || fseek(d->f, 0, SEEK_END) != 0)
+        return;
+    size = ftell(d->f);
+    if (size <= 0)
+        return;
+    d->ram = (unsigned char*)malloc((size_t)size);
+    if (d->ram == NULL)
+    {
+        fprintf(stderr, "[disc] %lld MiB would not fit in memory; reading from the file\n", size >> 20);
+        return;
+    }
+    d->ramPath = (char*)malloc(strlen(path) + 1);
+    if (d->ramPath == NULL)
+    {
+        free(d->ram);
+        d->ram = NULL;
+        return;
+    }
+    strcpy(d->ramPath, path);
+    d->ramSize = (unsigned long long)size;
+    d->ramLoaded = 0;
+    fprintf(stderr, "[disc] copying %lld MiB into memory in the background\n", size >> 20);
+    d->ramThread = PortDiscSpawn(ram_load, d);
+}
+#endif
+
+int port_disc_in_memory(PortDisc* d)
+{
+    return d != NULL && d->ram != NULL && port_load_acquire_u64(&d->ramLoaded) == d->ramSize;
+}
+
 long port_disc_read(PortDisc* d, void* dst, size_t len, unsigned long long offset)
 {
     unsigned char* out = (unsigned char*)dst;
@@ -372,6 +456,11 @@ long port_disc_read(PortDisc* d, void* dst, size_t len, unsigned long long offse
             return got < 0 ? -1 : (long)got;
         }
 #else
+        if (d->ram != NULL && offset + len <= port_load_acquire_u64(&d->ramLoaded))
+        {
+            memcpy(out, d->ram + offset, len);
+            return (long)len;
+        }
         if (disc_seek(d->f, offset) != 0)
             return -1;
         return (long)fread(out, 1, len, d->f);
@@ -510,6 +599,8 @@ PortDisc* port_disc_open(const char* path, char* err, size_t errsize)
         // Keep exactly one backend for raw images on Vita.
         fclose(d->f);
         d->f = NULL;
+#elif defined(__SWITCH__)
+        ram_start(d, path);
 #endif
         return d;
     }

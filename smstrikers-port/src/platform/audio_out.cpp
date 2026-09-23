@@ -40,6 +40,8 @@ constexpr int kTargetBuffers = 6;
 constexpr int kMaxBuffersPerUpdate = 24;
 
 SDL_AudioStream* s_stream = nullptr;
+// Bytes the device pulls at once, queued in addition to kTargetBuffers.
+int s_pullBytes = 0;
 bool s_ownsSubsystem = false;
 bool s_failed = false;
 int s_logging = -1;
@@ -132,7 +134,7 @@ void audioFillQueue() {
     if (queued == 0 && s_buffers.load(std::memory_order_relaxed) != 0)
         s_underruns.fetch_add(1, std::memory_order_relaxed);
 
-    const int target = static_cast<int>(bufBytes) * kTargetBuffers;
+    const int target = static_cast<int>(bufBytes) * kTargetBuffers + s_pullBytes;
     int want = (target - queued + static_cast<int>(bufBytes) - 1) / static_cast<int>(bufBytes);
     if (want <= 0)
         return;
@@ -254,6 +256,19 @@ int PortAudioStart(void) {
         s_failed = true;
         return 0;
     }
+
+#if defined(__SWITCH__)
+    // Switch's SDL2 takes a whole device buffer per pull and pads any shortfall with silence.
+    {
+        SDL_AudioSpec dev;
+        int frames = 0;
+        std::memset(&dev, 0, sizeof(dev));
+        if (SDL_GetAudioDeviceFormat(SDL_GetAudioStreamDevice(s_stream), &dev, &frames) && frames > 0
+            && dev.freq > 0)
+            s_pullBytes = static_cast<int>(static_cast<long long>(frames) * kSampleRate / dev.freq)
+                          * kChannels * static_cast<int>(sizeof(int16_t));
+    }
+#endif
 
     SDL_ResumeAudioStreamDevice(s_stream);
     // atexit, not PortAudioStop: salExitAi is reached only if the game shuts MusyX down, and it

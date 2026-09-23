@@ -1281,6 +1281,11 @@ void Presentation::PlayCupOverlay()
     const char* streamName = GetCupStreamName(nlSingleton<GameInfoManager>::Instance()->GetTrophyTypeByCurrentMode());
     AudioLoader::StartFEStream(streamName, false, "Music");
     AudioStreamTrack::TrackManagerBase* trackManager = AudioStreamTrack::TrackManagerBase::Get();
+    // PORT: null when audio is disabled, and so is the stinger this waits on.
+    if (trackManager == NULL)
+    {
+        return;
+    }
     AudioStreamTrack::StreamTrack* track = trackManager->GetTrack(nlStringLowerHash("Music"));
     Function0<void> callback(CupWinStingerDone);
     SetIdleCallback(track, callback);

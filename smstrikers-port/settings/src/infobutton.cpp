@@ -58,7 +58,7 @@ HelpPanel::HelpPanel(QWidget* parent)
         .arg(ink.red()).arg(ink.green()).arg(ink.blue()));
 
     auto* v = new QVBoxLayout(this);
-    v->setContentsMargins(12, 10, 12, 10);
+    v->setContentsMargins(16, 14, 16, 14);
     m_label = new QLabel(this);
     m_label->setTextFormat(Qt::RichText);
     m_label->setWordWrap(true);
@@ -212,8 +212,10 @@ void InfoButton::paintEvent(QPaintEvent*)
 
     // Palette colours only: the window's background is whatever the platform's light or dark
     // appearance says, and a hard-coded grey is legible in exactly one of them.
-    const QColor ink = m_hover || isDown() ? palette().color(QPalette::Highlight)
-                                           : palette().color(QPalette::Mid);
+    QColor ink = palette().color(QPalette::WindowText);
+    ink.setAlphaF(0.62f);
+    if (m_hover || isDown())
+        ink = palette().color(QPalette::Highlight);
 
     const qreal d = qMin(width(), height()) - 1.0;
     const QRectF circle((width() - d) / 2.0, (height() - d) / 2.0, d, d);

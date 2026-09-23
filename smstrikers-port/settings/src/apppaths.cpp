@@ -97,6 +97,33 @@ QString AppPaths::findGame(const QString& archiveRoot, QString* reason)
     return path;
 }
 
+QString AppPaths::userFolder(const QString& configured)
+{
+    QString dir = QDir::fromNativeSeparators(configured.trimmed());
+    if (dir.isEmpty())
+    {
+        const QString app = QStringLiteral("Super Mario Strikers");
+#if defined(Q_OS_WIN)
+        dir = QDir::fromNativeSeparators(qEnvironmentVariable("APPDATA")) + QLatin1Char('/') + app;
+#elif defined(Q_OS_MACOS)
+        dir = QDir::homePath() + QStringLiteral("/Library/Application Support/") + app;
+#else
+        QString base = qEnvironmentVariable("XDG_DATA_HOME");
+        if (base.isEmpty())
+            base = QDir::homePath() + QStringLiteral("/.local/share");
+        dir = base + QLatin1Char('/') + app;
+#endif
+    }
+    while (dir.size() > 1 && dir.endsWith(QLatin1Char('/')))
+        dir.chop(1);
+    return dir;
+}
+
+QString AppPaths::modsFolder(const QString& root, const QString& kind)
+{
+    return root + QStringLiteral("/mods/") + kind;
+}
+
 QString AppPaths::findDataBesideGame(const QString& archiveRoot)
 {
     const QDir root(archiveRoot);

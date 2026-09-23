@@ -18,8 +18,24 @@ struct TextureUpload {
                 wgpu::Buffer buffer) noexcept
   : layout(layout), tex(std::move(tex)), size(size), buffer(std::move(buffer)) {}
 };
+// smstrikers-port: per-frame texture load timing, filled only when AURORA_TEX_LOG is set.
+struct TexLoadTiming {
+  uint64_t convertNs = 0;
+  uint64_t createNs = 0;
+  uint64_t queueNs = 0;
+  uint64_t hashNs = 0;
+  uint64_t paletteNs = 0;
+  uint64_t textures = 0;
+  uint64_t bytes = 0;
+  uint64_t preconverted = 0;   // converted ahead on the pre-conversion thread
+};
+extern TexLoadTiming g_texLoadTiming;
+bool tex_log_enabled() noexcept;
+uint64_t tex_log_now_ns() noexcept;
+
 void queue_texture_upload(TextureUpload upload);
-void queue_texture_upload_data(const uint8_t* data, uint32_t bytesPerRow, uint32_t rowsPerImage,
+// smstrikers-port: false when there was no memory to stage it; nothing is queued then.
+bool queue_texture_upload_data(const uint8_t* data, uint32_t bytesPerRow, uint32_t rowsPerImage,
                                wgpu::TexelCopyTextureInfo tex, wgpu::Extent3D size);
 
 struct TextureFormatInfo {
@@ -57,11 +73,17 @@ struct TextureRef {
 
 TextureHandle new_static_texture_2d(uint32_t width, uint32_t height, uint32_t mips, u32 gxFormat,
                                     ArrayRef<uint8_t> data, bool tlut, const char* label) noexcept;
+// smstrikers-port: new_static_texture_2d for data convert_texture already produced from this exact texture.
+TextureHandle new_static_texture_2d_converted(uint32_t width, uint32_t height, uint32_t mips, u32 gxFormat,
+                                              wgpu::TextureFormat wgpuFormat, ArrayRef<uint8_t> converted,
+                                              bool hasArbitraryMips,
+                                              const char* label) noexcept;
 TextureHandle new_dynamic_texture_2d(uint32_t width, uint32_t height, uint32_t mips, u32 gxFormat,
                                      const char* label) noexcept;
 TextureHandle new_render_texture(uint32_t width, uint32_t height, u32 gxFormat, const char* label) noexcept;
 TextureHandle new_conv_texture(uint32_t width, uint32_t height, u32 gxFormat, const char* label) noexcept;
-void write_texture(TextureRef& ref, ArrayRef<uint8_t> data) noexcept;
+// smstrikers-port: false when a level could not be staged for upload.
+bool write_texture(TextureRef& ref, ArrayRef<uint8_t> data) noexcept;
 }; // namespace aurora::gfx
 
 struct GXTexObj_ {

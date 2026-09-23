@@ -54,6 +54,8 @@ extern wgpu::Instance g_instance;
 extern wgpu::AdapterInfo g_adapterInfo;
 extern bool g_hasCoreFeatures;
 extern bool g_bcTexturesSupported;
+// smstrikers-port: upload eligible CMPR textures as BC1 instead of RGBA8.
+extern bool g_cmprAsBc1;
 extern bool g_astcTexturesSupported;
 extern bool g_textureComponentSwizzleSupported;
 
@@ -65,6 +67,8 @@ void resize_swapchain(uint32_t width, uint32_t height, uint32_t nativeWidth, uin
 TextureWithSampler create_render_texture(uint32_t width, uint32_t height, bool multisampled);
 const TextureWithSampler& present_source() noexcept;
 wgpu::BindGroup create_copy_bind_group(const TextureWithSampler& source);
+// smstrikers-port: pops an OutOfMemory error scope this thread pushed; true if an allocation inside it failed.
+bool pop_out_of_memory_scope() noexcept;
 void set_resampler(AuroraSampler sampler) noexcept;
 AuroraSampler get_resampler() noexcept;
 Viewport calculate_present_viewport(uint32_t surface_width, uint32_t surface_height, uint32_t content_width,

@@ -1,3 +1,4 @@
+#include "port/prompts.h"
 #include "Game/Font/fontmanager.h"
 #include "NL/nlBundleFile.h"
 #include "NL/nlMemory.h"
@@ -27,6 +28,7 @@ FontManager::~FontManager()
 
     while (current != NULL)
     {
+        PortPromptsFontUnloading(current->entry); // PORT: button prompts
         delete current->entry;
 
         if (nlDLRingIsEnd(head, current) || current == NULL)
@@ -162,6 +164,7 @@ bool FontManager::LoadFont(const char* bundlePath, const char* fontName, const c
         }
     }
 
+    PortPromptsFontLoaded(newFont); // PORT: button prompts
     bundleFile.Close();
     return true;
 }

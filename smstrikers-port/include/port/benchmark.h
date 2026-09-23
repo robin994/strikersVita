@@ -36,6 +36,15 @@ void PortBenchFrameEnd(void);
 
 void PortBenchAddSleep(unsigned long long ns);
 
+// Time blocked in aurora_begin_frame on the swapchain acquire; counted in the frame total, not busy.
+void PortBenchAddAcquire(unsigned long long ns);
+
+// The deferred limiter sleep before the frame begins; it counts toward the frame total and the sleep time.
+void PortBenchAddPreFrameSleep(unsigned long long ns);
+
+// Input age runs from here, just before the frame's last event pump, to the end of the frame.
+void PortBenchInputPumped(void);
+
 void PortBenchReport(void);
 
 // The demo path picks its stadium at random, so two runs may measure different content; the build

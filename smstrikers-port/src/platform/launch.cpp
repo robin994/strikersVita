@@ -1,10 +1,12 @@
 // See include/port/launch.h for why these three settings live here rather than in main.cpp.
 
+#include "port/host.h"
 #include "port/launch.h"
 
 #if defined(PORT_USE_AURORA)
 
 #include "port/fatal.h"
+#include "port/steamdeck.h"
 #include "port/texfilter.h"
 
 #include <stdio.h>
@@ -12,6 +14,7 @@
 #include <string.h>
 
 #include <SDL3/SDL_filesystem.h>
+#include <SDL3/SDL_hints.h>
 #include <SDL3/SDL_init.h>
 #include <SDL3/SDL_properties.h>
 #include <SDL3/SDL_video.h>
@@ -169,10 +172,23 @@ extern "C" void PortAuroraConfigure(AuroraConfig* cfg)
 
     cfg->logCallback = AuroraLog;
 
+#if defined(__linux__)
+    // Dawn's EGL swap chain cannot present to a Wayland surface, so the GL backends go through XWayland.
+    if (cfg->desiredBackend == BACKEND_OPENGL || cfg->desiredBackend == BACKEND_OPENGLES)
+        SDL_SetHint(SDL_HINT_VIDEO_DRIVER, "x11,wayland");
+#endif
+
     // Fullscreen at startup. F11 and the debug menu's System tab already toggle it at runtime
     // through SDL, but a player who wants fullscreen wants it before the game has drawn anything,
     // and AuroraConfig is the only place that can be asked for.
-    cfg->startFullscreen = EnvBool("STRIKERS_FULLSCREEN", 0) != 0;
+    {
+        // gamescope (Steam's Game Mode) sizes a window to the screen only when it asks for fullscreen, and scales any other window in with bars.
+        const bool gamescope = PortUnderGamescope() != 0;
+        const char* v = getenv("STRIKERS_FULLSCREEN");
+        cfg->startFullscreen = EnvBool("STRIKERS_FULLSCREEN", gamescope ? 1 : 0) != 0;
+        if (gamescope && (v == NULL || *v == '\0'))
+            fprintf(stderr, "[port] gamescope: starting fullscreen; fullscreen = 0 opens a window\n");
+    }
 
     {
         const char* v = getenv("STRIKERS_WINDOW_SIZE");
@@ -225,6 +241,25 @@ extern "C" void PortAuroraConfigure(AuroraConfig* cfg)
     // Default 0, and that is a decision rather than an oversight.
     cfg->pauseOnFocusLost = EnvBool("STRIKERS_PAUSE_ON_FOCUS_LOST", 0) != 0;
 
+    // How many shaders compile at once; 0 or unset leaves it to the core count.
+    {
+        constexpr long kMaxShaderJobs = 16;
+        const char* v = getenv("STRIKERS_SHADER_JOBS");
+        cfg->pipelineJobs = 0;
+        if (v != NULL && *v != '\0')
+        {
+            char* end = NULL;
+            const long n = strtol(v, &end, 10);
+            while (end != NULL && (*end == ' ' || *end == '\t'))
+                end++;
+            if (end == v || end == NULL || *end != '\0' || n < 0 || n > kMaxShaderJobs)
+                fprintf(stderr, "[port] shader_jobs = %s is not a number from 0 to %ld; using the core count\n",
+                        v, kMaxShaderJobs);
+            else
+                cfg->pipelineJobs = (uint32_t)n;
+        }
+    }
+
     // Anisotropic filtering. This is the *ceiling*, and it is the half of the control the GX enum
     // cannot express: glxSend picks GX_ANISO_4, which Aurora's wgpu_aniso() resolves to exactly
     // this number (GX_ANISO_2 would resolve to half of it).
@@ -262,6 +297,15 @@ extern "C" void PortAuroraConfigure(AuroraConfig* cfg)
             cfg->cachePath = g_cacheDir;
         }
     }
+
+#if defined(__SWITCH__)
+    // Set at startup when the .nro carries the shader seeds in its romfs.
+    {
+        const char* dir = getenv("STRIKERS_RESOURCES_DIR");
+        if (dir != NULL && *dir != '\0')
+            cfg->resourcesPath = dir;
+    }
+#endif
 
     BuildIcon();
     cfg->iconRGBA8 = g_icon;
@@ -369,6 +413,13 @@ void ApplyRenderRows()
             g_renderScalePinned ? ", chosen" : " following the window", (double)g_auroraScale);
 }
 
+#if defined(__SWITCH__)
+// Scale from STRIKERS_RES_SCALE or the window, used when no per-mode override applies.
+bool g_baseCaptured = false;
+bool g_basePinned = false;
+float g_baseScale = 1.0f;
+#endif
+
 } // namespace
 
 void PortFollowRenderScale(unsigned int windowHeight)
@@ -382,7 +433,38 @@ void PortFollowRenderScale(unsigned int windowHeight)
             g_renderScalePinned = true;
             g_renderScale = (float)atof(e);
         }
+        else if (PortIsSteamDeck())
+        {
+            // The panel's own rows even when docked, where following the output would outrun the Deck's GPU.
+            g_renderScalePinned = true;
+            g_renderScale = (float)PORT_STEAM_DECK_ROWS / 448.0f;
+            fprintf(stderr, "[port] Steam Deck: rendering the panel's %u rows; res_scale overrides\n",
+                    (unsigned)PORT_STEAM_DECK_ROWS);
+        }
     }
+#if defined(__SWITCH__)
+    // Per-mode scales override STRIKERS_RES_SCALE, checked each frame to follow docking.
+    {
+        static float s_handheld = -1.0f;
+        static float s_docked = -1.0f;
+        if (s_handheld < 0.0f)
+        {
+            const char* h = getenv("STRIKERS_RES_SCALE_HANDHELD");
+            const char* d = getenv("STRIKERS_RES_SCALE_DOCKED");
+            s_handheld = (h != NULL && *h != '\0') ? (float)atof(h) : 0.0f;
+            s_docked = (d != NULL && *d != '\0') ? (float)atof(d) : 0.0f;
+        }
+        if (!g_baseCaptured)
+        {
+            g_baseCaptured = true;
+            g_basePinned = g_renderScalePinned;
+            g_baseScale = g_renderScale;
+        }
+        const float perMode = port_docked() == 1 ? s_docked : s_handheld;
+        g_renderScalePinned = perMode > 0.0f || g_basePinned;
+        g_renderScale = perMode > 0.0f ? perMode : g_baseScale;
+    }
+#endif
     if (!g_renderScalePinned)
     {
         if (windowHeight == 0)
@@ -402,6 +484,11 @@ void PortSetRenderScale(float scale)
     g_renderScaleChecked = true;
     g_renderScalePinned = true;
     g_renderScale = scale;
+#if defined(__SWITCH__)
+    g_baseCaptured = true;
+    g_basePinned = true;
+    g_baseScale = scale;
+#endif
     if (scale <= 0.0f)
         aurora_set_frame_buffer_scale(scale);
     ApplyRenderRows();

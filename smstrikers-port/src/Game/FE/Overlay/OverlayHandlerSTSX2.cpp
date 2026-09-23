@@ -1,6 +1,7 @@
 #include "Game/OverlayHandlerSTSX2.h"
 #include "Game/BaseSceneHandler.h"
 #include "Game/FE/FEAudio.h"
+#include "Game/Goalie.h"
 #include "Game/Sys/eventman.h"
 #include "NL/nlBundleFile.h"
 #include "NL/nlAlgorithm.h"
@@ -82,7 +83,7 @@ void STSX2Overlay::EventHandlerFunc(Event* event, void* userData)
 
     if (event->m_uEventID == 5)
     {
-        EventData* data;
+        GoalScoredData* data;
         s32 id = port_event_data_id(&event->m_data);
         if (id == -1)
         {
@@ -99,12 +100,12 @@ void STSX2Overlay::EventHandlerFunc(Event* event, void* userData)
             }
             else
             {
-                data = &event->m_data;
+                data = (GoalScoredData*)&event->m_data;
             }
         }
 
-        u32 val = (*(u16*)((u8*)data + 6) >> 1) & 0x7FFF;
-        if (val == 6)
+        // PORT: upstream read byte offset 6, which assumes a 4-byte vtable pointer and high-bit-first bitfields.
+        if (data->uGoalType == 6)
         {
             FEPresentation* pres = self->m_pFEPresentation;
             pres->m_fadeDuration = pres->m_currentSlide->m_start;

@@ -14,13 +14,17 @@
 #include <psp2/kernel/sysmem.h>
 #elif defined(_WIN32)
 #include <windows.h>
-#else
+#elif !defined(__SWITCH__)
 #include <sys/mman.h>
 #endif
 
 namespace
 {
 
+#if defined(__SWITCH__)
+// Allocated from the heap up front, since newlib has no mmap to reserve address space.
+const std::size_t kRegionSize = 512u * 1024u * 1024u;
+#else
 // Address space, committed by the OS on first touch; nothing here is returned to the OS.
 #if defined(STRIKERS_VITA)
 // Leave enough USER/PHYCONT headroom for vitaShaRK + vitaGL.  Reserving 112 MiB
@@ -72,6 +76,9 @@ bool region_init()
     }
 #elif defined(_WIN32)
     void* p = VirtualAlloc(nullptr, kRegionSize, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
+#elif defined(__SWITCH__)
+    // Blocks must start on a kHeaderSize boundary; newlib's malloc only guarantees 16 bytes.
+    void* p = ::aligned_alloc(4096, kRegionSize);
 #else
     void* p =
         mmap(nullptr, kRegionSize, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
@@ -80,6 +87,10 @@ bool region_init()
 #endif
     if (p == nullptr)
         return false;
+#if defined(__SWITCH__)
+    // Match the initial contents of anonymous mappings and VirtualAlloc.
+    std::memset(p, 0, kRegionSize);
+#endif
     s_region = (char*)p;
     s_bump = s_region;
     s_end = s_region + kRegionSize;

@@ -33,3 +33,13 @@
 # anchored so a different overload is still rejected by the stub gate.
 ^_ZN21SkinnedAnimController16CreateGLSkinMeshEP7glModel$
 ^\?CreateGLSkinMesh@SkinnedAnimController@@QEAAXPEAUglModel@@@Z$
+
+# GCC on Switch devirtualises into inline virtuals whose definitions the decompilation excludes.
+^_ZN14FEBasic3dModelD2Ev$
+^_ZTI14FEBasic3dModel$
+^_ZN21SkinnedAnimController17UpdateSkinnedMeshEmPv$
+
+# Dawn's Switch build bundles abseil's mutex without its allocator; nothing in the game locks one.
+^_ZN4absl13base_internal13LowLevelAlloc4FreeEPv$
+^_ZN4absl13base_internal13LowLevelAlloc5AllocEm$
+^_ZN4absl24synchronization_internal20CreateThreadIdentityEv$

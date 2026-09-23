@@ -8,8 +8,22 @@ add_executable(chunk_bounds_test
 target_include_directories(chunk_bounds_test PRIVATE ../include)
 add_test(NAME chunk_bounds COMMAND chunk_bounds_test)
 
+add_executable(prompts_resolve_test
+    prompts_resolve_test.cpp
+    ../src/platform/prompts_resolve.cpp)
+target_include_directories(prompts_resolve_test PRIVATE ../include)
+add_test(NAME prompts_resolve COMMAND prompts_resolve_test)
+
 # The two tool tests, pure Python, so they are one `ctest` away.
 add_test(NAME tool_genstubs
          COMMAND python3 "${CMAKE_CURRENT_SOURCE_DIR}/../tools/test_genstubs.py")
 add_test(NAME tool_extract_disc
          COMMAND python3 "${CMAKE_CURRENT_SOURCE_DIR}/../tools/test_extract_disc.py")
+
+if(UNIX)
+    add_executable(switch_dvd_test switch_dvd_test.c)
+    target_include_directories(switch_dvd_test PRIVATE ../include)
+    add_test(NAME switch_dvd COMMAND switch_dvd_test)
+    add_test(NAME tool_switch_rebuild
+             COMMAND python3 "${CMAKE_CURRENT_SOURCE_DIR}/../tools/test_switch_rebuild.py")
+endif()

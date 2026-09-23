@@ -69,7 +69,7 @@ QString HelpText::popover(const Setting& s, bool technical)
     QString html;
 
     if (!s.detail.isEmpty())
-        html += QStringLiteral("<p style='margin:0 0 10px 0'>%1</p>").arg(s.detail.toHtmlEscaped());
+        html += QStringLiteral("<p style='margin:0 0 12px 0'>%1</p>").arg(s.detail.toHtmlEscaped());
 
     if (!s.help.isEmpty())
     {
@@ -97,7 +97,7 @@ QString HelpText::popover(const Setting& s, bool technical)
     {
         // Named once, at the bottom, for the reader who is editing strikers.ini by hand or setting
         // a variable for one run.
-        html += QStringLiteral("<p style='margin:14px 0 0 0'><i>%1</i></p>")
+        html += QStringLiteral("<p style='margin:16px 0 0 0'><i>%1</i></p>")
                     .arg(Text::tr("In strikers.ini: <b>%1</b> &nbsp;&nbsp; "
                                   "As a variable: <b>%2</b>")
                              .arg(s.key.toHtmlEscaped(), environmentName(s.key)));

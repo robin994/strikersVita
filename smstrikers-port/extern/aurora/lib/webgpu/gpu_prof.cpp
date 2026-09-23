@@ -5,11 +5,17 @@
 
 #include <tracy/Tracy.hpp>
 
+// smstrikers-port: builds without Tracy; AURORA_GPU_PROF_LOG=<seconds> prints per-pass GPU time at that interval.
 #ifdef TRACY_ENABLE
-
 #include <tracy/TracyC.h>
+#endif
 
 #include <algorithm>
+#include <cstdio>
+#include <cstdlib>
+#include <map>
+
+#include <aurora/gfx.h> // aurora_get_stats, for the draw counts in the log
 #include <array>
 #include <atomic>
 #include <bitset>
@@ -107,6 +113,7 @@ const char* intern_name(std::string_view name) {
   return stable;
 }
 
+#ifdef TRACY_ENABLE
 // tracy::GpuContextType not exposed through TracyC.h
 uint8_t tracy_context_type(wgpu::BackendType backend) {
   switch (backend) {
@@ -160,6 +167,94 @@ void emit_zone_end(uint64_t gpuNs) {
   const uint16_t queryId = g_queryId++;
   ___tracy_emit_gpu_zone_end_serial({.queryId = queryId, .context = ContextId});
   ___tracy_emit_gpu_time_serial({.gpuTime = int64_t(gpuNs), .queryId = queryId, .context = ContextId});
+}
+#endif // TRACY_ENABLE
+
+// smstrikers-port: the AURORA_GPU_PROF_LOG aggregation.
+struct LogAcc {
+  uint64_t ns = 0;
+  uint64_t calls = 0;
+};
+std::map<std::string, LogAcc> g_logZones;
+uint64_t g_logFrames = 0, g_logFrameNs = 0, g_logFrameMaxNs = 0, g_logPasses = 0, g_logIdleNs = 0;
+int64_t g_logLastPrint = 0;
+double g_logIntervalSec = 0.0; // 0: logging off
+
+void log_print() {
+  if (g_logFrames == 0) {
+    return;
+  }
+  std::vector<std::pair<std::string, LogAcc>> rows(g_logZones.begin(), g_logZones.end());
+  std::sort(rows.begin(), rows.end(), [](const auto& a, const auto& b) { return a.second.ns > b.second.ns; });
+  const double frames = double(g_logFrames);
+  std::fprintf(stderr,
+               "\n=== aurora gpu profile: %llu frames, gpu frame mean %.3f ms max %.3f ms, "
+               "passes/frame %.1f, gpu idle within frame %.3f ms ===\n"
+               "  %-28s %9s %11s %9s\n",
+               static_cast<unsigned long long>(g_logFrames), double(g_logFrameNs) / frames * 1e-6,
+               double(g_logFrameMaxNs) * 1e-6, double(g_logPasses) / frames, double(g_logIdleNs) / frames * 1e-6,
+               "pass / zone", "ms/frame", "calls/frame", "us/call");
+  for (const auto& [name, acc] : rows) {
+    std::fprintf(stderr, "  %-28s %9.3f %11.2f %9.1f\n", name.c_str(), double(acc.ns) / frames * 1e-6,
+                 double(acc.calls) / frames, acc.calls ? double(acc.ns) / double(acc.calls) * 1e-3 : 0.0);
+  }
+  if (const AuroraStats* st = aurora_get_stats(); st != nullptr) {
+    std::fprintf(stderr,
+                 "  last frame: %u draws (%u merged), %u pipelines created so far; staged bytes: verts %u "
+                 "uniforms %u indices %u storage %u textures %u\n",
+                 st->drawCallCount, st->mergedDrawCallCount, st->createdPipelines, st->lastVertSize,
+                 st->lastUniformSize, st->lastIndexSize, st->lastStorageSize, st->lastTextureUploadSize);
+  }
+  std::fprintf(stderr, "\n");
+  g_logZones.clear();
+  g_logFrames = g_logFrameNs = g_logFrameMaxNs = g_logPasses = g_logIdleNs = 0;
+}
+
+void log_frame(const Slot& slot, const uint64_t* ts, uint64_t frameBegin, uint64_t frameEnd) {
+  ++g_logFrames;
+  const uint64_t frameNs = frameEnd - frameBegin;
+  g_logFrameNs += frameNs;
+  g_logFrameMaxNs = std::max(g_logFrameMaxNs, frameNs);
+  g_logPasses += slot.passCount;
+  // Pair begins with ends by nesting, as the Tracy path does; unwritten timestamps read 0.
+  std::vector<const Event*> stack;
+  uint64_t topLevelEnd = frameBegin;
+  uint64_t idleNs = 0;
+  for (const auto& event : slot.events) {
+    if (event.kind == EventKind::End) {
+      if (stack.empty()) {
+        continue;
+      }
+      const Event* begin = stack.back();
+      stack.pop_back();
+      const uint64_t tb = ts[begin->query];
+      const uint64_t te = ts[event.query];
+      if (tb != 0 && te > tb) {
+        auto& acc = g_logZones[begin->name];
+        acc.ns += te - tb;
+        ++acc.calls;
+        if (stack.empty()) {
+          topLevelEnd = std::max(topLevelEnd, te);
+        }
+      }
+    } else {
+      if (stack.empty()) {
+        const uint64_t tb = ts[event.query];
+        if (tb > topLevelEnd) {
+          idleNs += tb - topLevelEnd;
+        }
+      }
+      stack.push_back(&event);
+    }
+  }
+  g_logIdleNs += idleNs;
+  const int64_t now = now_ns();
+  if (g_logLastPrint == 0) {
+    g_logLastPrint = now;
+  } else if (double(now - g_logLastPrint) * 1e-9 >= g_logIntervalSec) {
+    log_print();
+    g_logLastPrint = now;
+  }
 }
 
 TimestampBounds event_bounds(const Slot& slot, const uint64_t* ts) {
@@ -230,6 +325,11 @@ void emit_frame(Slot& slot) {
     }
   }
 
+  if (g_logIntervalSec > 0.0) {
+    log_frame(slot, ts, frameBegin, frameEnd);
+  }
+
+#ifdef TRACY_ENABLE
   if (!TracyIsConnected) {
     return;
   }
@@ -293,6 +393,7 @@ void emit_frame(Slot& slot) {
   TracyPlot("aurora: gpuFrameMs", double(frameEnd - frameBegin) * 1e-6);
   TracyPlot("aurora: gpuIdleMs", double(idleNs) * 1e-6);
   TracyPlot("aurora: gpuPasses", int64_t(slot.passCount));
+#endif // TRACY_ENABLE
 }
 
 Slot& record_slot() { return g_slots[g_recordSlot]; }
@@ -306,6 +407,18 @@ uint32_t alloc_zone() {
 } // namespace
 
 void initialize() {
+  if (const char* env = std::getenv("AURORA_GPU_PROF_LOG"); env != nullptr && *env != '\0') {
+    g_logIntervalSec = std::atof(env);
+    if (g_logIntervalSec <= 0.0) {
+      g_logIntervalSec = 10.0;
+    }
+  }
+#ifndef TRACY_ENABLE
+  if (g_logIntervalSec <= 0.0) {
+    g_enabled = false;
+    return;
+  }
+#endif
   g_enabled = g_device.HasFeature(wgpu::FeatureName::TimestampQuery);
   if (!g_enabled) {
     Log.info("Timestamp queries unsupported; GPU profiling disabled");
@@ -344,6 +457,9 @@ void initialize() {
 }
 
 void shutdown() {
+  if (g_logIntervalSec > 0.0) {
+    log_print();
+  }
   g_querySet = {};
   g_resolveBuffer = {};
   for (auto& slot : g_slots) {
@@ -473,18 +589,3 @@ Zone::~Zone() {
 }
 
 } // namespace aurora::webgpu::gpu_prof
-
-#else
-
-namespace aurora::webgpu::gpu_prof {
-void initialize() {}
-void shutdown() {}
-void frame_begin(const wgpu::CommandEncoder&) {}
-void frame_end(const wgpu::CommandEncoder&) {}
-void after_submit() {}
-const wgpu::PassTimestampWrites* pass_writes(std::string_view) { return nullptr; }
-Zone::Zone(const wgpu::CommandEncoder&, std::string_view) {}
-Zone::~Zone() = default;
-} // namespace aurora::webgpu::gpu_prof
-
-#endif

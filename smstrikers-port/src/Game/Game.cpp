@@ -30,6 +30,7 @@
 extern cTeam* g_pTeams[];
 extern cBall* g_pBall;
 #include <stdlib.h>
+#include "port/discord.h"
 #include "port/overlay.h"
 #include <string.h>
 #include "Game/AnimInventory.h"
@@ -1154,6 +1155,38 @@ void cGame::Update(float deltaTime)
 
     // PORT: the benchmark discards everything before this point.
     PortBenchMatchActive();
+
+    // PORT: Discord rich presence; the title screen's demo match counts as the menus.
+    GameInfoManager* pPresenceInfo = nlSingleton<GameInfoManager>::Instance();
+    if (g_pTeams[0] != NULL && g_pTeams[1] != NULL && m_pGameClock != NULL
+        && !pPresenceInfo->IsInDemoMode())
+    {
+        PortDiscordMatch m;
+        const BaseCup* pCup = pPresenceInfo->GetCurrentCup();
+        m.mode = pPresenceInfo->mIsInStrikers101Mode ? -1 : (int)pPresenceInfo->GetCurrentMode();
+        m.hasRound = pCup != NULL ? 1 : 0;
+        m.round = pCup != NULL ? pCup->mRoundNumber : 0;
+        m.stadium = (int)pPresenceInfo->GetStadium();
+        bool homeHuman = false;
+        bool awayHuman = false;
+        for (unsigned short pad = 0; pad < 4; pad++)
+        {
+            const short side = pPresenceInfo->GetPlayingSide(pad);
+            homeHuman |= side == 0;
+            awayHuman |= side == 1;
+        }
+        m.userSide = (awayHuman && !homeHuman) ? 1 : 0;
+        for (short side = 0; side < 2; side++)
+        {
+            m.team[side] = (int)pPresenceInfo->GetTeam(side);
+            m.sidekick[side] = (int)pPresenceInfo->GetSidekick(side);
+            m.score[side] = g_pTeams[side]->m_nScore;
+        }
+        m.clock = m_pGameClock->m_fTimer;
+        m.duration = m_fGameDuration;
+        m.suddenDeath = mInSuddenDeath ? 1 : 0;
+        PortDiscordSetMatch(&m);
+    }
 
     // PORT: hand the debug menu the state it cannot reach for itself.
     if ((PortOverlayMenuOpen() || PortDebugStateWanted())

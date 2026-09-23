@@ -117,6 +117,9 @@ fi
 
 cp strikers.ini.example "$OUT/"
 
+rm -rf "$OUT/input-prompts"
+cp -R assets/input-prompts "$OUT/input-prompts"
+
 if [ "$WINDOWS" = "1" ]; then
     BENCHMARK=benchmark.ps1
 else
@@ -129,9 +132,17 @@ if [ "$WINDOWS" = "0" ] && [ "$(uname -s)" = Linux ]; then
 fi
 
 # The licence texts the program is redistributed under: ODE's BSD, the decompilation's CC0, the
-# eCos files' GPL, and MusyX's own, renamed so the archive's notices are one flat set.
+# eCos files' GPL, and the notices of MusyX, Aurora, borealis and the libraries linked in, renamed
+# so the archive's notices are one flat set.
 cp LICENSE-BSD.TXT LICENSE-CC0.txt LICENSE-GPL-2.0.txt "$OUT/"
 cp extern/musyx/LICENSE "$OUT/LICENSE-MUSYX.txt"
+cp extern/aurora/LICENSE "$OUT/LICENSE-AURORA.txt"
+cp extern/borealis/LICENSE "$OUT/LICENSE-BOREALIS.txt"
+LINKED_LICENSES="LICENSE-APACHE-2.0.txt LICENSE-DAWN.txt LICENSE-FMT.txt LICENSE-FREETYPE.txt
+                 LICENSE-IMGUI.txt LICENSE-NLOHMANN-JSON.txt LICENSE-XXHASH.txt LICENSE-ZSTD.txt"
+for _l in $LINKED_LICENSES; do
+    cp "licenses/$_l" "$OUT/"
+done
 
 FFMPEG_SHIPPED=0
 for _lib in "$OUT"/av*.[Dd][Ll][Ll] "$OUT"/libav*.dylib "$OUT"/libav*.so*; do
@@ -160,6 +171,7 @@ if [ -z "$QT_PREFIX" ] && [ -d /opt/homebrew/opt/qt ]; then
 fi
 # Forward slashes: CMake reads install-qt-action's backslashes as escapes and dies before finding Qt.
 QT_PREFIX=$(printf '%s' "$QT_PREFIX" | tr '\\' '/')
+QT_LICENSES=""
 SETTINGS_ARTEFACT=""
 if [ "$SETTINGS" = 1 ] && { [ -z "$QT_PREFIX" ] || [ ! -d "$QT_PREFIX" ]; }; then
     echo "package.sh: no Qt found, so strikers-settings cannot be built." >&2
@@ -208,6 +220,11 @@ if [ "$SETTINGS" = 1 ]; then
         SETTINGS_ARTEFACT="strikers-settings"
         # Linux leans on the distro's Qt, as check-runtime-deps.sh does.
     fi
+    # Qt's LGPL 3.0 incorporates the GPL 3.0, and every settings build carries code from Qt's headers.
+    QT_LICENSES="LICENSE-LGPL-3.0.txt LICENSE-GPL-3.0.txt"
+    for _l in $QT_LICENSES; do
+        cp "licenses/$_l" "$OUT/"
+    done
     echo "==> settings app: bundled"
 else
     echo "==> settings app: SETTINGS=0, archive ships without strikers-settings"
@@ -222,8 +239,9 @@ if [ -n "$SETTINGS_ARTEFACT" ]; then
 fi
 
 # What the archive has to contain, by name, checked before it is made and again after.
-NEEDED_FILES="$(basename "$BIN") strikers.ini.example $BENCHMARK
-              LICENSE-BSD.TXT LICENSE-CC0.txt LICENSE-GPL-2.0.txt LICENSE-MUSYX.txt"
+NEEDED_FILES="$(basename "$BIN") strikers.ini.example $BENCHMARK input-prompts/LICENSE-Kenney.txt
+              LICENSE-BSD.TXT LICENSE-CC0.txt LICENSE-GPL-2.0.txt LICENSE-MUSYX.txt
+              LICENSE-AURORA.txt LICENSE-BOREALIS.txt $LINKED_LICENSES $QT_LICENSES"
 if [ "$FFMPEG_SHIPPED" = 1 ]; then
     NEEDED_FILES="$NEEDED_FILES LICENSE-LGPL-2.1.txt"
 fi

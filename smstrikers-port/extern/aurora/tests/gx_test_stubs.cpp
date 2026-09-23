@@ -330,3 +330,8 @@ void aurora::gfx::push_debug_group(std::string) {}
 void push_debug_group(const char*) {}
 void pop_debug_group() {}
 void aurora::gfx::insert_debug_marker(std::string) {}
+
+// smstrikers-port: GXInitTexObjLOD calls this, and the FIFO tests do not link the texture cache.
+namespace aurora::gx::texture {
+void preconvert_texture(const GXTexObj_&) noexcept {}
+} // namespace aurora::gx::texture

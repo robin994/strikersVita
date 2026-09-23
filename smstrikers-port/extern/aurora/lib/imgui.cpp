@@ -1,6 +1,7 @@
 #include "imgui.hpp"
 
 #include <cstddef>
+#include <chrono>
 #include <cmath>
 #include <cstring>
 #include <memory>
@@ -18,8 +19,10 @@
 #include "window.hpp"
 
 #define IMGUI_IMPL_WEBGPU_BACKEND_DAWN
+#ifndef __SWITCH__
 #include "backends/imgui_impl_sdl3.h"
 #include "backends/imgui_impl_sdlrenderer3.h"
+#endif
 #include "backends/imgui_impl_wgpu.h"
 #include "tracy/Tracy.hpp"
 
@@ -92,12 +95,20 @@ void create_context() noexcept {
 
 void initialize() noexcept {
   ZoneScoped;
+#ifdef __SWITCH__
+  // smstrikers-port: no SDL3 platform backend on Switch; the overlay takes no pointer or key input.
+  SDL_Renderer* renderer = nullptr;
+#else
   SDL_Renderer* renderer = window::get_sdl_renderer();
   ImGui_ImplSDL3_InitForSDLRenderer(window::get_sdl_window(), renderer);
+#endif
   g_useSdlRenderer = renderer != nullptr;
+#ifndef __SWITCH__
   if (g_useSdlRenderer) {
     ImGui_ImplSDLRenderer3_Init(renderer);
-  } else {
+  } else
+#endif
+  {
     ImGui_ImplWGPU_InitInfo info;
     info.Device = webgpu::g_device.Get();
     info.RenderTargetFormat = static_cast<WGPUTextureFormat>(webgpu::g_graphicsConfig.surfaceConfiguration.format);
@@ -108,11 +119,15 @@ void initialize() noexcept {
 void shutdown() noexcept {
   ZoneScoped;
   if (g_useSdlRenderer) {
+#ifndef __SWITCH__
     ImGui_ImplSDLRenderer3_Shutdown();
+#endif
   } else {
     ImGui_ImplWGPU_Shutdown();
   }
+#ifndef __SWITCH__
   ImGui_ImplSDL3_Shutdown();
+#endif
   ImGui::DestroyContext();
   for (const auto& texture : g_sdlTextures) {
     SDL_DestroyTexture(texture);
@@ -122,6 +137,9 @@ void shutdown() noexcept {
 }
 
 void process_event(const SDL_Event& event) noexcept {
+#ifdef __SWITCH__
+  (void)event;
+#else
   auto renderEvent = event;
   if (g_useSdlRenderer) {
     if (SDL_Renderer* renderer = window::get_sdl_renderer()) {
@@ -129,9 +147,14 @@ void process_event(const SDL_Event& event) noexcept {
     }
   }
   ImGui_ImplSDL3_ProcessEvent(&renderEvent);
+#endif
 }
 
 bool wants_capture_event(const SDL_Event& event) noexcept {
+#ifdef __SWITCH__
+  (void)event;
+  return false;
+#else
   if (ImGui::GetCurrentContext() == nullptr) {
     return false;
   }
@@ -154,6 +177,7 @@ bool wants_capture_event(const SDL_Event& event) noexcept {
   default:
     return false;
   }
+#endif
 }
 
 void new_frame(const AuroraWindowSize& size) noexcept {
@@ -164,6 +188,7 @@ void new_frame(const AuroraWindowSize& size) noexcept {
   };
   ImVec2 displaySize{static_cast<float>(size.width), static_cast<float>(size.height)};
 
+#ifndef __SWITCH__
   if (g_useSdlRenderer) {
     if (SDL_Renderer* renderer = window::get_sdl_renderer()) {
       float renderScaleX = 1.0f;
@@ -183,7 +208,9 @@ void new_frame(const AuroraWindowSize& size) noexcept {
     }
     ImGui_ImplSDLRenderer3_NewFrame();
     g_scale = size.scale;
-  } else {
+  } else
+#endif
+  {
     if (g_scale != size.scale) {
       if (g_scale > 0.f) {
         ImGui_ImplWGPU_CreateDeviceObjects();
@@ -195,13 +222,28 @@ void new_frame(const AuroraWindowSize& size) noexcept {
     }
     ImGui_ImplWGPU_NewFrame();
   }
+#ifdef __SWITCH__
+  // smstrikers-port: set the frame delta the SDL3 backend would.
+  {
+    static std::chrono::steady_clock::time_point sLast{};
+    const auto now = std::chrono::steady_clock::now();
+    const float delta = sLast.time_since_epoch().count() == 0
+                            ? 1.f / 60.f
+                            : std::chrono::duration<float>{now - sLast}.count();
+    sLast = now;
+    ImGui::GetIO().DeltaTime = delta > 0.f ? delta : 1.f / 60.f;
+  }
+#else
   ImGui_ImplSDL3_NewFrame();
+#endif
 
   ImGuiIO& io = ImGui::GetIO();
   io.DisplayFramebufferScale = framebufferScale;
   ImGui::GetIO().DisplaySize = displaySize;
   ImGui::NewFrame();
 }
+
+bool DrawData::empty() const noexcept { return !m_impl || m_impl->drawData.CmdListsCount == 0; }
 
 DrawData freeze() noexcept {
   ZoneScoped;
@@ -230,12 +272,15 @@ void render(const wgpu::RenderPassEncoder& pass, const DrawData& drawData) noexc
   if (data->CmdListsCount == 0) {
     return;
   }
+#ifndef __SWITCH__
   if (g_useSdlRenderer) {
     SDL_Renderer* renderer = window::get_sdl_renderer();
     SDL_RenderClear(renderer);
     ImGui_ImplSDLRenderer3_RenderDrawData(data, renderer);
     SDL_RenderPresent(renderer);
-  } else {
+  } else
+#endif
+  {
     pass.PushDebugGroup("Aurora: Dear Imgui");
     ImGui_ImplWGPU_RenderDrawData(data, pass.Get());
     pass.PopDebugGroup();
@@ -243,6 +288,7 @@ void render(const wgpu::RenderPassEncoder& pass, const DrawData& drawData) noexc
 }
 
 ImTextureID add_texture(uint32_t width, uint32_t height, const uint8_t* data) noexcept {
+#ifndef __SWITCH__
   if (SDL_Renderer* renderer = window::get_sdl_renderer()) {
     SDL_Texture* texture = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_RGBA32, SDL_TEXTUREACCESS_STATIC, width, height);
     SDL_UpdateTexture(texture, nullptr, data, width * 4);
@@ -250,6 +296,7 @@ ImTextureID add_texture(uint32_t width, uint32_t height, const uint8_t* data) no
     g_sdlTextures.push_back(texture);
     return reinterpret_cast<ImTextureID>(texture);
   }
+#endif
   const wgpu::Extent3D size{
       .width = width,
       .height = height,

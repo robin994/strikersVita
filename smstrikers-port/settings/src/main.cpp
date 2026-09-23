@@ -155,6 +155,10 @@ int selftest(const QString& path)
         { "pad_deadzone", "0.25" },
         { "overlay", "menu" },
         { "aspect", "5:4" },
+        { "fullscreen", "0" },
+        { "textures", "packs/hd pitch" },
+        { "texture_pack", "hd pitch" },
+        { "texture_dump", "1" },
     };
 
     out() << "\nbefore:\n";

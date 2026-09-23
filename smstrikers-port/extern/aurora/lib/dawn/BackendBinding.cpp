@@ -4,7 +4,9 @@
 
 #include <memory>
 
-#if !defined(SDL_PLATFORM_MACOS) && !defined(SDL_PLATFORM_IOS) && !defined(SDL_PLATFORM_TVOS)
+#if defined(__SWITCH__)
+#include <switch.h>
+#elif !defined(SDL_PLATFORM_MACOS) && !defined(SDL_PLATFORM_IOS) && !defined(SDL_PLATFORM_TVOS)
 #include <SDL3/SDL_video.h>
 #endif
 
@@ -16,6 +18,12 @@ std::shared_ptr<wgpu::ChainedStruct> SetupWindowAndGetSurfaceDescriptorCocoa(SDL
 std::shared_ptr<wgpu::ChainedStruct> SetupWindowAndGetSurfaceDescriptor(SDL_Window* window) {
 #if defined(SDL_PLATFORM_MACOS) || defined(SDL_PLATFORM_IOS) || defined(SDL_PLATFORM_TVOS)
   return SetupWindowAndGetSurfaceDescriptorCocoa(window);
+#elif defined(__SWITCH__)
+  // smstrikers-port: render to the default NWindow; SDL2's Switch window exposes no native handle.
+  (void)window;
+  std::shared_ptr<wgpu::SurfaceSourceSwitchNWindow> desc = std::make_shared<wgpu::SurfaceSourceSwitchNWindow>();
+  desc->window = nwindowGetDefault();
+  return std::move(desc);
 #else
   const auto props = SDL_GetWindowProperties(window);
 #if defined(SDL_PLATFORM_ANDROID)

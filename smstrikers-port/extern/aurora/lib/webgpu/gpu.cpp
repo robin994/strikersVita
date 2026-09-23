@@ -1,6 +1,7 @@
 #include "gpu.hpp"
 
 #include <algorithm>
+#include <cstdlib>
 #include <atomic>
 #include <array>
 #include <cmath>
@@ -71,6 +72,7 @@ wgpu::AdapterInfo g_adapterInfo;
 static wgpu::SurfaceCapabilities g_surfaceCapabilities;
 bool g_hasCoreFeatures = false;
 bool g_bcTexturesSupported = false;
+bool g_cmprAsBc1 = false;
 bool g_astcTexturesSupported = false;
 bool g_textureComponentSwizzleSupported = false;
 static std::atomic_bool g_initialized = false;
@@ -651,6 +653,10 @@ const TextureWithSampler& resample_present_source(const wgpu::CommandEncoder& en
   const auto& source = present_source();
   const uint32_t width = viewport_extent(viewport.width);
   const uint32_t height = viewport_extent(viewport.height);
+  // smstrikers-port: at 1:1 the resample is an identity copy, so the blit reads the frame buffer directly.
+  if (source.size.width == width && source.size.height == height) {
+    return source;
+  }
   if (!g_resampledFrameBuffer.view || g_resampledFrameBuffer.size.width != width ||
       g_resampledFrameBuffer.size.height != height || g_resampledFrameBuffer.format != source.format) {
     g_resampledFrameBuffer = create_render_texture(width, height, false);
@@ -941,12 +947,25 @@ bool initialize(AuroraBackend auroraBackend, bool allowCpu) {
         }
         requiredFeatures.push_back(feature);
       }
-#ifdef TRACY_ENABLE
+      // smstrikers-port: also requested without Tracy when AURORA_GPU_PROF_LOG is set.
       if (feature == wgpu::FeatureName::TimestampQuery) {
-        requiredFeatures.push_back(feature);
-      }
+#ifndef TRACY_ENABLE
+        const char* prof = std::getenv("AURORA_GPU_PROF_LOG");
+        if (prof != nullptr && *prof != '\0')
 #endif
+        {
+          requiredFeatures.push_back(feature);
+        }
+      }
     }
+#ifdef __SWITCH__
+    // smstrikers-port: BC1 is 4 bits a pixel to decoded CMPR's 32 but blends in thirds where GX uses eighths.
+    {
+      const char* e = std::getenv("STRIKERS_CMPR_BC1");
+      g_cmprAsBc1 = g_bcTexturesSupported && (e == nullptr || *e != '0');
+    }
+#endif
+
     std::string featureList;
     for (auto featureName : requiredFeatures) {
       featureList += "\n  ";
@@ -1176,6 +1195,19 @@ void resize_swapchain(uint32_t width, uint32_t height, uint32_t nativeWidth, uin
   gfx::gpu_synchronize();
   resize_swapchain_internal(width, height, nativeWidth, nativeHeight, force);
 }
+
+bool pop_out_of_memory_scope() noexcept {
+  bool outOfMemory = false;
+  const wgpu::Future future = g_device.PopErrorScope(
+      wgpu::CallbackMode::WaitAnyOnly, [&outOfMemory](wgpu::PopErrorScopeStatus status, wgpu::ErrorType type,
+                                                      wgpu::StringView) {
+        outOfMemory = status == wgpu::PopErrorScopeStatus::Success && type == wgpu::ErrorType::OutOfMemory;
+      });
+  wgpu::FutureWaitInfo wait{};
+  wait.future = future;
+  g_instance.WaitAny(1, &wait, UINT64_MAX);
+  return outOfMemory;
+}
 } // namespace aurora::webgpu
 
 void aurora_enable_vsync(const bool enabled) {
@@ -1183,4 +1215,9 @@ void aurora_enable_vsync(const bool enabled) {
   aurora::webgpu::g_graphicsConfig.surfaceConfiguration.presentMode =
       aurora::webgpu::select_present_mode(aurora::webgpu::g_surfaceCapabilities);
   aurora::window::push_custom_event(aurora::window::CustomEvent::RefreshSurface);
+}
+
+bool aurora_present_waits_for_vblank() {
+  const auto mode = aurora::webgpu::g_graphicsConfig.surfaceConfiguration.presentMode;
+  return mode == wgpu::PresentMode::Fifo || mode == wgpu::PresentMode::FifoRelaxed;
 }

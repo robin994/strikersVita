@@ -5,10 +5,11 @@
 # vsync = 1 # Fifo blocks and lets the GPU idle; Mailbox renders frames the panel never shows, which
 # on a battery is heat.
 #   msaa      = 1
-# res_scale is deliberately absent: the default already renders one pixel per display pixel.
+# res_scale is deliberately absent: the default already renders the Deck's panel pixel for pixel.
 
 [display]
-# Internal render resolution, as a multiple of the console's 448 rows.
+# Internal render resolution, as a multiple of the console's 448 rows. Unset, it follows the window;
+# on a Steam Deck it is the panel's 800 rows (1.786) even when docked.
 # res_scale = 2.0
 
 # Multisampling. Init-time only. 1 is the default and 4 is the only other value worth setting.
@@ -20,9 +21,9 @@
 # Frame rate cap in Hz, or 0 for unlimited.
 # fps_limit = 59.94
 
-# 1 blocks on the vblank (Fifo). 0 selects Mailbox where the driver has it, which is still tear-free
-# but does not drop to half rate when a frame lands late, worth ~10 fps on a GPU that is close to
-# its limit.
+# 1 waits for each refresh of your display and gives the steadiest picture. 0 makes the
+# controls more responsive and keeps the frame rate up when your graphics card struggles.
+# Where your system supports it, 0 still avoids tearing.
 # vsync = 1
 
 # Aspect ratio: auto, 16:9, 4:3, 21:9, any W:H, or a decimal.
@@ -32,15 +33,20 @@
 # standard 16:9 size that fits the screen.
 # window_size = 1600x900
 
-# Open fullscreen instead of in a window.
+# 1 opens fullscreen and 0 a window. Unset, it is fullscreen under Steam's Game Mode (gamescope),
+# which scales a window into the screen with black bars, and a window everywhere else.
 # fullscreen = 1
 
 # Stop the game when its window loses focus. 0 by default and deliberately: the attract mode and the
 # demo match are worth leaving to run, and a benchmark that stopped would report nothing.
 # pause_on_focus_lost = 1
 
-# Graphics backend: auto, d3d12, vulkan, metal.
+# Graphics backend: auto, d3d12, vulkan, metal, opengl, opengles.
 # backend = vulkan
+
+# Shaders compiled at once, 0 to 16. 0 picks a count from the CPU cores. Set 1 if the graphics driver
+# has problems at startup.
+# shader_jobs = 0
 
 [audio]
 # Sound: music, effects, the stadium reverb and the movies' own tracks.
@@ -60,6 +66,9 @@
 # also the answer to "what are my controls".
 
 # keyboard = 1            ; 0 disables the keyboard pad
+
+# Button art: auto follows the last input device; a named family overrides the art.
+# button_prompts = auto
 
 # Keyboard, player 1. SDL scancode names as SDL_GetScancodeName spells them: "A", "Return", "Space",
 # "Left Shift", "F1", "Keypad 0". STRIKERS_PROBE_PAD=1 prints the whole effective table.
@@ -100,8 +109,8 @@
 # pad_dpad_left = dpleft
 # pad_dpad_right = dpright
 # pad_swap_sticks = 0     ; 1 swaps the main stick and the C-stick
-# pad_deadzone = 0.15     ; 0.0 .. 0.9, fraction of stick radius
-# pad_trigger_threshold = 0.5
+# pad_deadzone = 0.24     ; 0.0 .. 0.9, fraction of stick radius
+# pad_trigger_threshold = 0.95
 # pad_rumble = 1          ; 0 turns rumble off on every port
 # pad_rumble_strength = 100   ; 0..100
 
@@ -114,8 +123,24 @@
 # log = 1
 # log = console
 
-# The console's own language setting, which only a European disc reads.
+# Menu language: english, german, french, spanish or italian, and japanese on the Japanese disc.
+# Unset keeps the disc's own language. The American disc ignores this.
 # language = german
+
+# Texture packs load from mods/textures/ beside the game and mods/textures/ in the user folder. A
+# folder named here loads too and wins over both; 0 turns texture packs off.
+# textures = C:/games/strikers/packs/hd pitch
+
+# One pack out of the textures folders, by its folder name. Unset loads every pack.
+# texture_pack = hd pitch
+
+# Memory for loaded texture pack images, in MB. Past it the least recently drawn is dropped and
+# loaded again when next needed. 4096 by default, 512 on Switch.
+# texture_cache_mb = 1024
+
+# Save each texture the game loads as a PNG named for a texture pack, in a folder per disc file.
+# 1 saves to texture_dumps/ in the user folder; a path saves there.
+# texture_dump = 1
 
 [game]
 # Which disc the data came from, when the data cannot say: the id is read from sys/boot.bin
@@ -125,6 +150,11 @@
 
 # Every stadium, team and cup mode available.
 # unlock_all = 1
+
+[discord]
+# Your Discord status while the game runs: in the menus, or a match's mode, cup round, stadium,
+# captains, score and time left. Off by default; 1 turns it on while Discord's desktop app runs.
+# discord = 1
 
 [debug]
 # The debug overlay and menu. `menu` opens the menu straight away, `1` draws only the compact

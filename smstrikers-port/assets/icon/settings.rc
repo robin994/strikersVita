@@ -8,13 +8,15 @@ IDI_ICON1 ICON "settings.ico"
 // executable in the archive is a file called `strikers-settings.exe` with
 // nothing anywhere to say what it belongs to. See strikers.rc for what each
 // field is read by and why OriginalFilename is not the display name.
+#include "strikers_version.h"
+
 #ifndef VS_VERSION_INFO
 #define VS_VERSION_INFO 1
 #endif
 
 VS_VERSION_INFO VERSIONINFO
-FILEVERSION    1,0,0,0
-PRODUCTVERSION 1,0,0,0
+FILEVERSION    STRIKERS_VERSION_RC
+PRODUCTVERSION STRIKERS_VERSION_RC
 FILEFLAGSMASK  0x3fL
 FILEFLAGS      0x0L
 FILEOS         0x40004L   // VOS_NT_WINDOWS32
@@ -30,8 +32,8 @@ BEGIN
             // are one thing that happens to ship as two files, and Windows
             // groups by this string.
             VALUE "ProductName",      "Super Mario Strikers"
-            VALUE "FileVersion",      "1.0.0"
-            VALUE "ProductVersion",   "1.0.0"
+            VALUE "FileVersion",      STRIKERS_VERSION_STR
+            VALUE "ProductVersion",   STRIKERS_VERSION_STR
             VALUE "InternalName",     "strikers-settings"
             VALUE "OriginalFilename", "strikers-settings.exe"
             VALUE "Comments",         "Settings for the Super Mario Strikers native port. Not affiliated with, authorised by or endorsed by Nintendo."

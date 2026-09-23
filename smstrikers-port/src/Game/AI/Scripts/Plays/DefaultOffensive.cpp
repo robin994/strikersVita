@@ -580,11 +580,11 @@ FuzzyVariant Fuzzy::GoodBallCarrier(cFielder* TheFielder)
     return bestValue;
 }
 
-static inline uintptr_t OffensiveQuestionHash(
+static inline ScriptQuestionKey OffensiveQuestionHash(
     uintptr_t functionAddress,
     FuzzyVariant& argument)
 {
-    return functionAddress + ((Variant*)&argument)->GetHash();
+    return MakeScriptQuestionKey(functionAddress, *(Variant*)&argument);
 }
 
 static inline float OffensiveHalfScore(const FuzzyVariant& value, float fLosing)
@@ -640,7 +640,7 @@ FuzzyVariant Fuzzy::InGoodWindupPosition(cFielder* TheFielder)
         uintptr_t address;
     } functionAddress;
     functionAddress.function = InGoodWindupPosition;
-    uintptr_t hash = OffensiveQuestionHash(functionAddress.address, fvFielder);
+    ScriptQuestionKey hash = OffensiveQuestionHash(functionAddress.address, fvFielder);
     FuzzyVariant fvFielder2((cPlayer*)TheFielder);
 
     if (ScriptQuestionCache::Instance()->Lookup(hash, bestValue, NULL))

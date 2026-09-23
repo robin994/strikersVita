@@ -11,8 +11,7 @@
 extern "C" {
 #endif
 
-// Apply STRIKERS_FULLSCREEN, STRIKERS_WINDOW_SIZE, STRIKERS_PAUSE_ON_FOCUS_LOST and STRIKERS_CACHE_DIR
-// to `cfg`, give it a window icon, and place the window with its title bar on screen.
+// Apply the window, focus, shader job and cache settings to `cfg`, give it an icon, and place the window with its title bar on screen.
 void PortAuroraConfigure(AuroraConfig* cfg);
 
 void PortFollowRenderScale(unsigned int windowHeight);

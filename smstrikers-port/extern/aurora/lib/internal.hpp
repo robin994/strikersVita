@@ -312,6 +312,14 @@ public:
   void clear() { m_length = 0; }
   void reserve_extra(size_t size) { resize(m_length + size, true); }
 
+  // smstrikers-port: grow by `size` bytes and return where they start, for writing in place.
+  [[nodiscard]] uint8_t* append_uninitialized(size_t size) {
+    resize(m_length + size, false);
+    uint8_t* out = m_data + m_length;
+    m_length += size;
+    return out;
+  }
+
   ByteBuffer clone() const {
     ByteBuffer clone{m_length};
     std::memcpy(clone.data(), m_data, m_length);

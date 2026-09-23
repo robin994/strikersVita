@@ -173,6 +173,15 @@ void port_sleep_ns(unsigned long long ns)
     Sleep((DWORD)(ns / 1000000ull));
 }
 
+void port_sleep_until_ns(unsigned long long deadline_ns)
+{
+    const unsigned long long now = port_monotonic_ns();
+    if (deadline_ns > now)
+        port_sleep_ns(deadline_ns - now);
+}
+
+void port_tighten_timer_slack(void) {}
+
 void port_yield(void)
 {
     // SwitchToThread yields only to a thread on the same processor and returns at once when there
@@ -255,6 +264,11 @@ int port_setenv_default(const char* name, const char* value)
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <time.h>
+#if defined(__linux__)
+#include <errno.h>
+#include <sys/prctl.h>
+#endif
 #if defined(__APPLE__)
 #include <mach-o/dyld.h>
 #endif
@@ -273,6 +287,30 @@ void port_sleep_ns(unsigned long long ns)
     req.tv_sec = (time_t)(ns / 1000000000ull);
     req.tv_nsec = (long)(ns % 1000000000ull);
     nanosleep(&req, NULL);
+}
+
+void port_sleep_until_ns(unsigned long long deadline_ns)
+{
+#if defined(__linux__)
+    struct timespec ts;
+    ts.tv_sec = (time_t)(deadline_ns / 1000000000ull);
+    ts.tv_nsec = (long)(deadline_ns % 1000000000ull);
+    while (clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &ts, NULL) == EINTR)
+    {
+    }
+#else
+    const unsigned long long now = port_monotonic_ns();
+    if (deadline_ns > now)
+        port_sleep_ns(deadline_ns - now);
+#endif
+}
+
+void port_tighten_timer_slack(void)
+{
+#if defined(__linux__)
+    // 20 us, so the frame limiter can sleep once to just short of its deadline.
+    prctl(PR_SET_TIMERSLACK, 20000ul, 0ul, 0ul, 0ul);
+#endif
 }
 
 void port_yield(void)
@@ -357,3 +395,5 @@ int port_setenv_default(const char* name, const char* value)
 }
 
 #endif
+
+int port_docked(void) { return -1; }

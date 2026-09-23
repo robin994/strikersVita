@@ -607,6 +607,35 @@ int main(int argc, char** argv)
               AppPaths::findDataBesideGame(root.path()));
     }
 
+    // 13. The pad defaults are Aurora's PADDeadZones, which the game uses when the keys are unset.
+    {
+        const QString header = QFileInfo(example).dir().filePath(
+            QStringLiteral("extern/aurora/lib/input.hpp"));
+        const QString text = QString::fromUtf8(readAll(header));
+        check(!text.isEmpty(), QStringLiteral("read %1").arg(header));
+        const struct
+        {
+            const char* key;
+            const char* field;
+        } pads[] = {
+            { "pad_deadzone", "stickDeadZone" },
+            { "pad_trigger_threshold", "leftTriggerActivationZone" },
+        };
+        for (const auto& p : pads)
+        {
+            const QRegularExpressionMatch m =
+                QRegularExpression(QStringLiteral("\\.%1\\s*=\\s*(\\d+)").arg(QLatin1String(p.field)))
+                    .match(text);
+            // The slider steps in hundredths, so that is the precision the default can have.
+            const QString aurora =
+                m.hasMatch() ? QString::number(m.captured(1).toDouble() / 32767.0, 'f', 2) : QString();
+            const QString def = Schema::get(QString::fromLatin1(p.key)).def;
+            check(m.hasMatch() && def.toDouble() == aurora.toDouble(),
+                  QStringLiteral("%1 defaults to Aurora's %2").arg(QLatin1String(p.key), QLatin1String(p.field)),
+                  QStringLiteral("schema %1, Aurora %2").arg(def, aurora));
+        }
+    }
+
     QTextStream out(stdout);
     out << (g_failures == 0 ? "\nall checks passed\n"
                             : QStringLiteral("\n%1 check(s) failed\n").arg(g_failures));

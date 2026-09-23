@@ -50,6 +50,11 @@ _Static_assert(sizeof(PortABIEnumProbe) == 4, "Vita port requires 32-bit enums (
 
 #include <stdarg.h>
 
+// GCC has no -fdeclspec, and the decomp's __declspecs only place PowerPC sections.
+#if defined(__SWITCH__) && !defined(__clang__)
+#define __declspec(x)
+#endif
+
 // Reconciles the decomp's GX struct-tag spellings with Aurora's anonymous typedefs.
 #if defined(PORT_USE_AURORA)
 #include "port/gx_tags.h"

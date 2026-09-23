@@ -9,6 +9,7 @@
 
 #include "dolphin/types.h"
 #include "port/host.h"
+#include "port/region.h"
 
 #if defined(STRIKERS_VITA) && defined(PORT_USE_AURORA)
 extern void aurora_vita_notify_memory_write(const void* address, size_t bytes);
@@ -186,38 +187,76 @@ void OSTicksToCalendarTime(u64 ticks, OSCalendarTime* td)
 
 u32 OSGetConsoleType(void) { return 0x00000001u; } // retail production unit
 
-// STRIKERS_LANGUAGE, the IPL setting a European GameCube kept in SRAM.
-u8 OSGetLanguage(void)
+#if defined(__SWITCH__)
+int PortSwitchLanguage(void);
+#endif
+
+int port_language(void)
 {
-    static const struct { const char* name; u8 value; } kLanguages[] = {
-        {"english", 0}, {"eng", 0}, {"uk", 0}, {"en", 0},
-        {"german", 1},  {"deu", 1}, {"de", 1}, {"ger", 1},
-        {"french", 2},  {"fra", 2}, {"fr", 2},
-        {"spanish", 3}, {"esp", 3}, {"es", 3}, {"spa", 3},
-        {"italian", 4}, {"ita", 4}, {"it", 4},
+    static const struct { const char* name; int value; } kLanguages[] = {
+        {"english", PORT_LANGUAGE_ENGLISH},   {"eng", PORT_LANGUAGE_ENGLISH},
+        {"uk", PORT_LANGUAGE_ENGLISH},        {"en", PORT_LANGUAGE_ENGLISH},
+        {"german", PORT_LANGUAGE_GERMAN},     {"deu", PORT_LANGUAGE_GERMAN},
+        {"de", PORT_LANGUAGE_GERMAN},         {"ger", PORT_LANGUAGE_GERMAN},
+        {"french", PORT_LANGUAGE_FRENCH},     {"fra", PORT_LANGUAGE_FRENCH},
+        {"fr", PORT_LANGUAGE_FRENCH},
+        {"spanish", PORT_LANGUAGE_SPANISH},   {"esp", PORT_LANGUAGE_SPANISH},
+        {"es", PORT_LANGUAGE_SPANISH},        {"spa", PORT_LANGUAGE_SPANISH},
+        {"italian", PORT_LANGUAGE_ITALIAN},   {"ita", PORT_LANGUAGE_ITALIAN},
+        {"it", PORT_LANGUAGE_ITALIAN},
+        {"japanese", PORT_LANGUAGE_JAPANESE}, {"jpn", PORT_LANGUAGE_JAPANESE},
+        {"ja", PORT_LANGUAGE_JAPANESE},       {"jp", PORT_LANGUAGE_JAPANESE},
     };
+    static int s_warned;
     const char* v = getenv("STRIKERS_LANGUAGE");
     size_t i;
 
     if (v == NULL || *v == '\0')
-        return 0;   // UK English, which is the console's own default
+#if defined(__SWITCH__)
+        return PortSwitchLanguage();
+#else
+        return PORT_LANGUAGE_UNSET;
+#endif
 
     if (*v >= '0' && *v <= '9')
     {
         unsigned long n = strtoul(v, NULL, 10);
-        return n <= 4 ? (u8)n : (u8)0;
+        if (n <= PORT_LANGUAGE_JAPANESE)
+            return (int)n;
+    }
+    else
+    {
+        for (i = 0; i < sizeof kLanguages / sizeof kLanguages[0]; i++)
+            if (strcmpi(v, kLanguages[i].name) == 0)
+                return kLanguages[i].value;
     }
 
-    for (i = 0; i < sizeof kLanguages / sizeof kLanguages[0]; i++)
-        if (strcmpi(v, kLanguages[i].name) == 0)
-            return kLanguages[i].value;
+    if (!s_warned)
+    {
+        s_warned = 1;
+        fprintf(stderr,
+                "[port] STRIKERS_LANGUAGE=%s not recognised; using the disc's own. "
+                "Try english, german, french, spanish, italian, japanese, or 0-5.\n", v);
+    }
+    return PORT_LANGUAGE_UNSET;
+}
 
-    // Named something this does not know. Not fatal, a typo in a config file should not stop the
-    // game, but silent would be worse, because the symptom is "the language setting does nothing".
-    fprintf(stderr,
-            "[port] STRIKERS_LANGUAGE=%s not recognised; using UK English. "
-            "Try english, german, french, spanish, italian, or 0-4.\n", v);
-    return 0;
+// The IPL setting a European GameCube kept in SRAM.
+u8 OSGetLanguage(void)
+{
+    const int language = port_language();
+    if (language == PORT_LANGUAGE_JAPANESE)
+    {
+        static int s_warned;
+        if (!s_warned)
+        {
+            s_warned = 1;
+            fprintf(stderr, "[port] language = japanese needs the Japanese disc; using UK English\n");
+        }
+        return 0;
+    }
+    // Unset is 0: UK English is the console's default.
+    return language < 0 ? 0 : (u8)language;
 }
 u32 OSGetSoundMode(void) { return 1; }             // stereo
 void OSSetSoundMode(u32 mode) { (void)mode; }

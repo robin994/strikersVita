@@ -108,7 +108,7 @@ union FunctionAddress
 
 /*
  * The script-question cache key. Every Fuzzy question builds the same key: a
- * FuzzyVariant wrapping the subject, hashed with the question function's own
+ * FuzzyVariant wrapping the subject, paired with the question function's own
  * address. Each site also constructs a second FuzzyVariant from the same subject
  * and discards it; retail's code contains both constructions, so both are here.
  *
@@ -139,14 +139,14 @@ union FunctionAddress
     const FuzzyVariant& fvQuestion = FuzzyVariant(arg);                              \
     FunctionAddress functionAddress;                                                 \
     functionAddress.member = fn;                                                     \
-    uintptr_t hash = StrategicQuestionHash(functionAddress.address, fvQuestion); \
+    ScriptQuestionKey hash = StrategicQuestionHash(functionAddress.address, fvQuestion); \
     (void)FuzzyVariant(arg)
 
 #define SCRIPT_QUESTION_KEY(member, fn, arg)                                         \
     FuzzyVariant fvQuestion(arg);                                                    \
     FunctionAddress functionAddress;                                                 \
     functionAddress.member = fn;                                                     \
-    uintptr_t hash = StrategicQuestionHash(functionAddress.address, fvQuestion); \
+    ScriptQuestionKey hash = StrategicQuestionHash(functionAddress.address, fvQuestion); \
     FuzzyVariant fvQuestion2(arg)
 
 float InBetweenMyNetAnd(cFielder*, cFielder*);
@@ -178,12 +178,25 @@ extern cTeam* g_pScriptOtherTeam;
 extern cBall* g_pScriptBall;
 
 #include "Game/AI/Scripts/ScriptCaching.h"
+#include "port/crash_log.h"
 
-static inline uintptr_t StrategicQuestionHash(
+static inline ScriptQuestionKey StrategicQuestionHash(
     uintptr_t functionAddress,
     const FuzzyVariant& argument)
 {
-    return functionAddress + ((const Variant*)&argument)->GetHash();
+    return MakeScriptQuestionKey(functionAddress, *(const Variant*)&argument);
+}
+
+// PORT: a result read back as a player must be one or empty; anything else is logged and emptied.
+static void RequirePlayerResult(FuzzyVariant& result, const char* what)
+{
+    if (result.mType == FT_PLAYER || result.mType == FT_UNSPECIFIED)
+        return;
+
+    // PORT: raw payload, since ToString would dereference it.
+    PortCrashLog("%s: tag %d payload %llx\n", what, (int)result.mType,
+        (unsigned long long)result.mData.u);
+    result.Reset();
 }
 
 /**
@@ -2079,6 +2092,7 @@ FuzzyVariant Fuzzy::GetBestPassReceiveAction(cFielder* TheFielder)
             }
 
             FuzzyVariant bestPassTargetFielder = GetBestPassTarget((cPlayer*)TheFielder);
+            RequirePlayerResult(bestPassTargetFielder, "receive pass target");
 
             FuzzyVariant passAction(13);
             passAction.ExtraData = (Variant&)bestPassTargetFielder;
@@ -2266,6 +2280,7 @@ FuzzyVariant Fuzzy::GetBestLooseBallAction(cFielder* TheFielder)
 
         cTeam* otherTeam = TheFielder ? ((cPlayer*)TheFielder)->m_pTeam->GetOtherTeam() : NULL;
         FuzzyVariant otherSBC = Fuzzy::GetStrategicBallCarrier(otherTeam);
+        RequirePlayerResult(otherSBC, "loose ball hit target");
 
         float fTrueConfidence3 = nlMinFour(
             1.0f - FarToBall((cPlayer*)TheFielder),
@@ -2583,6 +2598,7 @@ FuzzyVariant Fuzzy::GetBestLooseBallAction(cFielder* TheFielder)
         }
 
         FuzzyVariant bestPassTargetFielder = Fuzzy::GetBestLooseBallPassTarget(TheFielder);
+        RequirePlayerResult(bestPassTargetFielder, "loose ball pass target");
 
         float fCanPass = nlMinFour(TheFielder->CanLooseBallPass() ? 1.0f : 0.0f,
             FGREATER(bestPassTargetFielder.Confidence, 0.3f),
@@ -2801,6 +2817,7 @@ FuzzyVariant Fuzzy::GetBestWindupShotAction(cFielder* TheFielder)
 
                     {
                         FuzzyVariant bestPassTargetFielder = Fuzzy::GetBestPassTarget((cPlayer*)TheFielder);
+                        RequirePlayerResult(bestPassTargetFielder, "windup pass target");
 
                         fTrueConfidence = FGREATER(bestPassTargetFielder.Confidence, 0.3f);
                         float fFalseConfidence = 1.0f - fTrueConfidence;

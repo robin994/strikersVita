@@ -10,7 +10,11 @@
 #include <stdlib.h>
 #include <string.h>
 
-#if !defined(_WIN32)
+#if defined(__SWITCH__)
+
+// Horizon has no signals and newlib no execinfo; Atmosphere writes the crash report instead.
+
+#elif !defined(_WIN32)
 
 #include <execinfo.h>
 #include <unistd.h>

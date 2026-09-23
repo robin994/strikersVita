@@ -7,12 +7,14 @@
 #include "keycapturebutton.h"
 #include "keynames.h"
 #include "settingspage.h"
+#include "texturepacks.h"
 
 #include <QApplication>
 #include <QCheckBox>
 #include <QCloseEvent>
 #include <QComboBox>
 #include <QCoreApplication>
+#include <QDesktopServices>
 #include <QDir>
 #include <QDoubleSpinBox>
 #include <QEventLoop>
@@ -20,6 +22,7 @@
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QFont>
+#include <QFontMetrics>
 #include <QFormLayout>
 #include <QGridLayout>
 #include <QGroupBox>
@@ -27,6 +30,8 @@
 #include <QHeaderView>
 #include <QLabel>
 #include <QLineEdit>
+#include <QLocale>
+#include <QMap>
 #include <QMessageBox>
 #include <QPair>
 #include <QPalette>
@@ -38,14 +43,18 @@
 #include <QScrollArea>
 #include <QSettings>
 #include <QSlider>
+#include <QStandardItemModel>
 #include <QStatusBar>
 #include <QTabWidget>
 #include <QTableWidget>
 #include <QThread>
 #include <QTimer>
 #include <QToolButton>
+#include <QUrl>
 #include <QVBoxLayout>
 #include <QVariant>
+
+#include "port/steamdeck.h"
 
 namespace {
 
@@ -79,6 +88,35 @@ bool truthy(const QString& v)
            s == QLatin1String("yes") || s == QLatin1String("on");
 }
 
+// A switch and its info button, then a button; `lead` is the first two, for lining up several rows.
+QWidget* switchRow(QCheckBox* box, QWidget* info, QPushButton* button, QWidget** lead)
+{
+    *lead = new QWidget;
+    auto* l = new QHBoxLayout(*lead);
+    l->setContentsMargins(0, 0, 0, 0);
+    l->setSpacing(6);
+    l->addWidget(box);
+    l->addSpacing(SettingsPage::trailingGap(box));
+    l->addWidget(info, 0, Qt::AlignVCenter);
+    l->addStretch(1);
+
+    auto* row = new QWidget;
+    auto* h = new QHBoxLayout(row);
+    h->setContentsMargins(0, 0, 0, 0);
+    h->setSpacing(12);
+    h->addWidget(*lead);
+    h->addWidget(button);
+    h->addStretch(1);
+    return row;
+}
+
+bool falsy(const QString& v)
+{
+    const QString s = v.trimmed().toLower();
+    return s == QLatin1String("0") || s == QLatin1String("false") ||
+           s == QLatin1String("no") || s == QLatin1String("off");
+}
+
 const Setting& byKey(const QVector<Setting>& group, const char* k)
 {
     for (const Setting& x : group)
@@ -87,6 +125,11 @@ const Setting& byKey(const QVector<Setting>& group, const char* k)
             return x;
     }
     return group.first();
+}
+
+bool isGlBackend(const QString& backend)
+{
+    return backend == QLatin1String("opengl") || backend == QLatin1String("opengles");
 }
 
 bool backendSupportedHere(const QString& backend)
@@ -98,7 +141,7 @@ bool backendSupportedHere(const QString& backend)
 #elif defined(Q_OS_MACOS)
     return backend == QLatin1String("metal");
 #else
-    return backend == QLatin1String("vulkan");
+    return backend == QLatin1String("vulkan") || isGlBackend(backend);
 #endif
 }
 
@@ -111,6 +154,7 @@ QWidget* pair(QWidget* first, QWidget* second, int stretchFirst = 0)
     h->setContentsMargins(0, 0, 0, 0);
     h->setSpacing(6);
     h->addWidget(first, stretchFirst);
+    h->addSpacing(SettingsPage::trailingGap(first));
     h->addWidget(second);
     return row;
 }
@@ -213,6 +257,14 @@ void MainWindow::rememberGeometry()
         restoreGeometry(geometry);
 }
 
+void MainWindow::changeEvent(QEvent* event)
+{
+    // Packs dropped in from the file manager show when the window is back in front.
+    if (event->type() == QEvent::ActivationChange && isActiveWindow())
+        updateTexturePacks();
+    QMainWindow::changeEvent(event);
+}
+
 void MainWindow::closeEvent(QCloseEvent* event)
 {
     // A QThread destroyed while running takes the process with it.
@@ -312,8 +364,10 @@ QComboBox* MainWindow::addChoice(SettingsPage* page, const Setting& s)
             {
                 // A value the file has and the combo does not: keep it rather than silently
                 // rewriting the user's file on the next save.
-                combo->addItem(MainWindow::tr("%1 (from the file)").arg(v), v);
-                i = combo->count() - 1;
+                i = combo->count();
+                while (i > 0 && isGlBackend(combo->itemData(i - 1).toString()))
+                    --i;
+                combo->insertItem(i, MainWindow::tr("%1 (from the file)").arg(v), v);
             }
             combo->setCurrentIndex(i);
         });
@@ -330,15 +384,31 @@ QWidget* MainWindow::buildDisplayTab()
     {
         const Setting& s = byKey(group, "res_scale");
         auto* combo = new QComboBox;
-        combo->addItem(tr("Automatic (follows the window)"), QString());
-        static const struct { int rows; const char* name; } kResolutions[] = {
-            { 448, "GameCube" }, { 480, "480p" },   { 540, "540p" },   { 576, "576p" },
-            { 720, "720p" },     { 900, "900p" },   { 1080, "1080p" }, { 1440, "1440p" },
-            { 1800, nullptr },   { 2160, "4K" },    { 2880, "5K" },
+        // The game renders the panel's rows on a Deck when this is left unset.
+        combo->addItem(PortIsSteamDeck() ? tr("Automatic (Steam Deck, 1280×800)")
+                                         : tr("Automatic (follows the window)"),
+                       QString());
+        // One entry per height, since the height is all the value holds; the width names the display it is known from.
+        static const struct { int width; int rows; const char* name; } kResolutions[] = {
+            { 640, 448, "GameCube" },
+            { 854, 480, "480p" },
+            { 960, 540, "540p" },
+            { 1024, 576, "576p" },
+            { 1280, 720, "720p" },
+            { 1366, 768, nullptr },
+            { PORT_STEAM_DECK_WIDTH, PORT_STEAM_DECK_ROWS, "Steam Deck" },
+            { 1600, 900, "900p" },
+            { 1920, 1080, "1080p" },
+            { 1920, 1200, nullptr },
+            { 2560, 1440, "1440p" },
+            { 2560, 1600, nullptr },
+            { 3200, 1800, nullptr },
+            { 3840, 2160, "4K" },
+            { 5120, 2880, "5K" },
         };
         for (const auto& r : kResolutions)
         {
-            const QString size = QStringLiteral("%1×%2").arg(qRound(r.rows * 16.0 / 9.0)).arg(r.rows);
+            const QString size = QStringLiteral("%1×%2").arg(r.width).arg(r.rows);
             combo->addItem(r.name != nullptr ? QStringLiteral("%1 (%2)").arg(size, QLatin1String(r.name))
                                              : size,
                            trimScale(double(r.rows) / 448.0));
@@ -360,8 +430,7 @@ QWidget* MainWindow::buildDisplayTab()
             const bool automatic = combo->currentIndex() <= 0;
             rowsNote->setText(isCustom()
                                   ? tr("Renders %1 rows.").arg(qRound(spin->value() * 448.0))
-                                  : tr("The height is exact. The width shown is for 16:9 and "
-                                       "follows the aspect ratio."));
+                                  : tr("The height is exact. The width follows the aspect ratio."));
             rowsNote->setVisible(!automatic);
         };
         connect(combo, &QComboBox::currentIndexChanged, this, [this, spin, isCustom, showRows] {
@@ -495,13 +564,17 @@ QWidget* MainWindow::buildDisplayTab()
         {
             const QString v = combo->itemData(i).toString();
             if (backendSupportedHere(v))
+            {
+                if (isGlBackend(v))
+                    combo->setItemText(i, tr("%1 (experimental)").arg(combo->itemText(i)));
                 continue;
+            }
             combo->setItemData(i, QVariant(0), Qt::UserRole - 1); // disable the item
             combo->setItemText(i, tr("%1 (not on this computer)").arg(combo->itemText(i)));
         }
     }
 
-    addSwitch(page, byKey(group, "fullscreen"));
+    addChoice(page, byKey(group, "fullscreen"));
     addSwitch(page, byKey(group, "pause_on_focus_lost"));
 
     page->finish();
@@ -755,13 +828,17 @@ QWidget* MainWindow::buildGamepadPage()
         slider->setMinimumWidth(180);
         slider->setMaximumWidth(240);
         auto* readout = new QLabel;
-        readout->setMinimumWidth(48);
 
         const bool percent = scale == 1;
         auto text = [percent, scale, suffix](int raw) {
             return percent ? QStringLiteral("%1%2").arg(raw).arg(suffix)
                            : trimNumber(double(raw) / scale) + suffix;
         };
+        // As wide as the widest value any slider shows, so the info buttons line up just past it.
+        const QFontMetrics fm = readout->fontMetrics();
+        readout->setFixedWidth(qMax(fm.horizontalAdvance(QStringLiteral("100%")),
+                                    qMax(fm.horizontalAdvance(text(slider->minimum())),
+                                         fm.horizontalAdvance(text(slider->maximum())))));
         QObject::connect(slider, &QSlider::valueChanged, readout,
                          [readout, text](int val) { readout->setText(text(val)); });
         readout->setText(text(slider->value()));
@@ -783,7 +860,8 @@ QWidget* MainWindow::buildGamepadPage()
 
     addSwitch(page, Schema::get(QStringLiteral("pad_swap_sticks")));
     addSlider(Schema::get(QStringLiteral("pad_deadzone")), 0.0, 0.9, 100, QString());
-    addSlider(Schema::get(QStringLiteral("pad_trigger_threshold")), 0.1, 0.9, 100, QString());
+    // The top is the game's default, 0.95; a lower one would clamp it on load and save a change.
+    addSlider(Schema::get(QStringLiteral("pad_trigger_threshold")), 0.1, 0.95, 100, QString());
     addSwitch(page, Schema::get(QStringLiteral("pad_rumble")));
     addSlider(Schema::get(QStringLiteral("pad_rumble_strength")), 0, 100, 1,
               QStringLiteral("%"));
@@ -864,15 +942,106 @@ QWidget* MainWindow::buildGameTab()
             [this](const QString& val) { m_dataEdit->setText(val); });
     }
 
+    page->beginSection(tr("Texture packs"));
+
+    QWidget* packsLead = nullptr;
+    QWidget* dumpLead = nullptr;
+    {
+        const Setting& s = Schema::get(QStringLiteral("textures"));
+        m_texturesBox = new QCheckBox(s.check);
+        auto* open = new QPushButton(tr("Open Folder"));
+        connect(open, &QPushButton::clicked, this, [this] {
+            openFolder(AppPaths::modsFolder(userFolder(), QStringLiteral("textures")));
+        });
+        page->addSetting(s.label, switchRow(m_texturesBox, infoFor(s), open, &packsLead));
+        connect(m_texturesBox, &QCheckBox::toggled, this, [this] {
+            updateTexturePacks();
+            markDirty();
+        });
+        registerControl(
+            s, [this] { return m_texturesBox->isChecked() ? m_texturesFolder : QStringLiteral("0"); },
+            [this](const QString& v) {
+                const bool off = falsy(v);
+                m_texturesFolder = off || truthy(v) ? QString() : v.trimmed();
+                m_texturesBox->setChecked(!off);
+            });
+
+        m_packList = SettingsPage::note(QString());
+        m_packList->setObjectName(QStringLiteral("texturePacks"));
+        m_packList->setTextFormat(Qt::PlainText);
+
+        // With several packs the list becomes a choice of one of them.
+        const Setting& p = Schema::get(QStringLiteral("texture_pack"));
+        m_packChoice = new QComboBox;
+        m_packChoice->setSizeAdjustPolicy(QComboBox::AdjustToContents);
+        m_packChoiceRow = new QWidget;
+        auto* ph = new QHBoxLayout(m_packChoiceRow);
+        ph->setContentsMargins(0, 0, 0, 0);
+        ph->setSpacing(6);
+        ph->addWidget(m_packChoice);
+        ph->addWidget(infoFor(p), 0, Qt::AlignVCenter);
+        ph->addStretch(1);
+        connect(m_packChoice, &QComboBox::currentIndexChanged, this, [this] {
+            if (m_fillingPacks)
+                return;
+            m_packWanted = m_packChoice->currentData().toString();
+            markDirty();
+        });
+        registerControl(
+            p, [this] { return m_packWanted; },
+            [this](const QString& v) {
+                m_packWanted = v.trimmed();
+                updateTexturePacks();
+            });
+
+        auto* under = new QWidget;
+        auto* uv = new QVBoxLayout(under);
+        uv->setContentsMargins(0, 0, 0, 0);
+        uv->setSpacing(0);
+        uv->addWidget(m_packList);
+        uv->addWidget(m_packChoiceRow);
+        page->addFieldNote(under);
+    }
+
+    {
+        const Setting& s = Schema::get(QStringLiteral("texture_dump"));
+        m_dumpBox = new QCheckBox(s.check);
+        auto* open = new QPushButton(tr("Open Folder"));
+        connect(open, &QPushButton::clicked, this, [this] {
+            openFolder(m_dumpFolder.isEmpty() ? userFolder() + QStringLiteral("/texture_dumps")
+                                              : gamePath(m_dumpFolder));
+        });
+        page->addSetting(s.label, switchRow(m_dumpBox, infoFor(s), open, &dumpLead));
+        connect(m_dumpBox, &QCheckBox::toggled, this, &MainWindow::markDirty);
+        registerControl(
+            s,
+            [this] {
+                if (!m_dumpBox->isChecked())
+                    return QStringLiteral("0");
+                return m_dumpFolder.isEmpty() ? QStringLiteral("1") : m_dumpFolder;
+            },
+            [this](const QString& v) {
+                const bool on = !v.trimmed().isEmpty() && !falsy(v);
+                m_dumpFolder = on && !truthy(v) ? v.trimmed() : QString();
+                m_dumpBox->setChecked(on);
+            });
+    }
+
+    {
+        const int w = qMax(packsLead->sizeHint().width(), dumpLead->sizeHint().width());
+        packsLead->setMinimumWidth(w);
+        dumpLead->setMinimumWidth(w);
+    }
+
     page->beginSection(tr("Options"));
 
-    // The combo's first entry writes nothing: the console's own default is English, and a file with
-    // no `language` line gets exactly that.
+    // The combo's first entry writes nothing, which leaves each disc its own language.
     m_language = addChoice(page, Schema::get(QStringLiteral("language")));
     m_languageState = SettingsPage::note(QString());
     page->addFieldNote(m_languageState);
 
     addSwitch(page, Schema::get(QStringLiteral("unlock_all")));
+    addSwitch(page, Schema::get(QStringLiteral("discord")));
 
     // A switch whose value is not "1": the menu opens on `menu` and the compact overlay on `1`, and
     // turning this on is meant to show the menu.
@@ -1059,6 +1228,7 @@ void MainWindow::loadIntoUi()
     refreshAdvancedTable();
     updateConflicts();
     updateDataState();
+    updateTexturePacks();
     m_loading = false;
 }
 
@@ -1506,24 +1676,107 @@ void MainWindow::updateDataState()
     }
 }
 
-// Only Mario Smash Football (G4QP01) asks the console for a language, so the combo is greyed out
-// under any other disc rather than left looking like it works.
+// Greyed out under the American disc, which has one language; Japanese needs the Japanese disc's own menus.
+QString MainWindow::gamePath(const QString& path)
+{
+    const QString p = QDir::fromNativeSeparators(path.trimmed());
+    return p.isEmpty() ? p : QDir::cleanPath(QDir(AppPaths::archiveRoot()).absoluteFilePath(p));
+}
+
+QString MainWindow::userFolder() const
+{
+    return AppPaths::userFolder(m_ini.has(QStringLiteral("USER_DIR"))
+                                    ? gamePath(m_ini.value(QStringLiteral("USER_DIR")))
+                                    : QString());
+}
+
+void MainWindow::openFolder(const QString& path)
+{
+    if (!QDir().mkpath(path))
+    {
+        QMessageBox::warning(this, tr("Texture packs"),
+                             tr("Could not create %1.").arg(QDir::toNativeSeparators(path)));
+        return;
+    }
+    QDesktopServices::openUrl(QUrl::fromLocalFile(path));
+}
+
+void MainWindow::updateTexturePacks()
+{
+    if (m_packList == nullptr)
+        return;
+
+    QStringList roots = { AppPaths::modsFolder(userFolder(), QStringLiteral("textures")),
+                          AppPaths::modsFolder(AppPaths::archiveRoot(), QStringLiteral("textures")) };
+    if (!m_texturesFolder.isEmpty())
+        roots << gamePath(m_texturesFolder);
+
+    const QLocale locale;
+    const auto describe = [&](const QString& name, int textures) {
+        return textures == 1 ? tr("%1: 1 texture").arg(name)
+                             : tr("%1: %2 textures").arg(name, locale.toString(textures));
+    };
+    QStringList lines;
+    QMap<QString, int> folders;  // pack folder -> textures, summed over the roots that have it
+    for (const QString& root : roots)
+    {
+        for (const TexturePack& p : TexturePacks::scan(root))
+        {
+            lines << describe(p.name, p.textures);
+            if (p.path != root)
+                folders[p.name] += p.textures;
+        }
+    }
+    m_packList->setText(lines.isEmpty()
+                            ? tr("No packs yet. Each pack goes in a folder of its own in the "
+                                 "textures folder.")
+                            : lines.join(QLatin1Char('\n')));
+
+    const bool choose = folders.size() > 1 || !m_packWanted.isEmpty();
+    m_packList->setVisible(!choose);
+    m_packChoiceRow->setVisible(choose);
+    if (choose)
+    {
+        m_fillingPacks = true;
+        m_packChoice->clear();
+        m_packChoice->addItem(tr("All packs"), QString());
+        for (auto it = folders.cbegin(); it != folders.cend(); ++it)
+            m_packChoice->addItem(describe(it.key(), it.value()), it.key());
+        if (!m_packWanted.isEmpty() && !folders.contains(m_packWanted))
+            m_packChoice->addItem(tr("%1 (not found)").arg(m_packWanted), m_packWanted);
+        m_packChoice->setCurrentIndex(qMax(0, m_packChoice->findData(m_packWanted)));
+        m_fillingPacks = false;
+    }
+    m_packList->setEnabled(m_texturesBox->isChecked());
+    m_packChoiceRow->setEnabled(m_texturesBox->isChecked());
+}
+
 void MainWindow::updateLanguageState(const QString& gameId)
 {
     if (m_language == nullptr || m_languageState == nullptr)
         return;
 
     const bool european = gameId.startsWith(QStringLiteral("G4QP"));
+    const bool japanese = gameId.startsWith(QStringLiteral("G4QJ"));
     const bool known = !gameId.isEmpty();
-    m_language->setEnabled(!known || european);
+    m_language->setEnabled(!known || european || japanese);
+
+    if (auto* model = qobject_cast<QStandardItemModel*>(m_language->model()))
+    {
+        const int i = m_language->findData(QStringLiteral("japanese"));
+        if (QStandardItem* item = i >= 0 ? model->item(i) : nullptr)
+            item->setEnabled(!known || japanese);
+    }
+
     if (!known)
-        m_languageState->setText(tr("Read by the European release only."));
+        m_languageState->setText(tr("Read by the European and Japanese releases."));
     else if (european)
         m_languageState->setText(tr("This copy is the European release, so this applies."));
+    else if (japanese)
+        m_languageState->setText(tr("This copy is the Japanese release, so this applies."));
     else
         m_languageState->setText(
-            tr("This copy is the %1 release, which has one language of its own.")
-                .arg(gameId.startsWith(QStringLiteral("G4QJ")) ? tr("Japanese") : tr("American")));
+            tr("This copy is the %1 release, which has one language of its own.").arg(tr("American")));
 }
 
 void MainWindow::setDirty(bool dirty)

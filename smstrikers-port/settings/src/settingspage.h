@@ -56,6 +56,9 @@ public:
     // The secondary-colour, smaller label used for state and notes.
     static QLabel* note(const QString& text);
 
+    // Extra room to leave after `w` before the next control.
+    static int trailingGap(const QWidget* w);
+
 private:
     QFormLayout* m_form;
     bool m_haveSection = false;

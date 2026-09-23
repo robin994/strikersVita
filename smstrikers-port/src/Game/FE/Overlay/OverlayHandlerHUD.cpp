@@ -14,6 +14,8 @@
 #include "NL/nlAlgorithm.h"
 #include "NL/nlLocalization.h"
 #include "NL/nlPrint.h"
+#include "NL/nlDLRing.h"   // PORT: nlDLRingGetStart
+#include "NL/gl/gl.h"      // PORT: glGetOrthographicWidth
 
 static inline const unsigned short* LookupLocHash(unsigned long key)
 {
@@ -59,6 +61,43 @@ static char* RIGHT_POWER_UP_TEXT_NAMES[2] = {
     "POWERUP NUMBER RIGHT 1",
     "POWERUP NUMBER RIGHT 2",
 };
+
+// PORT: the slides move the HUD just past a 640-wide frame's sides, which a wider frame still shows; x keyframes beyond that edge move outward by delta.
+static void PortShiftOffFrameSlides(FEPresentation* presentation, float delta)
+{
+    const float designEdge = 0.5f * glGetOrthographicHeight() * (4.0f / 3.0f);
+
+    for (TLSlide* slide = nlDLRingGetStart(presentation->m_slides); slide != NULL; slide = slide->m_next)
+    {
+        for (FEAnimation* anim = nlDLRingGetStart(slide->m_animations); anim != NULL; anim = anim->m_next)
+        {
+            if (anim->m_cast_type == 1 && anim->m_type == eAnimPosition)
+            {
+                v3AnimationKeyframe* head = (v3AnimationKeyframe*)anim->m_DLRingHead;
+                for (v3AnimationKeyframe* key = nlDLRingGetStart(head); key != NULL; key = key->m_next)
+                {
+                    // Control points are absolute x values; the last key's -1 sentinels never pass the edge test.
+                    float* values[3] = { &key->pKeyFrameDataX.m_fPoint, &key->pKeyFrameDataX.m_fControl1,
+                                         &key->pKeyFrameDataX.m_fControl2 };
+                    for (int i = 0; i < 3; i++)
+                    {
+                        if (*values[i] > designEdge)
+                            *values[i] += delta;
+                        else if (*values[i] < -designEdge)
+                            *values[i] -= delta;
+                    }
+                    if (nlDLRingIsEnd(head, key))
+                        break;
+                }
+            }
+            if (nlDLRingIsEnd(slide->m_animations, anim))
+                break;
+        }
+        if (nlDLRingIsEnd(presentation->m_slides, slide))
+            break;
+    }
+}
+
 static const char* HUD_SLIDE_IN_NAME = "IN";
 static const char* HUD_SLIDE_OUT_NAME = "OUT";
 static const char* LAYER_NAME = "Layer";
@@ -119,6 +158,18 @@ HUDOverlay::~HUDOverlay()
 void HUDOverlay::Update(float fDeltaT)
 {
     typedef BasicString<unsigned short, Detail::TempStringAllocator> WideString;
+
+    // PORT: before BaseSceneHandler::Update evaluates the slide, so a resize takes effect this frame.
+    {
+        float shift = 0.5f * (glGetOrthographicWidth() - glGetOrthographicHeight() * (4.0f / 3.0f));
+        if (shift < 0.0f)
+            shift = 0.0f;
+        if (shift != mPortEdgeShift)
+        {
+            PortShiftOffFrameSlides(m_pFEPresentation, shift - mPortEdgeShift);
+            mPortEdgeShift = shift;
+        }
+    }
 
     BaseSceneHandler::Update(fDeltaT);
     mAsyncImage[0]->Update(true);
@@ -331,6 +382,8 @@ void HUDOverlay::SceneCreated()
     TLComponentInstance* pScoreComp;
     eTeamID team;
     TLTextInstance* pTeamName;
+
+    mPortEdgeShift = 0.0f; // PORT: a freshly loaded package carries no shift
 
     m_pTextInstanceClock[0] = FEFinder<TLTextInstance, 3>::Find<FEPresentation>(
         presentation,

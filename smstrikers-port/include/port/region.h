@@ -27,6 +27,21 @@ const char* port_disc_maker_code(void);
 // Tell Aurora which disc is loaded, so the memory card lands in the right region directory.
 void PortSetDiscGameName(const char* code4);
 
+// The first five are the European console's own language values.
+enum PortLanguage
+{
+    PORT_LANGUAGE_UNSET = -1,
+    PORT_LANGUAGE_ENGLISH = 0,
+    PORT_LANGUAGE_GERMAN = 1,
+    PORT_LANGUAGE_FRENCH = 2,
+    PORT_LANGUAGE_SPANISH = 3,
+    PORT_LANGUAGE_ITALIAN = 4,
+    PORT_LANGUAGE_JAPANESE = 5,
+};
+
+// STRIKERS_LANGUAGE, else the console's language on Switch if the disc has it, else unset.
+int port_language(void);
+
 #ifdef __cplusplus
 }
 #endif

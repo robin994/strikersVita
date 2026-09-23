@@ -156,30 +156,32 @@ std::array<PADButtonMapping, PAD_BUTTON_COUNT> g_defaultButtonsProCon{{
     {SDL_GAMEPAD_BUTTON_DPAD_RIGHT, PAD_BUTTON_RIGHT},
 }};
 
+// smstrikers-port: a lone Joy-Con has no triggers, so SL and SR are L and R and the stick click is Z.
 std::array<PADButtonMapping, PAD_BUTTON_COUNT> g_defaultButtonsJoyConRight{{
     {SDL_GAMEPAD_BUTTON_SOUTH, PAD_BUTTON_A},
     {SDL_GAMEPAD_BUTTON_EAST, PAD_BUTTON_B},
     {SDL_GAMEPAD_BUTTON_WEST, PAD_BUTTON_X},
     {SDL_GAMEPAD_BUTTON_NORTH, PAD_BUTTON_Y},
     {SDL_GAMEPAD_BUTTON_START, PAD_BUTTON_START},
-    {SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER, PAD_TRIGGER_Z},
-    {PAD_NATIVE_BUTTON_INVALID, PAD_TRIGGER_L},
-    {PAD_NATIVE_BUTTON_INVALID, PAD_TRIGGER_R},
+    {SDL_GAMEPAD_BUTTON_LEFT_STICK, PAD_TRIGGER_Z},
+    {SDL_GAMEPAD_BUTTON_LEFT_SHOULDER, PAD_TRIGGER_L},
+    {SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER, PAD_TRIGGER_R},
     {SDL_GAMEPAD_BUTTON_DPAD_UP, PAD_BUTTON_UP},
     {SDL_GAMEPAD_BUTTON_DPAD_DOWN, PAD_BUTTON_DOWN},
     {SDL_GAMEPAD_BUTTON_DPAD_LEFT, PAD_BUTTON_LEFT},
     {SDL_GAMEPAD_BUTTON_DPAD_RIGHT, PAD_BUTTON_RIGHT},
 }};
 
+// smstrikers-port: as the right Joy-Con.
 std::array<PADButtonMapping, PAD_BUTTON_COUNT> g_defaultButtonsJoyConLeft{{
     {SDL_GAMEPAD_BUTTON_SOUTH, PAD_BUTTON_A},
     {SDL_GAMEPAD_BUTTON_EAST, PAD_BUTTON_B},
     {SDL_GAMEPAD_BUTTON_WEST, PAD_BUTTON_X},
     {SDL_GAMEPAD_BUTTON_NORTH, PAD_BUTTON_Y},
     {SDL_GAMEPAD_BUTTON_START, PAD_BUTTON_START},
-    {SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER, PAD_TRIGGER_Z},
-    {PAD_NATIVE_BUTTON_INVALID, PAD_TRIGGER_L},
-    {PAD_NATIVE_BUTTON_INVALID, PAD_TRIGGER_R},
+    {SDL_GAMEPAD_BUTTON_LEFT_STICK, PAD_TRIGGER_Z},
+    {SDL_GAMEPAD_BUTTON_LEFT_SHOULDER, PAD_TRIGGER_L},
+    {SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER, PAD_TRIGGER_R},
     {SDL_GAMEPAD_BUTTON_DPAD_UP, PAD_BUTTON_UP},
     {SDL_GAMEPAD_BUTTON_DPAD_DOWN, PAD_BUTTON_DOWN},
     {SDL_GAMEPAD_BUTTON_DPAD_LEFT, PAD_BUTTON_LEFT},
@@ -909,6 +911,14 @@ u32 PADRead(PADStatus* status) {
           status[i].button |= PAD_TRIGGER_R;
         }
       }
+#if defined(__SWITCH__)
+      // smstrikers-port: L also presses GameCube L, as in the Switch 2 release, unless L is remapped.
+      if (std::ranges::none_of(controller->m_buttonMapping,
+                               [](const auto& m) { return m.nativeButton == SDL_GAMEPAD_BUTTON_LEFT_SHOULDER; }) &&
+          SDL_GetGamepadButton(controller->m_controller, SDL_GAMEPAD_BUTTON_LEFT_SHOULDER)) {
+        status[i].button |= PAD_TRIGGER_L;
+      }
+#endif
       tl /= 128;
       tr /= 128;
 

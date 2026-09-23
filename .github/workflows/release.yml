@@ -1,6 +1,6 @@
 name: release
 
-# Build and package all four targets before drafting a release.
+# Build and package every target before drafting a release.
 
 on:
   push:
@@ -20,6 +20,8 @@ jobs:
   build:
     name: build (${{ matrix.name }})
     runs-on: ${{ matrix.runner }}
+    env:
+      STRIKERS_VERSION: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
     strategy:
       fail-fast: false
       matrix:
@@ -99,18 +101,36 @@ jobs:
         shell: bash
         run: ./tools/rebuild.sh build-aur
 
-      - name: Configure and build (Linux, in Ubuntu 22.04)
+      - name: Start the Ubuntu 22.04 container (Linux)
         if: runner.os == 'Linux'
         run: |
-          docker run --rm -v "$GITHUB_WORKSPACE:$GITHUB_WORKSPACE" \
-            -w "$GITHUB_WORKSPACE/smstrikers-port" ubuntu:22.04 sh -c '
-              set -e
-              export DEBIAN_FRONTEND=noninteractive
-              ./tools/install-linux-deps.sh
-              ./tools/build-ffmpeg.sh
-              ./tools/configure.sh build-aur Release
-              ./tools/rebuild.sh build-aur
-              chown -R '"$(id -u):$(id -g)"' .'
+          docker run -d --name build -e STRIKERS_VERSION -e DEBIAN_FRONTEND=noninteractive \
+            -v "$GITHUB_WORKSPACE:$GITHUB_WORKSPACE" -w "$GITHUB_WORKSPACE/smstrikers-port" \
+            ubuntu:22.04 sleep infinity
+
+      - name: Install dependencies (Linux)
+        if: runner.os == 'Linux'
+        run: docker exec build ./tools/install-linux-deps.sh
+
+      - name: Build ffmpeg (Linux)
+        if: runner.os == 'Linux'
+        run: docker exec build ./tools/build-ffmpeg.sh
+
+      - name: Configure (Linux)
+        if: runner.os == 'Linux'
+        run: docker exec build ./tools/configure.sh build-aur Release
+
+      - name: Build Dawn (Linux)
+        if: runner.os == 'Linux'
+        run: docker exec build cmake --build build-aur --target webgpu_dawn -j10
+
+      - name: Build (Linux)
+        if: runner.os == 'Linux'
+        run: docker exec build ./tools/rebuild.sh build-aur
+
+      - name: Return the tree to the runner user (Linux)
+        if: runner.os == 'Linux'
+        run: docker exec build chown -R "$(id -u):$(id -g)" .
 
       - name: Package
         working-directory: smstrikers-port
@@ -124,9 +144,91 @@ jobs:
           archive: false
           if-no-files-found: error
 
+  switch:
+    name: build (switch)
+    # mesa-switch compiles NVK's Rust for the host architecture.
+    runs-on: ubuntu-24.04-arm
+    env:
+      STRIKERS_VERSION: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
+    defaults:
+      run:
+        working-directory: smstrikers-port
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Free disk space
+        run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+
+      - name: Read Switch dependency versions
+        id: mesa
+        run: |
+          . ./tools/switch/deps.env
+          echo "ref=$MESA_REF" >> "$GITHUB_OUTPUT"
+          echo "image=$DEVKITPRO_IMAGE" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/cache/restore@v4
+        id: nvk
+        with:
+          path: smstrikers-port/extern/nvk-switch
+          key: nvk-switch-${{ steps.mesa.outputs.ref }}-${{ hashFiles('smstrikers-port/tools/switch/build-nvk.sh', 'smstrikers-port/tools/switch/package-nvk.sh', 'smstrikers-port/tools/switch/deps.env') }}
+
+      - name: Build the Vulkan driver
+        if: steps.nvk.outputs.cache-hit != 'true'
+        run: |
+          ./tools/switch/build-nvk.sh
+          docker rm -f mesa-switch-build
+          docker image prune -af
+          sudo rm -rf extern/mesa-switch
+
+      # Its own step, so a built driver is cached even if a later step fails.
+      - uses: actions/cache/save@v4
+        if: steps.nvk.outputs.cache-hit != 'true'
+        with:
+          path: smstrikers-port/extern/nvk-switch
+          key: ${{ steps.nvk.outputs.cache-primary-key }}
+
+      - name: Start the devkitPro container
+        run: |
+          docker run -d --name build -e STRIKERS_VERSION -e DEBIAN_FRONTEND=noninteractive \
+            -v "$GITHUB_WORKSPACE:$GITHUB_WORKSPACE" -w "$GITHUB_WORKSPACE/smstrikers-port" \
+            "${{ steps.mesa.outputs.image }}" sleep infinity
+
+      # The host nm cannot read AArch64 objects; llvm-nm can. The pinned image already has the Switch portlibs.
+      - name: Install host tools
+        run: |
+          docker exec build sh -c 'apt-get update && apt-get install -y --no-install-recommends \
+            cmake ninja-build python3 git curl xz-utils zip make llvm'
+
+      - name: Fetch Dawn
+        run: docker exec build ./tools/fetch-switch-deps.sh
+
+      - name: Build ffmpeg
+        run: docker exec build ./tools/build-ffmpeg.sh --switch
+
+      - name: Configure
+        run: |
+          docker exec -e CMAKE_TOOLCHAIN_FILE="$PWD/tools/toolchain-switch.cmake" build \
+            ./tools/configure.sh build-switch Release
+
+      - name: Build
+        run: docker exec build ./tools/switch/rebuild.sh build-switch
+
+      - name: Package
+        run: docker exec build ./tools/switch/package.sh build-switch strikers-switch
+
+      - name: Return the tree to the runner user
+        run: docker exec build chown -R "$(id -u):$(id -g)" .
+
+      - uses: actions/upload-artifact@v7
+        with:
+          path: smstrikers-port/dist/strikers-switch.zip
+          archive: false
+          if-no-files-found: error
+
   release:
     name: draft release
-    needs: build
+    needs: [build, switch]
     if: >-
       success() && startsWith(github.ref, 'refs/tags/v') &&
       (github.event_name != 'workflow_dispatch' || !inputs.dry_run)
@@ -146,7 +248,7 @@ jobs:
         working-directory: artifacts
         run: |
           set -eu
-          for archive in strikers-macos-arm64.tar.gz strikers-linux-x86_64.tar.gz strikers-linux-arm64.tar.gz strikers-windows-x86_64.zip; do
+          for archive in strikers-macos-arm64.tar.gz strikers-linux-x86_64.tar.gz strikers-linux-arm64.tar.gz strikers-windows-x86_64.zip strikers-switch.zip; do
             test -s "$archive"
           done
           sha256sum *.tar.gz *.zip > SHA256SUMS
@@ -162,10 +264,14 @@ jobs:
 
             Disc data is not bundled. Unpack an archive, put the extracted
             disc's `files/` directory beside the executable, and run it.
-            The player instructions are included in the archive.
+            The README and the wiki have the full instructions.
 
             These are experimental builds for macOS arm64, Linux x86-64,
-            Linux arm64 and Windows x86-64.
+            Linux arm64, Windows x86-64 and the Nintendo Switch.
+            The Switch zip unpacks onto the root of the SD card; put the disc
+            image beside switch/strikers/strikers.nro and start it from the
+            homebrew menu in title mode (hold R while launching a game), not
+            from the album.
             Linux builds need glibc 2.35 or newer: Ubuntu 22.04, Debian 12,
             Fedora 36, current SteamOS, or anything later.
             Verify downloads against SHA256SUMS. Test the packaged builds

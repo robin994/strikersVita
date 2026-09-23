@@ -1207,7 +1207,7 @@ void DrawableCharacter::Replay(T& frame)
     Replayable<1>(frame, mFacingDirection);
     Replayable<1>(frame, mHeadSpin);
     Replayable<1>(frame, mHeadTilt);
-    Replayable<1>(frame, (unsigned long&)mEffectsTexturing);
+    Replayable<1>(frame, (uintptr_t&)mEffectsTexturing);
     ReplayablePolymorphic<1>(frame, mPoseTree);
 
     if (ReplayFrameTraits<T>::IsLoadFrame && frame.mInterval == 1)

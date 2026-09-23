@@ -6,7 +6,9 @@
 #include <string.h>
 #include <time.h>
 
-#if !defined(_WIN32)
+#if defined(__SWITCH__)
+// Horizon has no signals and no mprotect, so only the snapshot watch below runs there.
+#elif !defined(_WIN32)
 #include <execinfo.h>
 #include <pthread.h>
 #include <signal.h>
@@ -138,7 +140,7 @@ void PortMorphWatchPoll(unsigned long frame)
 
 // Page-protection writer trap: STRIKERS_WATCH_MORPH_PROT=1 (with STRIKERS_WATCH_MORPH=1).
 
-#if !defined(_WIN32)
+#if !defined(_WIN32) && !defined(__SWITCH__)
 
 enum { kMaxPages = 4096 };
 typedef struct
@@ -549,7 +551,7 @@ static void prot_tick(unsigned long frame)
     }
 }
 
-#else // _WIN32
+#else // _WIN32 || __SWITCH__
 
 static void prot_note_registration(const void* fieldAddr) { (void)fieldAddr; }
 static void prot_tick(unsigned long frame) { (void)frame; }

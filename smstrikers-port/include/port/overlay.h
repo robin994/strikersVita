@@ -207,6 +207,7 @@ enum PortDebugOp
     // the game at fps/50 times real time.
     PDBG_SET_LOCKSTEP = 33,      // a = 1 on, 0 off
     PDBG_SET_WINDOW = 34,        // a width, b height (0 leaves the size); c = 1 fullscreen, 0 windowed, -1 leave
+    PDBG_SET_DT_SNAP = 35,       // a = 1 whole display periods, 0 host clock, -1 follows STRIKERS_DT_SNAP
 };
 enum PortDebugOption
 {

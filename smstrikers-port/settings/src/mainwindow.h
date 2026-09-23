@@ -58,6 +58,7 @@ public:
     int resizeCount() const { return m_resizes; }
 
 protected:
+    void changeEvent(QEvent* event) override;
     void closeEvent(QCloseEvent* event) override;
     void resizeEvent(QResizeEvent* event) override;
 
@@ -104,6 +105,11 @@ private:
     void updateConflicts();
     void updateDataState();
     void updateLanguageState(const QString& gameId);
+    void updateTexturePacks();
+    QString userFolder() const;
+    // A path from the file as the game reads it: relative to the folder Play starts it in.
+    static QString gamePath(const QString& path);
+    void openFolder(const QString& path);
     QString extractTarget(const QString& gameId, qint64 bytes);
     void updatePlayButton();
     void setDirty(bool dirty);
@@ -133,6 +139,16 @@ private:
     std::atomic<bool> m_extractCancel{ false };
     QComboBox* m_language = nullptr;
     QLabel* m_languageState = nullptr;
+
+    QCheckBox* m_texturesBox = nullptr;
+    QString m_texturesFolder;  // a folder the file names, kept while the switch is on
+    QLabel* m_packList = nullptr;
+    QWidget* m_packChoiceRow = nullptr;
+    QComboBox* m_packChoice = nullptr;
+    QString m_packWanted;  // the file's pack, kept when this machine does not have it
+    bool m_fillingPacks = false;
+    QCheckBox* m_dumpBox = nullptr;
+    QString m_dumpFolder;
 
     QTableWidget* m_advanced = nullptr;
 

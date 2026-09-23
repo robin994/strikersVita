@@ -5,6 +5,7 @@
 #include "NL/nlFunction.h"
 #include "NL/nlArrayAllocator.h"
 #include "dolphin/dvd.h"
+#include "dolphin/os.h"
 #include "FILE_POS.h"
 
 enum GCFileSystem
@@ -202,12 +203,14 @@ public:
             return NULL;
         }
 
-        GCFile* pFile = new DolphinFile(FileEntrynum);
-        while (pFile == NULL)
+        void* mem = s_pAllocator->Allocate();
+        if (mem == NULL)
         {
+            OSReport("[port] DolphinFile::Open: every file slot is in use; %s not opened\n", FileName);
+            return NULL;
         }
 
-        return pFile;
+        return ::new (mem) DolphinFile(FileEntrynum);
     }
 
     static nlArrayAllocator<DolphinFile>* s_pAllocator;

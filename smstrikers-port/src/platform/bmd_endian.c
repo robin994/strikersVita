@@ -30,6 +30,7 @@ static int chunk_is_container(uint32_t type)
     // Animation retargeting (.rtg), from AnimRetargetList::IsValidChunkID
     case 0x17104:  // retarget list: the list, the retarget array, then one
                    // bone-map chunk per retarget
+    case 0x17106:  // inside it, holding the retarget array and the bone maps
         return 1;
     default:
         return 0;

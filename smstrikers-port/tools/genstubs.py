@@ -39,8 +39,8 @@ BUILD = PORT / (os.environ.get("STRIKERS_BUILD_DIR") or "build")
 OUT = PORT / "src" / "platform" / "stubs_generated.c"
 ALLOW = PORT / "tools" / "genstubs.allow"
 
-# Mach-O prefixes every C symbol with an underscore.
-UNDERSCORE = "_" if sys.platform == "darwin" else ""
+# Mach-O prefixes every C symbol with an underscore; STRIKERS_SYMBOL_PREFIX overrides it.
+UNDERSCORE = os.environ.get("STRIKERS_SYMBOL_PREFIX", "_" if sys.platform == "darwin" else "")
 
 # Static archives, by the host's spelling.
 ARCHIVE_GLOBS = ("*.a", "*.lib")

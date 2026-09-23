@@ -17,6 +17,12 @@ unsigned long long port_monotonic_ns(void);
 // frame rate outright.
 void port_sleep_ns(unsigned long long ns);
 
+// Sleep until a port_monotonic_ns() deadline: an absolute sleep on Linux, a relative one elsewhere.
+void port_sleep_until_ns(unsigned long long deadline_ns);
+
+// Cut the calling thread's Linux timer slack from its 50 us default; a no-op elsewhere.
+void port_tighten_timer_slack(void);
+
 // Give the rest of the time slice to any other thread and come straight back: the spin half of the
 // frame limiter's wait, since every host sleeps late by an amount that scales with the request.
 void port_yield(void);
@@ -24,6 +30,9 @@ void port_yield(void);
 // malloc with an alignment stronger than max_align_t.
 void* port_aligned_alloc(size_t alignment, size_t size);
 void port_aligned_free(void* ptr);
+
+// Current operation mode: 1 docked, 0 handheld, -1 on other platforms.
+int port_docked(void);
 
 // Local time, into caller-provided storage. Returns 0 on success.
 int port_localtime(time_t when, struct tm* out);

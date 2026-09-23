@@ -1,9 +1,11 @@
 // Host stand-in for the Video Interface. VI is the GameCube's scanout engine: it owns the
 // framebuffer address, the TV format, and the retrace interrupt that paces the whole game.
 
+#include <math.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <time.h>
 
 #include "dolphin/types.h"
@@ -12,6 +14,7 @@
 #include "port/determinism.h"
 #include "port/framerate.h"
 #include "port/morphwatch.h"
+#include "port/steamdeck.h"
 
 typedef void (*VIRetraceCallback)(u32 retraceCount);
 
@@ -86,11 +89,24 @@ static u64 frame_period_ns(void)
         }
         else if (s_displayHz > 0.0)
         {
-            const double hz = s_displayVsync
-                                  ? s_displayHz * PORT_VSYNC_HEADROOM
-                                  : s_displayHz;
+            // Under gamescope the acquire rarely blocks, so this limiter paces and runs at the panel rate.
+            const int underGamescope = PortUnderGamescope();
+            double hz = s_displayHz;
+            if (underGamescope)
+            {
+                // Xwayland reports a loose rate, 59.81 for a 59.999 Hz panel, and a limiter under it repeats frames.
+                const double rounded = (double)(long)(hz + 0.5);
+                if (hz - rounded < 0.5 && rounded - hz < 0.5)
+                    hz = rounded;
+            }
+            else if (s_displayVsync)
+            {
+                hz *= PORT_VSYNC_HEADROOM;
+            }
             s_period = (u64)(1000000000.0 / hz);
-            why = s_displayVsync ? "display, +5% for vsync" : "display";
+            why = !s_displayVsync ? "display"
+                  : underGamescope ? "display, exact: gamescope paces by this limiter"
+                                   : "display, +5% for vsync";
         }
         else
         {
@@ -214,6 +230,20 @@ int PortFixedSeed(unsigned int* out)
 
 static void wait_until(u64 deadline)
 {
+#if defined(__linux__)
+    // Tight timer slack makes one absolute sleep to just short of the deadline accurate on Linux.
+    static int s_slackSet;
+    if (!s_slackSet)
+    {
+        s_slackSet = 1;
+        port_tighten_timer_slack();
+    }
+    {
+        const u64 t = now_ns();
+        if (deadline > t + WAIT_SPIN_FLOOR_NS)
+            port_sleep_until_ns(deadline - WAIT_SPIN_FLOOR_NS);
+    }
+#else
     for (;;)
     {
         const u64 t = now_ns();
@@ -227,9 +257,41 @@ static void wait_until(u64 deadline)
             break;
         port_sleep_ns(req);
     }
+#endif
 
     while (now_ns() < deadline)
         port_yield();
+}
+
+// Unless present waits for the vblank, the limiter sleeps at the top of the next frame so input is read after it.
+// A vblank wait would add it back in present and make step lengths alternate. STRIKERS_LIMITER_DEFER=1 or 0 overrides.
+static u64 s_deferredDeadline;
+
+static int limiter_defers(void)
+{
+    static int s_forced = -2;
+    if (s_forced == -2)
+    {
+        const char* e = getenv("STRIKERS_LIMITER_DEFER");
+        s_forced = (e == NULL || *e == '\0') ? -1 : (atoi(e) != 0);
+    }
+    if (s_forced >= 0)
+        return s_forced;
+    return !s_displayVsync;
+}
+
+void PortLimiterFlush(void)
+{
+    const u64 deadline = s_deferredDeadline;
+    if (deadline == 0)
+        return;
+    s_deferredDeadline = 0;
+    {
+        const u64 before = now_ns();
+        if (deadline > before)
+            wait_until(deadline);
+        PortBenchAddPreFrameSleep(now_ns() - before);
+    }
 }
 
 void VIWaitForRetrace(void)
@@ -241,17 +303,41 @@ void VIWaitForRetrace(void)
     if (period != 0)
     {
         static u64 next_deadline;
+        if (s_deferredDeadline != 0)
+        {
+            // A second wait in one frame comes from a loop that expects to block.
+            const u64 pending = s_deferredDeadline;
+            const u64 before = now_ns();
+            s_deferredDeadline = 0;
+            if (pending > before)
+                wait_until(pending);
+            PortBenchAddSleep(now_ns() - before);
+        }
         u64 t = now_ns();
-        if (next_deadline == 0 || t > next_deadline + period * 4)
-            next_deadline = t;                   // first call, or badly behind
+        if (next_deadline == 0)
+        {
+            next_deadline = t;                   // first call: no wait
+        }
+        else if (t > next_deadline + period)
+        {
+            // Behind by a period, as when vsync ends frames slower than the cap: land on `t` after the +=.
+            next_deadline = t - period;
+        }
         next_deadline += period;
 
         if (next_deadline > t)
         {
-            // Report what the wait *actually* cost, not what was asked for.
-            u64 before = now_ns();
-            wait_until(next_deadline);
-            PortBenchAddSleep(now_ns() - before);
+            if (limiter_defers())
+            {
+                s_deferredDeadline = next_deadline;
+            }
+            else
+            {
+                // Report what the wait *actually* cost, not what was asked for.
+                u64 before = now_ns();
+                wait_until(next_deadline);
+                PortBenchAddSleep(now_ns() - before);
+            }
         }
     }
 
@@ -268,6 +354,127 @@ void VIWaitForRetrace(void)
         s_pre_cb(s_retrace_count);
     if (s_post_cb)
         s_post_cb(s_retrace_count);
+}
+
+// The clock tasks step by while vsync paces the frame: a frame stays on screen for whole display periods.
+#define PACE_LAG 0.5            // periods the clock sits behind the host clock, so it is never ahead
+#define PACE_GAIN 0.02          // share of the phase error corrected each frame, which keeps corrections under 10 microseconds
+#define PACE_OFF_GRID 0.25      // a frame this many periods from the clock's grid is off it
+#define PACE_SHARE_ALPHA 0.005  // the off-grid share is averaged over a few hundred frames
+#define PACE_SHARE_ON 0.2       // trusted below this share: vblank-locked frames leave the grid only on a hitch, and VRR frames about half the time
+#define PACE_SHARE_OFF 0.35
+
+static int s_snapOverride = -1;
+static double s_paceHz;         // the rate the clock was started at; 0 when stopped
+static double s_paceNs;
+static u64 s_paceLastNow;
+static double s_paceShare;
+static int s_paceTrusted;
+static int s_paceActive;
+static unsigned int s_paceTicks;
+
+static int snap_wanted(void)
+{
+    static int s_env = -1;
+    if (s_snapOverride >= 0)
+        return s_snapOverride;
+    if (s_env < 0)
+    {
+        const char* e = getenv("STRIKERS_DT_SNAP");
+        s_env = (e == NULL || *e == '\0') ? 1 : (atoi(e) != 0);
+    }
+    return s_env;
+}
+
+void PortSetTaskClockSnap(int on)
+{
+    s_snapOverride = (on < 0) ? -1 : (on != 0);
+    s_paceHz = 0.0;
+}
+
+// OSGetTick's units: 40.5 MHz.
+static unsigned int ticks_from_ns(u64 ns)
+{
+    return (unsigned int)(ns / 1000000000ull * 40500000ull + ns % 1000000000ull * 40500000ull / 1000000000ull);
+}
+
+static void pace_report(int trusted, const char* why)
+{
+    if (trusted)
+        fprintf(stderr, "[limiter] task steps: whole display periods (%.2f Hz)\n", s_paceHz);
+    else
+        fprintf(stderr, "[limiter] task steps: host clock (%s)\n", why);
+}
+
+int PortTaskClockFrame(unsigned int* ticks)
+{
+    const u64 now = now_ns();
+    const int wanted = !PortFixedTimestep() && snap_wanted() && s_displayHz > 0.0 && s_displayVsync;
+    const u64 sinceLast = now - s_paceLastNow;
+    s_paceLastNow = now;
+
+    if (s_paceActive && (!wanted || s_paceHz != s_displayHz))
+    {
+        // Carried forward by host time for the frame that leaves it, so no task's step goes backwards or jumps.
+        s_paceNs += (double)sinceLast;
+        s_paceTicks = ticks_from_ns((u64)s_paceNs);
+        s_paceActive = 0;
+        s_paceHz = 0.0;
+        pace_report(0, !snap_wanted() ? "STRIKERS_DT_SNAP=0"
+                       : wanted       ? "the display changed"
+                                      : "present does not wait for the vblank");
+        if (ticks != NULL)
+            *ticks = s_paceTicks;
+        return PORT_TASK_CLOCK_LEAVING;
+    }
+    if (!wanted)
+    {
+        s_paceHz = 0.0;
+        return PORT_TASK_CLOCK_HOST;
+    }
+
+    const double period = 1000000000.0 / s_displayHz;
+    if (s_paceHz != s_displayHz)
+    {
+        s_paceHz = s_displayHz;
+        s_paceNs = (double)now - PACE_LAG * period;
+        // Untrusted until a second or two of frames lands on the grid, so VRR never starts snapped.
+        s_paceShare = 0.5;
+        s_paceTrusted = 0;
+    }
+    else
+    {
+        const double target = (double)now - PACE_LAG * period;
+        double whole = floor((target - s_paceNs) / period + 0.5);
+        if (whole < 1.0)
+            whole = 1.0;
+        double next = s_paceNs + whole * period;
+        const double err = target - next;
+        next += err * PACE_GAIN;
+        if (next > (double)now)
+            next = (double)now;
+
+        s_paceShare += PACE_SHARE_ALPHA * ((fabs(err) > PACE_OFF_GRID * period ? 1.0 : 0.0) - s_paceShare);
+        s_paceNs = next;
+
+        s_paceTrusted = s_paceTrusted ? (s_paceShare <= PACE_SHARE_OFF) : (s_paceShare <= PACE_SHARE_ON);
+    }
+
+    s_paceTicks = ticks_from_ns((u64)s_paceNs);
+    if (ticks != NULL)
+        *ticks = s_paceTicks;
+    if (s_paceTrusted == s_paceActive)
+        return s_paceActive ? PORT_TASK_CLOCK_DISPLAY : PORT_TASK_CLOCK_HOST;
+    s_paceActive = s_paceTrusted;
+    pace_report(s_paceActive, "frame intervals are not whole display periods");
+    return s_paceActive ? PORT_TASK_CLOCK_ENTERING : PORT_TASK_CLOCK_LEAVING;
+}
+
+int PortTaskClockCurrent(unsigned int* ticks)
+{
+    if (s_paceActive && ticks != NULL)
+        *ticks = s_paceTicks;
+    return s_paceActive;
 }
 
 // The frame budget the port runs to. benchmark.c divides by this rather than the console field

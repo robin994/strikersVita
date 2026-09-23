@@ -36,6 +36,9 @@ int port_disc_inflate(unsigned char* dst, unsigned long* dstLen,
 
 void port_disc_close(PortDisc* disc);
 
+// 1 once STRIKERS_DISC_IN_RAM has copied the whole image into memory.
+int port_disc_in_memory(PortDisc* disc);
+
 #ifdef __cplusplus
 }
 #endif

@@ -6,17 +6,21 @@
 
 #include "gx_test_common.hpp"
 #include "__gx.h"
+#include "gx/pipeline.hpp"
 
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <bit>
 #include <chrono>
 #include <cmath>
 #include <thread>
+#include <utility>
 
 using aurora::gx::g_gxState;
 
 namespace aurora::gfx {
+extern gx::DrawData g_testLastDraw;
 extern uint32_t g_testDrawCount;
 extern std::atomic<uint32_t> g_testProcessedDrawCount;
 namespace testing {
@@ -124,6 +128,36 @@ TEST_F(GXFifoTest, AutoSizedDrawPublishesAfterLengthPatch) {
   aurora::gx::fifo::shutdown();
 
   EXPECT_EQ(aurora::gfx::g_testDrawCount, 1u);
+}
+
+// smstrikers-port: each of these draws needs 65,538 indices, two more than a u16 count holds.
+TEST_F(GXFifoTest, IndexCountPastU16) {
+  const std::array<std::pair<GXPrimitive, u16>, 3> draws{{
+      {GX_TRIANGLESTRIP, 21848},
+      {GX_TRIANGLEFAN, 21848},
+      {GX_QUADS, 43692},
+  }};
+  for (const auto& [prim, vertices] : draws) {
+    SCOPED_TRACE(static_cast<int>(prim));
+    aurora::gx::fifo::init();
+    aurora::gx::fifo::begin_frame();
+    GXClearVtxDesc();
+    GXSetVtxDesc(GX_VA_POS, GX_DIRECT);
+    GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_POS, GX_POS_XYZ, GX_U8, 0);
+    aurora::gfx::g_testDrawCount = 0;
+
+    GXBegin(prim, GX_VTXFMT0, vertices);
+    for (u32 v = 0; v < vertices; ++v) {
+      GXPosition3u8(0, 0, 0);
+    }
+    GXEnd();
+    aurora::gx::fifo::drain();
+    aurora::gx::fifo::end_frame();
+    aurora::gx::fifo::shutdown();
+
+    EXPECT_EQ(aurora::gfx::g_testDrawCount, 1u);
+    EXPECT_EQ(aurora::gfx::g_testLastDraw.indexCount, 65538u);
+  }
 }
 
 TEST_F(GXFifoTest, CommandsAfterFinalDrawRemainPendingUntilDrain) {

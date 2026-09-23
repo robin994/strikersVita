@@ -1,4 +1,3 @@
-#include "port/region.h"  // PORT: one binary, three discs
 #include "Game/FE/fePopupMenu.h"
 #include <dolphin/os.h>
 
@@ -23,10 +22,10 @@
 
 char* optionNames[4] = { "Option1", "Option2", "Option3", "Option4" };
 
-// PORT: a runtime value now.
+// PORT: the Japanese build's offset suits its own popup layout, so it follows the language.
 static float POPUP_HIGHLIGHT_Y_OFFSET()
 {
-    return port_region() == PORT_REGION_JAPAN ? -3.0f : 0.0f;
+    return g_pLocalization->m_CurrentLanguage == nlLocalization::LangJapanese ? -3.0f : 0.0f;
 }
 
 struct PopupEntry

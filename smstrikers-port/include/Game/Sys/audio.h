@@ -177,6 +177,13 @@ void Update3DSFXEmitters();
 void UpdateFades(float fDeltaT);
 void Update(float fDeltaT);
 int GetSndIDError();
+
+// PORT: a caller that set mf_ReturnEmitterOnPlay reads the result as an SFXEmitter* and tests it against NULL.
+inline uintptr_t NothingPlayed(const SoundAttributes& attrs)
+{
+    return attrs.mf_ReturnEmitterOnPlay ? 0 : (uintptr_t)GetSndIDError();
+}
+
 bool IsSFXPlaying(unsigned long sfxID);
 bool StopSFX(unsigned long sfxID);
 unsigned long PlaySFXEventFromScript(const SoundEventData&sfxEventData, const char*szSFXType, float fVol, float fDelay);

@@ -3,9 +3,9 @@ cmake_minimum_required(VERSION 3.21)
 # The settings application is a standalone project on purpose: it depends on Qt and the game does
 # not, so building the port must never require Qt to be installed.
 project(strikers-settings
-        VERSION 1.0.0
         DESCRIPTION "Settings front end for the Super Mario Strikers native port"
         LANGUAGES C CXX)
+include(../cmake/StrikersVersion.cmake)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -43,16 +43,23 @@ add_library(strikers-settings-core STATIC
   src/keynames.h
   src/schema.cpp
   src/schema.h
+  src/texturepacks.cpp
+  src/texturepacks.h
 )
 target_include_directories(strikers-settings-core PUBLIC src)
 target_link_libraries(strikers-settings-core PUBLIC Qt6::Core)
 
-# Only disc.h goes on the include path: ../include's malloc.h and types.h would shadow the system's.
+# Only these port headers go on the include path: ../include's malloc.h and types.h would shadow the system's.
 set(STRIKERS_PORT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/..")
-configure_file("${STRIKERS_PORT_DIR}/include/port/disc.h"
-               "${CMAKE_CURRENT_BINARY_DIR}/portinc/port/disc.h" COPYONLY)
-target_sources(strikers-settings-core PRIVATE "${STRIKERS_PORT_DIR}/src/platform/disc.c")
-target_include_directories(strikers-settings-core PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/portinc")
+foreach(header disc.h disc_reader.h host.h steamdeck.h)
+  configure_file("${STRIKERS_PORT_DIR}/include/port/${header}"
+                 "${CMAKE_CURRENT_BINARY_DIR}/portinc/port/${header}" COPYONLY)
+endforeach()
+target_sources(strikers-settings-core PRIVATE
+  "${STRIKERS_PORT_DIR}/src/platform/disc.c"
+  "${STRIKERS_PORT_DIR}/src/platform/disc_reader.cpp"
+  "${STRIKERS_PORT_DIR}/src/platform/steamdeck.c")
+target_include_directories(strikers-settings-core PUBLIC "${CMAKE_CURRENT_BINARY_DIR}/portinc")
 target_compile_definitions(strikers-settings-core PRIVATE PORT_DISC_INFLATE_HOOK=1)
 if(MSVC)
   target_compile_definitions(strikers-settings-core PRIVATE strcmpi=_stricmp _CRT_SECURE_NO_WARNINGS)
@@ -82,6 +89,8 @@ set_target_properties(strikers-settings PROPERTIES
   # package.sh and apppaths.cpp find the app by its target name, so only the bundle name changes.
   MACOSX_BUNDLE_BUNDLE_NAME "Super Mario Strikers Settings"
   MACOSX_BUNDLE_ICON_FILE settings.icns
+  MACOSX_BUNDLE_SHORT_VERSION_STRING "${STRIKERS_VERSION}"
+  MACOSX_BUNDLE_BUNDLE_VERSION "${STRIKERS_VERSION}"
 )
 
 # The game's memory card icon with a cog on it, checked in under ./assets/icon: the bundle's icon
@@ -93,6 +102,9 @@ if(APPLE AND STRIKERS_SETTINGS_BUNDLE)
     PROPERTIES MACOSX_PACKAGE_LOCATION Resources)
 elseif(WIN32)
   target_sources(strikers-settings PRIVATE "${STRIKERS_ICON_DIR}/settings.rc")
+  set_source_files_properties("${STRIKERS_ICON_DIR}/settings.rc" PROPERTIES
+    INCLUDE_DIRECTORIES "${CMAKE_CURRENT_BINARY_DIR}/version"
+    OBJECT_DEPENDS "${CMAKE_CURRENT_BINARY_DIR}/version/strikers_version.h")
 endif()
 
 # and the same picture again as a Qt resource, for the window and the Dock.

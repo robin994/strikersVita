@@ -62,6 +62,23 @@ static char* trim(char* s)
     return s;
 }
 
+// Case-insensitive test for `prefix` at the head of `key`.
+static int has_prefix(const char* key, size_t n, const char* prefix)
+{
+    size_t i;
+    const size_t p = strlen(prefix);
+
+    for (i = 0; i < p; i++)
+    {
+        char a = key[i];
+        if (a >= 'a' && a <= 'z')
+            a = (char)(a - 'a' + 'A');
+        if (i >= n || a != prefix[i])
+            return 0;
+    }
+    return 1;
+}
+
 // `key` as the environment spells it: upper-cased, with STRIKERS_ supplied if the file left it off.
 static int env_name(const char* key, char* out, size_t size)
 {
@@ -72,20 +89,11 @@ static int env_name(const char* key, char* out, size_t size)
     if (n == 0)
         return -1;
 
-    // Case-insensitive prefix test, so `strikers_msaa` is not double-prefixed.
-    prefixed = 1;
-    for (i = 0; i < sizeof(PORT_CONFIG_PREFIX) - 1; i++)
-    {
-        char a = key[i];
-        char b = PORT_CONFIG_PREFIX[i];
-        if (a >= 'a' && a <= 'z')
-            a = (char)(a - 'a' + 'A');
-        if (i >= n || a != b)
-        {
-            prefixed = 0;
-            break;
-        }
-    }
+    prefixed = has_prefix(key, n, PORT_CONFIG_PREFIX);
+#if defined(__SWITCH__)
+    // Allow Aurora settings in strikers.ini without adding the STRIKERS_ prefix.
+    prefixed = prefixed || has_prefix(key, n, "AURORA_");
+#endif
 
     if (prefixed)
     {
@@ -176,6 +184,10 @@ static void attach_parent_console(void)
 #endif
 }
 
+#if defined(__SWITCH__)
+int PortSwitchLogToFile(const char* path);
+#endif
+
 static void open_log(void)
 {
     const char* v = getenv("STRIKERS_LOG");
@@ -203,6 +215,11 @@ static void open_log(void)
         snprintf(path, sizeof path, "%s", v);
     }
 
+#if defined(__SWITCH__)
+    // Share one file descriptor for both streams, or keep the existing nxlink connection.
+    (void)PortSwitchLogToFile(path);
+    return;
+#endif
     fprintf(stderr, "[port] logging to %s\n", path);
     fflush(stderr);
     // Open the destination first: freopen closes the stream it is given before trying the new

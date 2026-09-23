@@ -12,6 +12,7 @@
 #include "shader_info.hpp"
 #include "texture.hpp"
 
+#include <absl/container/flat_hash_map.h>
 #include <tracy/Tracy.hpp>
 
 #include <algorithm>
@@ -68,61 +69,70 @@ private:
   size_t mPos = 0;
 };
 
-u16 prepare_idx_buffer(ByteBuffer& buf, GXPrimitive prim, u16 vtxStart, u16 vtxCount) noexcept {
-  u16 numIndices = 0;
+// smstrikers-port: u32, since a strip, fan or quad draw of a u16 vertex count can need more than 65,535 indices.
+u32 prepare_idx_buffer(ByteBuffer& buf, GXPrimitive prim, u16 vtxStart, u16 vtxCount) noexcept {
+  u32 numIndices = 0;
+  // smstrikers-port: filled in place, since ByteBuffer::append costs a resize check and a memcpy per index.
   if (prim == GX_QUADS) {
-    buf.reserve_extra((vtxCount / 4) * 6 * sizeof(u16));
-
-    for (u16 v = 0; v < vtxCount; v += 4) {
-      u16 idx0 = vtxStart + v;
-      u16 idx1 = vtxStart + v + 1;
-      u16 idx2 = vtxStart + v + 2;
-      u16 idx3 = vtxStart + v + 3;
-
-      buf.append(idx0);
-      buf.append(idx1);
-      buf.append(idx2);
-      numIndices += 3;
-
-      buf.append(idx2);
-      buf.append(idx3);
-      buf.append(idx0);
-      numIndices += 3;
+    const u32 quads = vtxCount / 4;
+    numIndices = quads * 6;
+    u16* out = reinterpret_cast<u16*>(buf.append_uninitialized(numIndices * sizeof(u16)));
+    for (u32 q = 0; q < quads; ++q) {
+      const u16 idx0 = static_cast<u16>(vtxStart + q * 4);
+      out[0] = idx0;
+      out[1] = static_cast<u16>(idx0 + 1);
+      out[2] = static_cast<u16>(idx0 + 2);
+      out[3] = static_cast<u16>(idx0 + 2);
+      out[4] = static_cast<u16>(idx0 + 3);
+      out[5] = idx0;
+      out += 6;
     }
   } else if (prim == GX_TRIANGLES) {
-    buf.reserve_extra(vtxCount * sizeof(u16));
+    numIndices = vtxCount;
+    u16* out = reinterpret_cast<u16*>(buf.append_uninitialized(numIndices * sizeof(u16)));
     for (u16 v = 0; v < vtxCount; ++v) {
-      const u16 idx = vtxStart + v;
-      buf.append(idx);
-      ++numIndices;
+      out[v] = static_cast<u16>(vtxStart + v);
     }
   } else if (prim == GX_TRIANGLEFAN) {
-    buf.reserve_extra(((u32(vtxCount) - 3) * 3 + 3) * sizeof(u16));
-    for (u16 v = 0; v < vtxCount; ++v) {
-      const u16 idx = vtxStart + v;
-      if (v < 3) {
-        buf.append(idx);
-        ++numIndices;
-        continue;
+    if (vtxCount < 3) {
+      numIndices = vtxCount;
+      u16* out = reinterpret_cast<u16*>(buf.append_uninitialized(numIndices * sizeof(u16)));
+      for (u16 v = 0; v < vtxCount; ++v) {
+        out[v] = static_cast<u16>(vtxStart + v);
       }
-      buf.append(std::array{vtxStart, static_cast<u16>(idx - 1), idx});
-      numIndices += 3;
+    } else {
+      numIndices = (u32(vtxCount) - 2) * 3;
+      u16* out = reinterpret_cast<u16*>(buf.append_uninitialized(numIndices * sizeof(u16)));
+      for (u16 v = 2; v < vtxCount; ++v) {
+        const u16 idx = static_cast<u16>(vtxStart + v);
+        out[0] = vtxStart;
+        out[1] = static_cast<u16>(idx - 1);
+        out[2] = idx;
+        out += 3;
+      }
     }
   } else if (prim == GX_TRIANGLESTRIP) {
-    buf.reserve_extra(((static_cast<u32>(vtxCount) - 3) * 3 + 3) * sizeof(u16));
-    for (u16 v = 0; v < vtxCount; ++v) {
-      const u16 idx = vtxStart + v;
-      if (v < 3) {
-        buf.append(idx);
-        ++numIndices;
-        continue;
+    if (vtxCount < 3) {
+      numIndices = vtxCount;
+      u16* out = reinterpret_cast<u16*>(buf.append_uninitialized(numIndices * sizeof(u16)));
+      for (u16 v = 0; v < vtxCount; ++v) {
+        out[v] = static_cast<u16>(vtxStart + v);
       }
-      if ((v & 1) == 0) {
-        buf.append(std::array{static_cast<u16>(idx - 2), static_cast<u16>(idx - 1), idx});
-      } else {
-        buf.append(std::array{static_cast<u16>(idx - 1), static_cast<u16>(idx - 2), idx});
+    } else {
+      numIndices = (u32(vtxCount) - 2) * 3;
+      u16* out = reinterpret_cast<u16*>(buf.append_uninitialized(numIndices * sizeof(u16)));
+      for (u16 v = 2; v < vtxCount; ++v) {
+        const u16 idx = static_cast<u16>(vtxStart + v);
+        if ((v & 1) == 0) {
+          out[0] = static_cast<u16>(idx - 2);
+          out[1] = static_cast<u16>(idx - 1);
+        } else {
+          out[0] = static_cast<u16>(idx - 1);
+          out[1] = static_cast<u16>(idx - 2);
+        }
+        out[2] = idx;
+        out += 3;
       }
-      numIndices += 3;
     }
   } else if (prim == GX_LINES || prim == GX_LINESTRIP || prim == GX_POINTS) {
     buf.reserve_extra(6 * sizeof(u16));
@@ -187,6 +197,13 @@ struct DrawCache {
   GXVtxFmt lastDrawFmt = GX_MAX_VTXFMT;
 };
 DrawCache sDrawCache;
+
+// smstrikers-port: both results depend only on the config, so each config is analysed and looked up once.
+struct PipelineMemo {
+  ShaderInfo shaderInfo;
+  gfx::PipelineRef pipelineRef;
+};
+absl::flat_hash_map<HashType, PipelineMemo> sPipelineMemo;
 
 FogRangeLutKey fog_range_lut_key() noexcept {
   const auto& state = g_gxState.fog;
@@ -634,8 +651,15 @@ static void push_gx_draw(GXPrimitive prim, GXVtxFmt fmt, u16 vtxCount, gfx::Rang
     const auto prevSampledTextures = cache.shaderInfo.sampledTextures;
     const auto prevSampledIndTextures = cache.shaderInfo.sampledIndTextures;
     populate_pipeline_config(cache.config, prim, fmt);
-    cache.shaderInfo = build_shader_info(cache.config.shaderConfig);
-    cache.pipelineRef = gfx::pipeline_ref(cache.config);
+    const HashType memoKey = xxh3_hash(cache.config);
+    if (const auto it = sPipelineMemo.find(memoKey); it != sPipelineMemo.end()) {
+      cache.shaderInfo = it->second.shaderInfo;
+      cache.pipelineRef = it->second.pipelineRef;
+    } else {
+      cache.shaderInfo = build_shader_info(cache.config.shaderConfig);
+      cache.pipelineRef = gfx::pipeline_ref(cache.config);
+      sPipelineMemo.emplace(memoKey, PipelineMemo{cache.shaderInfo, cache.pipelineRef});
+    }
     cache.fmt = fmt;
     cache.lineMode = lineMode;
     cache.hasPipeline = true;
@@ -1060,6 +1084,10 @@ void handle_aurora(Reader& reader) noexcept {
 }
 
 void clear_draw_cache() noexcept {
+  // smstrikers-port: capped, as nothing else evicts from the memo.
+  if (sPipelineMemo.size() > 8192) {
+    sPipelineMemo.clear();
+  }
   sDrawCache.bindGeneration = 0;
   sDrawCache.uniformRange = {};
   sDrawCache.fogRange = {};

@@ -107,6 +107,7 @@ bool IsSFXPlaying(unsigned long uVoiceID)
 /**
  * Offset/Address/Size: 0x38 | 0x801C4834 | size: 0xC0
  */
+// PORT: GCC rejects a definition qualified with the namespace it sits in.
 void InitEmitter(unsigned long index)
 {
     gEmitters[index].bKeepTrack = true;

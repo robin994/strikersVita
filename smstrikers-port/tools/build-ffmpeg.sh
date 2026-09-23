@@ -1,10 +1,20 @@
 #!/bin/sh
 # Static THP-only libavcodec, so the game needs no distro soname: tools/build-ffmpeg.sh [dest]
+# tools/build-ffmpeg.sh --switch [dest] cross-compiles the same for the Switch with devkitA64.
 
 set -e
 
 PORT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
-DEST="${1:-$PORT/extern/ffmpeg-static}"
+SWITCH=0
+if [ "$1" = "--switch" ]; then
+    SWITCH=1
+    shift
+fi
+if [ "$SWITCH" = 1 ]; then
+    DEST="${1:-$PORT/extern/ffmpeg-switch}"
+else
+    DEST="${1:-$PORT/extern/ffmpeg-static}"
+fi
 VERSION=9.0.1
 URL="https://ffmpeg.org/releases/ffmpeg-$VERSION.tar.xz"
 WANT_SHA="cf38e0e28c7e5605942c4a77755349b0145804a397af37eb1fb4c77cb237f635"
@@ -44,7 +54,15 @@ fi
 tar -xJf "$WORK/ffmpeg.tar.xz" -C "$WORK"
 
 # --disable-autodetect keeps host libraries (VA-API, zlib, iconv) out; x86-64 needs nasm except on Windows.
-if [ "$WINDOWS" = 1 ]; then
+if [ "$SWITCH" = 1 ]; then
+    # devkitPro's switch-ffmpeg flags; a single decoder needs no threads.
+    DKP="${DEVKITPRO:-/opt/devkitpro}"
+    NX_CFLAGS="-D__SWITCH__ -march=armv8-a -mtune=cortex-a57 -mtp=soft -fPIE -ftls-model=local-exec"
+    set -- --enable-cross-compile --cross-prefix="$DKP/devkitA64/bin/aarch64-none-elf-" \
+        --arch=aarch64 --cpu=cortex-a57 --target-os=none --enable-pic --disable-pthreads \
+        --extra-cflags="$NX_CFLAGS -I$DKP/libnx/include" \
+        --extra-ldflags="-fPIE -mtp=soft -specs=$DKP/libnx/switch.specs -L$DKP/libnx/lib" --extra-libs=-lnx
+elif [ "$WINDOWS" = 1 ]; then
     set -- --toolchain=msvc --target-os=win64 --arch=x86_64 \
         --cc="${CC:-clang-cl}" --ld=lld-link --ar=llvm-ar \
         --disable-x86asm --extra-cflags=-MT

@@ -4,6 +4,7 @@
 #include "NL/nlDLRing.h"
 #include "port/host.h"
 #include "port/vita_profiler.h"
+#include "port/framerate.h" // PORT: PortTaskClockFrame
 
 #include <cstdio>
 #include <cstdlib>
@@ -148,11 +149,17 @@ void nlTaskManager::RunAllTasks()
         }
 
         taskIterator = nlDLRingGetStart<nlTask>(m_pInstance->m_lTaskList);
+        // PORT: tasks step by whole display periods while vsync paces the frame; when the clock changes, each steps by the clock it last recorded.
+        u32 frameTicker = 0;
+        const int clock = PortTaskClockFrame(&frameTicker);
+        const bool stepByDisplay = clock == PORT_TASK_CLOCK_DISPLAY || clock == PORT_TASK_CLOCK_LEAVING;
+        const bool recordDisplay = clock == PORT_TASK_CLOCK_DISPLAY || clock == PORT_TASK_CLOCK_ENTERING;
         for (;;)
         {
-            currentTicker = nlGetTicker();
+            const s32 hostTicker = nlGetTicker();
+            currentTicker = stepByDisplay ? (s32)frameTicker : hostTicker;
             tickerDifference = nlGetTickerDifference(taskIterator->nPrevTicker, currentTicker);
-            taskIterator->nPrevTicker = currentTicker;
+            taskIterator->nPrevTicker = recordDisplay ? (s32)frameTicker : hostTicker;
             if (taskIterator->statesActive & m_pInstance->m_CurrState)
             {
                 clampedDeltaTime = tickerDifference / 1000.f;
@@ -205,7 +212,11 @@ void nlTaskManager::AddTask(nlTask* task, unsigned int priority, unsigned int st
 {
     task->nPriority = priority;
     task->statesActive = statesActive;
-    task->nPrevTicker = nlGetTicker();
+    // PORT: the clock RunAllTasks recorded this frame, so a task added mid-frame starts on it.
+    u32 ticker;
+    if (!PortTaskClockCurrent(&ticker))
+        ticker = nlGetTicker();
+    task->nPrevTicker = ticker;
 
     if (m_pInstance->m_lTaskList == nullptr)
     {

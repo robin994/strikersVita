@@ -1,6 +1,7 @@
 // The global allocation operators nlMemory.cpp leaves out; being weak, a partial override mixes.
 
 #include <cstddef>
+#include <cstdlib>
 #include <new>
 
 // Built as C++17: libc++ offers the over-aligned operators under C++11 and libstdc++ does not.
@@ -18,6 +19,10 @@ void operator delete[](void* ptr, std::size_t) noexcept { nlFree(ptr); }
 
 void operator delete(void* ptr, const std::nothrow_t&) noexcept { nlFree(ptr); }
 void operator delete[](void* ptr, const std::nothrow_t&) noexcept { nlFree(ptr); }
+
+// The library's own nothrow forms call the game's operator new, which aborts instead of throwing.
+void* operator new(std::size_t size, const std::nothrow_t&) noexcept { return std::malloc(size ? size : 1); }
+void* operator new[](std::size_t size, const std::nothrow_t&) noexcept { return std::malloc(size ? size : 1); }
 
 // --- C++17 over-aligned forms ------------------------------------------------ Dawn and Abseil
 // both use over-aligned types.

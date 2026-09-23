@@ -2197,6 +2197,7 @@ static inline void Update3DSFXListenerPos();
 /**
  * Offset/Address/Size: 0x1FD0 | 0x8013E4E4 | size: 0x354
  */
+// PORT: GCC rejects a definition qualified with the namespace it sits in.
 void Update(float fDeltaT)
 {
     if (::g_bAudioInitialized == false)
@@ -2862,6 +2863,7 @@ void SetVolGroupVolume(int volGroup, float fVol, int fadeTime)
 /**
  * Offset/Address/Size: 0x1028 | 0x8013D53C | size: 0xE0
  */
+// PORT: GCC rejects a definition qualified with the namespace it sits in.
 void ActivateFilterOnAllCurrentSFX(bool bOn)
 {
     gWorldSFX.ActivateFilterOnAllTrackedSFX(bOn);
@@ -2921,6 +2923,7 @@ static void SetFilterFreqOnAllCurrentSFX(unsigned short freq)
 /**
  * Offset/Address/Size: 0xF6C | 0x8013D480 | size: 0xBC
  */
+// PORT: GCC rejects a definition qualified with the namespace it sits in.
 void SetPitchBendOnAllDialogueSFX(unsigned short pitch)
 {
     if (pitch > 0x3FFF)

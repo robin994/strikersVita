@@ -36,4 +36,6 @@ PipelineRef find_pipeline(ShaderType type, const Config& config, NewPipelineCall
 
 bool get_pipeline(PipelineRef ref, wgpu::RenderPipeline& pipeline);
 
+void get_pipeline_counts(uint32_t& queued, uint32_t& created);
+
 } // namespace aurora::gfx

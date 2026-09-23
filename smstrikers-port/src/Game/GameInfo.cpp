@@ -2804,10 +2804,11 @@ void GameInfoManager::OnPreCupGameState()
         TeamStats highestTeam;
         int highPoints;
         int j;
-        int teamBuf[16];
-        int copiedStatsBuffer[16];
-        TeamStats* team = (TeamStats*)teamBuf;
-        TeamStats* copiedStats = (TeamStats*)copiedStatsBuffer;
+        // PORT: two unsigned longs make TeamStats 0x50 bytes on LP64, past the 0x40 an int[16] holds.
+        TeamStats teamStorage;
+        TeamStats copiedStatsStorage;
+        TeamStats* team = &teamStorage;
+        TeamStats* copiedStats = &copiedStatsStorage;
 
         highPoints = 0;
 
@@ -2950,8 +2951,8 @@ void GameInfoManager::OnPostCupGameState()
             int numTeams;
             int i;
             int j;
-            int copiedStatsBuffer[16];
-            TeamStats* copiedStats = (TeamStats*)copiedStatsBuffer;
+            TeamStats copiedStatsStorage;   // PORT: TeamStats outgrows int[16] on LP64.
+            TeamStats* copiedStats = &copiedStatsStorage;
 
             numTeams = GetNumPlayingTeams();
 
@@ -3430,7 +3431,7 @@ eTeamID GameInfoManager::FindWinningTeam()
 
     TeamStats allStats[8];
     int rankIndices[8];
-    int copiedStatsBuffer[16];
+    TeamStats copiedStatsStorage;   // PORT: TeamStats outgrows int[16] on LP64.
     int numTeams;
     int i;
 
@@ -3445,7 +3446,7 @@ eTeamID GameInfoManager::FindWinningTeam()
     }
     numTeams = teamCount;
 
-    TeamStats* copiedStats = (TeamStats*)copiedStatsBuffer;
+    TeamStats* copiedStats = &copiedStatsStorage;
     for (i = 0; i < numTeams; i++)
     {
         if (mCurrentMode == GM_BOWSER_CUP)

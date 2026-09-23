@@ -410,7 +410,7 @@ uintptr_t cCharacterSFX::Play(SoundAttributes& attrs)
 
     if (attrs.mu_Type == 0U)
     {
-        return Audio::GetSndIDError();
+        return Audio::NothingPlayed(attrs); // PORT: a null emitter for a caller that asked for one
     }
 
     return cGameSFX::Play(attrs);

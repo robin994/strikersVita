@@ -63,6 +63,8 @@ public:
 
   size_t acquire();
   std::optional<size_t> try_acquire();
+  // smstrikers-port: blocks until a slot is free or `timeout` passes.
+  std::optional<size_t> acquire_for(std::chrono::nanoseconds timeout);
   void release(size_t slot);
   void reset();
   [[nodiscard]] size_t free_count() const;

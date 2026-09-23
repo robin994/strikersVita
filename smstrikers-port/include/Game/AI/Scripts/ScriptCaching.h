@@ -4,14 +4,39 @@
 #include "NL/nlSingleton.h"
 #include "NL/nlAVLTree.h"
 #include "Game/AI/FuzzyVariant.h"
+#include "Game/AI/Scripts/ScriptQuestionKey.h"
+#include <string.h>
 #include "PowerPC_EABI_Support/MSL_C++/MSL_Common/msl_tree.h"
 
 extern unsigned char g_bScriptQuestionCachingOn;
 extern unsigned char g_bScriptQuestionCachingUseSTD;
 
-// PORT: uintptr_t keys, the key is two pointers summed, and is 32 bits on Windows otherwise.
-typedef std::pair<const uintptr_t, FuzzyVariant> ScriptCachePair;
-typedef std::map<uintptr_t, FuzzyVariant, std::less<uintptr_t>, std::allocator<ScriptCachePair> > ScriptCacheMap;
+// PORT: keys on the subject's tag and raw payload, since Variant::GetHash loses floats and vectors.
+inline ScriptQuestionKey MakeScriptQuestionKey(uintptr_t question, const Variant& argument)
+{
+    ScriptQuestionKey key;
+    key.question = question;
+    key.tag = (int)argument.mType;
+    if (argument.mType == FT_VECTOR)
+    {
+        // PORT: Reset writes the three floats and nothing past them, so the tail is left out.
+        u32 x, y, z;
+        memcpy(&x, &argument.mData.vector.x, sizeof x);
+        memcpy(&y, &argument.mData.vector.y, sizeof y);
+        memcpy(&z, &argument.mData.vector.z, sizeof z);
+        key.subjectLo = ((uintptr_t)y << 32) | (uintptr_t)x;
+        key.subjectHi = (uintptr_t)z;
+    }
+    else
+    {
+        key.subjectLo = argument.mData.u;
+        key.subjectHi = 0;
+    }
+    return key;
+}
+
+typedef std::pair<const ScriptQuestionKey, FuzzyVariant> ScriptCachePair;
+typedef std::map<ScriptQuestionKey, FuzzyVariant, std::less<ScriptQuestionKey>, std::allocator<ScriptCachePair> > ScriptCacheMap;
 typedef std::__tree<ScriptCachePair, ScriptCacheMap::value_compare, std::allocator<ScriptCachePair> > ScriptCacheTree;
 
 class ScriptQuestionCache : public nlSingleton<ScriptQuestionCache>
@@ -25,7 +50,7 @@ public:
     }
 
     ~ScriptQuestionCache();
-    unsigned char Lookup(uintptr_t hash, FuzzyVariant& returnVal, const char* name)
+    unsigned char Lookup(const ScriptQuestionKey& hash, FuzzyVariant& returnVal, const char* name)
     {
         struct MapNodeBase
         {
@@ -43,7 +68,7 @@ public:
         struct MapNode
         {
             MapNodeBase base;
-            unsigned long key;
+            ScriptQuestionKey key;
             FuzzyVariant value;
         };
 
@@ -70,10 +95,10 @@ public:
 
         return 0;
     }
-    const FuzzyVariant& AddToCache(uintptr_t, const FuzzyVariant&, const char*);
+    const FuzzyVariant& AddToCache(const ScriptQuestionKey&, const FuzzyVariant&, const char*);
     void Clear();
 
-    /* 0x00 */ nlAVLTreeSlotPool<uintptr_t, FuzzyVariant, DefaultKeyCompare<uintptr_t> > mQuestionCacheMap;
+    /* 0x00 */ nlAVLTreeSlotPool<ScriptQuestionKey, FuzzyVariant, DefaultKeyCompare<ScriptQuestionKey> > mQuestionCacheMap;
     /* 0x28 */ ScriptCacheMap mQuestionCacheMapSTD;
     /* 0x38 */ int mTotalLookups;
     /* 0x3C */ int mCacheHits;
@@ -92,14 +117,14 @@ inline void ScriptQuestionCache::Clear()
     mTotalLookups = 0;
 }
 inline const FuzzyVariant& ScriptQuestionCache::AddToCache(
-    uintptr_t key, const FuzzyVariant& variant, const char* name)
+    const ScriptQuestionKey& key, const FuzzyVariant& variant, const char* name)
 {
     if (g_bScriptQuestionCachingOn)
     {
         const FuzzyVariant& cacheValue = variant;
         if (g_bScriptQuestionCachingUseSTD)
         {
-            mQuestionCacheMapSTD.tree_.find_or_insert<uintptr_t, FuzzyVariant>(key).second = cacheValue;
+            mQuestionCacheMapSTD.tree_.find_or_insert<ScriptQuestionKey, FuzzyVariant>(key).second = cacheValue;
         }
         else
         {

@@ -55,6 +55,7 @@ public:
     /*0x1C0*/ TLTextInstance* m_pTextInstanceScore[2][2];
     /*0x1D0*/ AsyncImage* mAsyncImage[2];
     /*0x1D8*/ float mScoreUpdateDelay[2];
+    float mPortEdgeShift; // PORT: the outward shift currently applied to the slides' off-frame x keyframes
 };
 
 /*class FEFinder<TLImageInstance, 2>

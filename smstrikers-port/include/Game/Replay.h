@@ -322,6 +322,9 @@ public:
     float BeginTime() const;
     float EndTime() const;
     void PlayReel(int reelIdx);
+    // PORT: NewFrame's fallbacks when the ring has no room.
+    bool DropWeakestHighlight();
+    void RecoverRing();
 
     template <typename T>
     void Play(float time, T& previous, T& current, float* blend) const;
@@ -337,6 +340,8 @@ public:
     /* 0x40 */ int mMaxFrameSize;
     /* 0x44 */ int mActualMaxFrameSize;
     /* 0x48 */ Reel* mHighlights[3];
+    // PORT: the ring's memory, for RecoverRing.
+    char* mMemory;
 
 }; // total size: 0x54
 
@@ -366,6 +371,11 @@ void Replay::Record(float time, T& snapshot, unsigned int events)
             }
 
             mReels[0].mLast = mFree;
+            // PORT: NewFrame can reclaim the whole live reel; restart it at this frame.
+            if (mReels[0].mBegin == nullptr)
+            {
+                mReels[0].mBegin = mFree;
+            }
             mFree->mReelIdx = 0;
             mFree->mTime = time;
             mFree->mInterval = interval;

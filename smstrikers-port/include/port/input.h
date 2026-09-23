@@ -6,6 +6,9 @@
 extern "C" {
 #endif
 
+int PortInputPadSetting(unsigned int pad);
+int PortInputKeyboardEnabled(void);
+
 int  PortInputRecordStart(const char* path);
 void PortInputRecordStop(void);
 const char* PortInputRecordPath(void);

@@ -635,6 +635,9 @@ extern "C" void PortApplyAspectChange(void)
 
     glx_rmode.fbWidth = (u16)width;
     VIConfigure(&glx_rmode);
+    // PORT: the game sets the full-frame viewport only at startup.
+    GXSetViewport(0.0f, 0.0f, (f32)glx_rmode.fbWidth, (f32)glx_rmode.efbHeight, 0.0f, 1.0f);
+    GXSetScissor(0, 0, glx_rmode.fbWidth, glx_rmode.efbHeight);
     // PORT: the aspect lock is Aurora's alone; the decomp's dolphin/vi.h does not declare it, and with no swapchain there is no display whose ratio could be locked.
 #if defined(PORT_USE_AURORA)
     VILockAspectRatio((int)(PortTargetAspect() * 10000.0f), 10000);

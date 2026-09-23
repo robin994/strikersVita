@@ -19,6 +19,13 @@
 #include "Game/TrophyTextures.h"
 #include "NL/nlConfig.h"
 #include "types.h"
+#if defined(PORT_USE_AURORA)
+#include "port/shaders.h"   // PORT: the shader stage
+#include "Game/FE/feFontResource.h"
+#include "NL/nlAlgorithm.h"
+#include "NL/nlLocalization.h"
+#include <stdio.h>
+#endif
 
 extern bool g_e3_Build;
 
@@ -745,6 +752,103 @@ void SaveLoadScene::UpdateText()
     }
 }
 
+#if defined(PORT_USE_AURORA)
+// PORT: the results on which HandleSaveLoadFinishedResult leaves the boot screen.
+static bool port_WouldLeaveBootScene(const SaveLoadScene* scene)
+{
+    if (scene->mSaveLoadMode != SaveLoadScene::SLM_AT_BOOT || scene->mIsAutoSaving)
+        return false;
+    switch (GetSceneType())
+    {
+    case SaveLoadScene::ST_SAVE:
+    case SaveLoadScene::ST_LOAD:
+    case SaveLoadScene::ST_ASK_SAVE:
+    case SaveLoadScene::ST_ASK_LOAD:
+        return true;
+    case SaveLoadScene::ST_SHOULD_LOAD_OR_SAVE:
+        return gResult != 0;
+    default:
+        return false;
+    }
+}
+
+// PORT: FontCharString checks the font only for characters past ASCII, so an ASCII one the font lacks is not caught there.
+static bool port_FontHas(const TLTextInstance* text, unsigned short ch)
+{
+    if (text->m_component == NULL || text->m_component->pChildren == NULL)
+        return false;
+    const nlFont* font = ((const FEFontResource*)text->m_component->pChildren)->m_pFontReference;
+    return font != NULL && ch >= 0x20 && ch <= 0x7E && font->m_GlyphLookup[ch - 0x20].UnicodeChar != 0xFFFF;
+}
+
+// PORT: LOC_LOADING, which every language's table carries; the fallback for a font without the English text's letters.
+static const unsigned short* port_LoadingString()
+{
+    static const unsigned short kFallback[] = { 'L', 'O', 'A', 'D', 'I', 'N', 'G', 0 };
+    nlLocalization* loc = g_pLocalization;
+    if (loc == NULL || loc->m_LookupTable == NULL)
+        return kFallback;
+    const unsigned long key = 0x9750565D;
+    nlLocalization::StringLookup* found =
+        nlBSearch<nlLocalization::StringLookup, unsigned long>(key, loc->m_LookupTable, loc->m_pFile->StringCount);
+    return found != NULL ? loc->m_FirstString + found->StringOffset : kFallback;
+}
+
+// PORT: keep the boot memory card screen up, its text LOADING SHADERS in English and a percentage, until the pipelines Aurora queued at startup are compiled.
+static bool port_HoldForShaders(SaveLoadScene* scene)
+{
+    if (!port_WouldLeaveBootScene(scene))
+        return false;
+    if (!PortShaderStagePending())
+    {
+        PortShaderStageEnd();
+        return false;
+    }
+
+    TLTextInstance* text = scene->m_displayText;
+    if (text == NULL)
+        return true;
+
+    static const char kLoadingShaders[] = "LOADING SHADERS";
+    bool english = true;
+    for (const char* c = kLoadingShaders; *c != 0; c++)
+    {
+        if (*c != ' ' && !port_FontHas(text, (unsigned short)*c))
+            english = false;
+    }
+
+    static unsigned short buffer[96];
+    size_t n = 0;
+    if (english)
+    {
+        for (const char* c = kLoadingShaders; *c != 0; c++)
+            buffer[n++] = (unsigned short)*c;
+    }
+    else
+    {
+        const unsigned short* loading = port_LoadingString();
+        while (loading[n] != 0 && n < 80)
+        {
+            buffer[n] = loading[n];
+            n++;
+        }
+    }
+    if (port_FontHas(text, '%'))
+    {
+        char digits[8];
+        snprintf(digits, sizeof digits, " %d%%", PortShaderStagePercent());
+        for (const char* c = digits; *c != 0; c++)
+            buffer[n++] = (unsigned short)*c;
+    }
+    buffer[n] = 0;
+
+    // PORT: after UpdateText, which puts the loc id back every frame.
+    text->SetString(buffer);
+    text->m_bVisible = true;
+    return true;
+}
+#endif
+
 /**
  * Offset/Address/Size: 0x8C8 | 0x800B0E50 | size: 0x644
  */
@@ -872,6 +976,12 @@ void SaveLoadScene::Update(float fDeltaT)
             }
         }
     }
+
+#if defined(PORT_USE_AURORA)
+    // PORT: wait for the shader compile before leaving the boot screen.
+    if (gSaveLoadFinished && port_HoldForShaders(this))
+        return;
+#endif
 
     if (gSaveLoadFinished)
     {

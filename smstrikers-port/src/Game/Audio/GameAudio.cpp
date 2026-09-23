@@ -581,7 +581,7 @@ uintptr_t cGameSFX::Play(Audio::SoundAttributes& sfxData)
 
     if (!Audio::IsInited() || !this->mbInited)
     {
-        return Audio::GetSndIDError();
+        return Audio::NothingPlayed(sfxData); // PORT: a null emitter for a caller that asked for one
     }
 
     unsigned long sfxID = GetSFXID(sfxData.mu_Type);
@@ -594,7 +594,7 @@ uintptr_t cGameSFX::Play(Audio::SoundAttributes& sfxData)
                 && sfxData.mu_Type != 0x95 && sfxData.mu_Type != 0x96 && sfxData.mu_Type != 0x92 && sfxData.mu_Type != 0x93
                 && sfxData.mu_Type != 0xCA && sfxData.mu_Type != 0x1C)
             {
-                return Audio::GetSndIDError();
+                return Audio::NothingPlayed(sfxData); // PORT: a null emitter for a caller that asked for one
             }
         }
         else if (sfxData.me_ClassType == CHAR)
@@ -603,7 +603,7 @@ uintptr_t cGameSFX::Play(Audio::SoundAttributes& sfxData)
                 && sfxData.mu_Type != 0x3B && sfxData.mu_Type != 0x3A && sfxData.mu_Type != 0x3C && sfxData.mu_Type != 0x62
                 && sfxData.mu_Type != 0x5D)
             {
-                return Audio::GetSndIDError();
+                return Audio::NothingPlayed(sfxData); // PORT: a null emitter for a caller that asked for one
             }
         }
     }
@@ -622,7 +622,7 @@ uintptr_t cGameSFX::Play(Audio::SoundAttributes& sfxData)
                 tDebugPrintManager::Print(DC_SOUND, "SFX Repeat Filter prevented a duplicate instance of type %d playing at %0.2f\n", sfxData.mu_Type, currTime);
                 tDebugPrintManager::Print(
                     DC_SOUND, "Last instance of type %d played at %0.2f. Threshold time is %0.2f\n", sfxData.mu_Type, pTrackedSFX->timeStamp, repeatThreshold);
-                return Audio::GetSndIDError();
+                return Audio::NothingPlayed(sfxData); // PORT: a null emitter for a caller that asked for one
             }
         }
     }
@@ -648,7 +648,7 @@ uintptr_t cGameSFX::Play(Audio::SoundAttributes& sfxData)
         {
             if (CheckForHigherPrioritySFX(sfxData.mi_GroupPriority))
             {
-                return Audio::GetSndIDError();
+                return Audio::NothingPlayed(sfxData); // PORT: a null emitter for a caller that asked for one
             }
 
             KillLowerPrioritySFX(sfxData.mi_GroupPriority);
@@ -661,7 +661,7 @@ uintptr_t cGameSFX::Play(Audio::SoundAttributes& sfxData)
     {
         if (CheckForHigherPrioritySFX(sfxData.mi_SFXPriority))
         {
-            return Audio::GetSndIDError();
+            return Audio::NothingPlayed(sfxData); // PORT: a null emitter for a caller that asked for one
         }
 
         KillLowerPrioritySFX(sfxData.mi_SFXPriority);
@@ -716,7 +716,7 @@ uintptr_t cGameSFX::Play(Audio::SoundAttributes& sfxData)
         pSFXEmitter = Audio::GetFreeEmitter(emitterIndex);
         if (pSFXEmitter == NULL)
         {
-            return Audio::GetSndIDError();
+            return Audio::NothingPlayed(sfxData); // PORT: a null emitter for a caller that asked for one
         }
 
         if (sfxData.posUpdateMethod == PHYSOBJ)

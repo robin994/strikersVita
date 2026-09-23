@@ -6,6 +6,8 @@
 static unsigned long s_vitaInputFrame;
 
 extern "C" void PortInstallKeyboardBindings(void) {}
+extern "C" int PortInputPadSetting(unsigned int) { return -1; }
+extern "C" int PortInputKeyboardEnabled(void) { return 0; }
 extern "C" void PortNoteSceneEntered(int scene) { (void)scene; }
 extern "C" void PortUpdateSyntheticInput(unsigned long frame) { s_vitaInputFrame = frame; }
 extern "C" unsigned long PortInputFrame(void) { return s_vitaInputFrame; }
@@ -25,6 +27,7 @@ extern "C" unsigned long PortInputFrame(void) { return s_vitaInputFrame; }
 #include "dolphin/os.h"
 #include "dolphin/pad.h"
 #include "port/input.h"
+#include "port/overlay.h"
 
 namespace
 {
@@ -436,13 +439,9 @@ void apply_gamepad(u32 port, bool report)
 
     for (unsigned i = 0; i < kPadButtonCount; i++)
     {
-        const char* v = input_cfg(kPadButtons[i].env);
-        if (v == nullptr)
-            continue;   // the file said nothing; the device default stands
-
-        const int native = parse_pad_button(v);
-        if (native == kPadNativeBad)
-            continue;   // named at init by check_pad_config, once, not per port
+        const int native = PortInputPadSetting(kPadButtons[i].pad);
+        if (native == kPadNativeInvalid)
+            continue;
 
         PADButtonMapping m;
         m.padButton = kPadButtons[i].pad;
@@ -609,26 +608,62 @@ void update_fake_pad(unsigned long frame, unsigned long holdFrames)
 }
 
 // Which device is on each port, so a connect can be noticed without a callback Aurora does not
-// offer to C. -2 is "not looked at yet", so the first pass reports what is already there.
-s32 s_padIndex[PAD_CHANMAX] = { -2, -2, -2, -2 };
+// offer to C. By instance, since a pad replaced within one frame can take its predecessor's index.
+SDL_JoystickID s_padId[PAD_CHANMAX];
+bool s_padsLooked = false;
 
 void poll_controllers(bool report)
 {
     for (u32 p = 0; p < PAD_CHANMAX; p++)
     {
         const s32 idx = PADGetIndexForPort(p);
-        if (idx == s_padIndex[p])
+        SDL_Gamepad* pad = idx >= 0 ? PADGetSDLGamepadForIndex((u32)idx) : nullptr;
+        const SDL_JoystickID id = pad != nullptr ? SDL_GetGamepadID(pad) : 0;
+        if (s_padsLooked && id == s_padId[p])
             continue;
-        const bool firstLook = s_padIndex[p] == -2;
-        s_padIndex[p] = idx;
-        if (idx >= 0)
+        s_padId[p] = id;
+        if (id != 0)
             apply_gamepad(p, report);
-        else if (firstLook && report)
+        else if (!s_padsLooked && report)
             OSReport("[port] input: pad port %u: no controller\n", p);
     }
+    s_padsLooked = true;
 }
 
 }   // namespace
+
+extern "C" int PortInputKeyboardEnabled(void)
+{
+    const char* v = input_cfg("STRIKERS_KEYBOARD");
+    return v == nullptr || !cfg_off(v);
+}
+
+extern "C" int PortInputPadSetting(unsigned int pad)
+{
+    for (unsigned i = 0; i < kPadButtonCount; i++)
+    {
+        if (kPadButtons[i].pad != pad)
+            continue;
+        const char* v = input_cfg(kPadButtons[i].env);
+#if defined(__SWITCH__)
+        // Default GameCube X and Y to the Switch buttons labelled X and Y, which SDL calls y and x.
+        if (v == nullptr && pad == PAD_BUTTON_X)
+            v = "y";
+        else if (v == nullptr && pad == PAD_BUTTON_Y)
+            v = "x";
+#endif
+        if (v == nullptr)
+            return kPadNativeInvalid;
+        const int native = parse_pad_button(v);
+        if (native == kPadNativeBad)
+            return kPadNativeInvalid;
+        if ((native == kPadNativeLeftTrigger || native == kPadNativeRightTrigger) &&
+            pad != PAD_TRIGGER_L && pad != PAD_TRIGGER_R)
+            return kPadNativeInvalid;
+        return native;
+    }
+    return kPadNativeInvalid;
+}
 
 extern "C" void PortInstallKeyboardBindings(void)
 {
@@ -1022,7 +1057,10 @@ extern "C" void PortUpdateSyntheticInput(unsigned long frame)
     }
     held |= fake_key_state(frame, &lx, &ly, &rx, &ry, &tl, &tr);
 
-    if (held == 0 && lx == 0 && ly == 0 && rx == 0 && ry == 0 && tl == 0 && tr == 0)
+    // The debug menu detaches the keyboard, so a neutral virtual pad keeps port 0 connected.
+    const bool menuHasKeyboard = PortOverlayMenuOpen() && PortInputKeyboardEnabled();
+    if (held == 0 && lx == 0 && ly == 0 && rx == 0 && ry == 0 && tl == 0 && tr == 0 &&
+        !menuHasKeyboard)
     {
         PADClearVirtualStatus(0);
         return;

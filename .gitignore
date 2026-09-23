@@ -6,6 +6,15 @@ smstrikers-port/data/
 *.iso
 smstrikers-port/extern/ffmpeg-windows-x86_64/
 smstrikers-port/extern/ffmpeg-static/
+smstrikers-port/extern/ffmpeg-switch/
+smstrikers-port/extern/dawn-switch/
+smstrikers-port/extern/nvk-switch/
+smstrikers-port/extern/nvk-mesa-switch/
+smstrikers-port/extern/mesa-switch/
+smstrikers-port/assets/switch/romfs/*
+!smstrikers-port/assets/switch/romfs/initial_pipeline_cache.db
+!smstrikers-port/assets/switch/romfs/initial_dawn_cache.db
+!smstrikers-port/assets/switch/romfs/initial_dawn_cache.db.stamp
 
 /dist/
 smstrikers-port/dist/
