@@ -1008,8 +1008,11 @@ int main(int argc, char* argv[])
 #endif
         const char* staticGeometryMb = getenv("STRIKERS_STATIC_GEOMETRY_MB");
         const char* shaderCache = getenv("STRIKERS_SHADER_CACHE");
-        if (shaderCache != NULL && shaderCache[0] == '1')
-            cfg.program_binary_cache_path = "ux0:data/aurora-vita/program_cache";
+        // Aurora GXM persists shaders by default under its TITLE_ID-scoped
+        // data root. Keep the old opt-in variable compatible without forcing
+        // every Vita title back into the legacy shared directory.
+        if (shaderCache != NULL && shaderCache[0] == '0')
+            cfg.program_binary_cache_path = "";
         if (staticGeometryMb != NULL)
         {
             const unsigned long value = strtoul(staticGeometryMb, NULL, 10);
