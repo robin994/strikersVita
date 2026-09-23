@@ -719,14 +719,16 @@ static void PortFollowWindowShape()
 #endif
 }
 
-#if !defined(PORT_VITA)
+#if defined(PORT_VITA)
+static int s_portVitaVsync;
+#else
 static SDL_Window* s_portWindow;
 #endif
 
 static void PortFollowDisplayRefresh()
 {
 #if defined(PORT_VITA)
-    PortSetDisplayRefresh(60.0, 1);
+    PortSetDisplayRefresh(60.0, s_portVitaVsync);
 #else
     if (s_portWindow == NULL)
         return;
@@ -971,6 +973,7 @@ int main(int argc, char* argv[])
         const char* waitVblank = getenv("STRIKERS_WAIT_VBLANK");
         if (waitVblank != NULL)
             cfg.wait_vblank = waitVblank[0] != '0';
+        s_portVitaVsync = cfg.wait_vblank ? 1 : 0;
         // Keep lightweight timing telemetry enabled in normal builds, but do
         // not pay for per-draw coverage/trace/geometry diagnostics unless a
         // developer explicitly requests them in strikers.ini/environment.
@@ -1051,7 +1054,12 @@ int main(int argc, char* argv[])
             return 1;
         }
         PortSetWindowAspect(960, 544);
-        PortSetDisplayRefresh(60.0, 1);
+        // Vita's panel is 60 Hz. When GXM is not explicitly waiting for
+        // VBlank, do not tell the software limiter that a second pacer exists:
+        // that old combination applied the +5% headroom and ran at ~63 Hz.
+        // With wait_vblank=0 this is an exact 60 Hz software cap; with it
+        // enabled, scanout remains the 60 Hz pacing authority.
+        PortSetDisplayRefresh(60.0, s_portVitaVsync);
         VILockAspectRatio((int)(PortTargetAspect() * 10000.0f), 10000);
     }
 #else

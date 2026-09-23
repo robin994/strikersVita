@@ -179,11 +179,19 @@ int main() { std::jthread t([](std::stop_token) {}); }
 endif()
 
 if(STRIKERS_AURORA AND STRIKERS_VITA)
-    # Keep the native CMPR/DXT1 upload path opt-in while isolating a Vita
-    # allocator corruption observed inside glCompressedTexImage2D on hardware.
-    # The RGBA8 fallback is slower, but gives us a clean A/B against the
-    # fused/multithreaded vertex path without modifying the Aurora submodule.
-    option(STRIKERS_VITA_NATIVE_CMPR "Use Aurora Vita native CMPR/DXT1 uploads" OFF)
+    # Aurora's new CMPR path avoids the historical glCompressedTexImage2D
+    # allocator path by installing a UBC1 GXM backing store under the GL
+    # texture lifetime. Keep it opt-in until that interop path is hardware
+    # validated; build-vita-vitagl may explicitly enable it for the A/B.
+    option(STRIKERS_VITA_NATIVE_CMPR "Keep GameCube CMPR compressed as native Vita UBC1" OFF)
+    option(STRIKERS_VITA_NATIVE_GX_TEXTURES
+        "Use Aurora Vita native I/IA/RGB565 texture uploads" ON)
+    option(STRIKERS_VITA_NATIVE_GX_I
+        "Use native VitaGL I4/I8 uploads when native GX textures are enabled" ON)
+    option(STRIKERS_VITA_NATIVE_GX_IA
+        "Use native VitaGL IA4/IA8 uploads when native GX textures are enabled" ON)
+    option(STRIKERS_VITA_NATIVE_GX_RGB565
+        "Use native VitaGL RGB565 uploads when native GX textures are enabled" ON)
     set(STRIKERS_AURORA_VITA_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/extern/aurora-vita"
         CACHE PATH "Aurora Vita source tree used by the Strikers Vita backend")
     set(AURORA_VITA_ROOT "${STRIKERS_AURORA_VITA_ROOT}")
@@ -191,8 +199,12 @@ if(STRIKERS_AURORA AND STRIKERS_VITA)
     set(AURORA_VITA_WITH_UPSTREAM_GX OFF CACHE BOOL "" FORCE)
     set(AURORA_VITA_PORT_ABI GAMECUBE CACHE STRING "" FORCE)
     set(AURORA_VITA_NATIVE_CMPR ${STRIKERS_VITA_NATIVE_CMPR} CACHE BOOL "" FORCE)
-    # Preserve the prior conservative native-format policy for the vitaGL game.
-    set(AURORA_VITA_NATIVE_GX_TEXTURES OFF CACHE BOOL "" FORCE)
+    # Keep native uncompressed GX formats independent from the riskier CMPR path
+    # so hardware A/B can reduce texture pressure without touching DXT1 uploads.
+    set(AURORA_VITA_NATIVE_GX_TEXTURES ${STRIKERS_VITA_NATIVE_GX_TEXTURES} CACHE BOOL "" FORCE)
+    set(AURORA_VITA_NATIVE_GX_I ${STRIKERS_VITA_NATIVE_GX_I} CACHE BOOL "" FORCE)
+    set(AURORA_VITA_NATIVE_GX_IA ${STRIKERS_VITA_NATIVE_GX_IA} CACHE BOOL "" FORCE)
+    set(AURORA_VITA_NATIVE_GX_RGB565 ${STRIKERS_VITA_NATIVE_GX_RGB565} CACHE BOOL "" FORCE)
     include("${AURORA_VITA_ROOT}/cmake/aurora_vita_embed.cmake")
     aurora_add_vita_backend()
 endif()
