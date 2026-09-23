@@ -1,6 +1,7 @@
 // Native pad for Vita; neutral placeholder on other non-Aurora hosts.
 
 #include <string.h>
+#include <math.h>
 
 #include "dolphin/pad.h"
 
@@ -9,6 +10,53 @@
 #endif
 
 static PADSamplingCallback s_sampling_cb;
+
+static void ClampCircleAxisPair(s8* px, s8* py, int radius, int deadzone)
+{
+    int x = *px;
+    int y = *py;
+
+    if (-deadzone < x && x < deadzone)
+        x = 0;
+    else if (x > 0)
+        x -= deadzone;
+    else
+        x += deadzone;
+
+    if (-deadzone < y && y < deadzone)
+        y = 0;
+    else if (y > 0)
+        y -= deadzone;
+    else
+        y += deadzone;
+
+    const int squared = x * x + y * y;
+    if (squared > radius * radius)
+    {
+        const float length = sqrtf((float)squared);
+        x = (int)((float)x * (float)radius / length);
+        y = (int)((float)y * (float)radius / length);
+    }
+
+    *px = (s8)x;
+    *py = (s8)y;
+}
+
+static void ClampTrigger(u8* trigger)
+{
+    const int min = 30;
+    const int max = 180;
+    int value = *trigger;
+    if (value <= min)
+        value = 0;
+    else
+    {
+        if (value > max)
+            value = max;
+        value -= min;
+    }
+    *trigger = (u8)value;
+}
 
 BOOL PADInit(void)
 {
@@ -71,8 +119,21 @@ u32 PADRead(PADStatus* status)
 
 void PADClampCircle(PADStatus* status)
 {
-    // The Vita analog range already fits the signed GameCube range.
-    (void)status;
+    if (status == NULL)
+        return;
+
+    // The game consumes the post-clamp GameCube ranges (56/44), not the raw
+    // signed byte range.  Passing Vita's +/-127 directly makes the left stick
+    // more than 2x full scale and also removes the console's neutral deadzone.
+    for (int i = 0; i < PAD_MAX_CONTROLLERS; ++i)
+    {
+        if (status[i].err != PAD_ERR_NONE)
+            continue;
+        ClampCircleAxisPair(&status[i].stickX, &status[i].stickY, 56, 15);
+        ClampCircleAxisPair(&status[i].substickX, &status[i].substickY, 44, 15);
+        ClampTrigger(&status[i].triggerLeft);
+        ClampTrigger(&status[i].triggerRight);
+    }
 }
 
 void PADControlMotor(u32 chan, u32 command)
