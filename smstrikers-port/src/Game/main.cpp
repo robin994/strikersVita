@@ -11,6 +11,7 @@
 #include <psp2/ctrl.h>
 #include <psp2/kernel/processmgr.h>
 #include <psp2/kernel/sysmem.h>
+#include <psp2/kernel/threadmgr/thread.h>
 #include <psp2/power.h>
 #include <psp2/display.h>
 #include <psp2/gxm.h>
@@ -842,6 +843,10 @@ int main(int argc, char* argv[])
 #if defined(PORT_VITA)
     {
         sceCtrlSetSamplingMode(SCE_CTRL_MODE_ANALOG);
+        // Keep the game and synchronous GXM control path on core 0. Core 1 is
+        // reserved for audio and core 2 for Aurora's single CPU helper.
+        (void)sceKernelChangeThreadCpuAffinityMask(
+            sceKernelGetThreadId(), SCE_KERNEL_CPU_MASK_USER_0);
         OSReport("[vita] clocks at boot: cpu=%d bus=%d gpu=%d xbar=%d MHz\n",
                  scePowerGetArmClockFrequency(), scePowerGetBusClockFrequency(),
                  scePowerGetGpuClockFrequency(), scePowerGetGpuXbarClockFrequency());
@@ -939,14 +944,18 @@ int main(int argc, char* argv[])
         cfg.stream_vertex_bytes = 8 * 1024 * 1024;
         cfg.stream_index_bytes = 512 * 1024;
         cfg.stream_slots = 3;
-        cfg.cpu_worker_threads = 2;
+        cfg.cpu_worker_threads = 1;
         // The worker scheduler treats this as the minimum useful work per lane.
-        // Gameplay's common ~198-vertex packets therefore need ~64 vertices per
-        // lane to keep all three Vita CPU lanes busy during decode/transform.
+        // With one helper, common ~198-vertex packets still split usefully
+        // between the game thread and core-2 decode/transform work.
         cfg.cpu_parallel_min_vertices = 64;
         const char* workerCount = getenv("STRIKERS_AURORA_CPU_WORKERS");
         if (workerCount != NULL && workerCount[0] >= '0' && workerCount[0] <= '2' && workerCount[1] == '\0')
+        {
             cfg.cpu_worker_threads = (unsigned int)(workerCount[0] - '0');
+            if (cfg.cpu_worker_threads > 1)
+                cfg.cpu_worker_threads = 1;
+        }
         const char* parallelMin = getenv("STRIKERS_AURORA_PARALLEL_MIN");
         if (parallelMin != NULL)
         {

@@ -38,6 +38,7 @@ endif()
 # Heap bugs in ported code tend to surface far from their cause, a stray write through a truncated
 # pointer shows up as a crash inside malloc much later.
 option(STRIKERS_ASAN "Build with AddressSanitizer" OFF)
+option(STRIKERS_VITA_AUDIO_THREAD "Run the Vita MusyX software mixer on a dedicated worker" ON)
 
 # Aurora is a drop-in replacement for the Dolphin SDK: it defines the real GX/VI/PAD/DVD/CARD/SI
 # symbols over WebGPU and SDL3.
@@ -99,6 +100,9 @@ if(STRIKERS_AURORA)
 endif()
 if(STRIKERS_VITA)
     list(APPEND PORT_DEFINES STRIKERS_VITA=1 PORT_VITA=1)
+endif()
+if(STRIKERS_VITA AND STRIKERS_VITA_AUDIO_THREAD)
+    list(APPEND PORT_DEFINES STRIKERS_VITA_AUDIO_THREAD=1)
 endif()
 
 if(MSVC AND STRIKERS_AURORA)
@@ -402,6 +406,9 @@ if(STRIKERS_VITA)
     # MusyX is intentionally kept off port_flags, but it still exchanges enums
     # and enum-containing structures with the game runtime.  Match the 32-bit
     # GameCube enum ABI used by every other Vita object.
+    if(STRIKERS_VITA_AUDIO_THREAD)
+        target_compile_definitions(strikers_musyx PRIVATE MUSYX_THREADED_AUDIO=1)
+    endif()
     target_compile_options(strikers_musyx PRIVATE -w -std=gnu11 -fshort-wchar -fno-short-enums)
 else()
     target_compile_options(strikers_musyx PRIVATE -fdeclspec -w -std=gnu11)

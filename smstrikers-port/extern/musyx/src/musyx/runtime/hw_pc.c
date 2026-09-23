@@ -54,8 +54,7 @@ static void callUserCallback() {
 typedef void (*AIDCallback)();
 extern AIDCallback AIRegisterDMACallback(AIDCallback callback);
 extern void AIInitDMA(uintptr_t start_addr, u32 length);
-extern void* AIPortDMADest(void);
-extern void AIPortRunDMACallback(void);
+extern void* AIPortAdvanceDMA(void);
 
 void salCallback() {
   salAIBufferIndex = (salAIBufferIndex + 1) % 4;
@@ -123,14 +122,10 @@ bool salStartAi() { return PortAudioStart() ? TRUE : FALSE; }
 unsigned int salPortBufferBytes(void) { return DMA_BUFFER_LEN; }
 
 void* salPortNextBuffer(void) {
-  void* played;
-
   if (salAIBufferBase == NULL) {
     return NULL;
   }
-  played = AIPortDMADest();
-  AIPortRunDMACallback();
-  return played;
+  return AIPortAdvanceDMA();
 }
 
 bool salExitAi() {
@@ -177,6 +172,13 @@ void hwInitIrq() {
   hwIrqLevel = 1;
 #ifdef _WIN32
   globalMutex = CreateMutex(NULL, FALSE, NULL);
+#elif defined(MUSYX_THREADED_AUDIO)
+  pthread_mutexattr_t attr;
+  pthread_mutexattr_init(&attr);
+  pthread_mutexattr_settype(&attr, PTHREAD_MUTEX_RECURSIVE);
+  pthread_mutex_init(&globalMutex, &attr);
+  pthread_mutexattr_destroy(&attr);
+  pthread_mutex_lock(&globalMutex);
 #elif defined(__linux__) && !defined(__ANDROID__)
   pthread_mutexattr_t attr;
   pthread_mutexattr_init(&attr);
@@ -204,15 +206,23 @@ void hwExitIrq() {
 }
 
 void hwEnableIrq() {
+#if defined(MUSYX_THREADED_AUDIO) && !defined(_WIN32)
+  pthread_mutex_unlock(&globalMutex);
+#else
   if (--hwIrqLevel == 0) {
     // OSRestoreInterrupts(oldState);
   }
+#endif
 }
 
 void hwDisableIrq() {
+#if defined(MUSYX_THREADED_AUDIO) && !defined(_WIN32)
+  pthread_mutex_lock(&globalMutex);
+#else
   if ((hwIrqLevel++) == 0) {
     // oldState = OSDisableInterrupts();
   }
+#endif
 }
 
 void hwIRQEnterCritical() {

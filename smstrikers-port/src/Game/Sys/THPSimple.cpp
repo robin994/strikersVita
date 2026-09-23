@@ -15,6 +15,11 @@
 
 static void THPAudioMixCallback();
 
+#if defined(STRIKERS_VITA_AUDIO_THREAD)
+extern "C" void AIPortLockCallbacks(void);
+extern "C" void AIPortUnlockCallbacks(void);
+#endif
+
 #include <string.h>   // PORT: was a local declaration with `unsigned long`, which is not size_t on Windows
 #include <string.h>   // PORT: was a local declaration with `unsigned long`, which is not size_t on Windows
 extern "C" int strcmp(const char*, const char*);
@@ -240,6 +245,9 @@ extern "C" int THPSimpleInit(long audioSystem)
 
     if (audioSystem != 1)
     {
+#if defined(STRIKERS_VITA_AUDIO_THREAD)
+        AIPortLockCallbacks();
+#endif
         int old = OSDisableInterrupts();
         OldAIDCallback = AIRegisterDMACallback(THPAudioMixCallback);
 
@@ -247,6 +255,9 @@ extern "C" int THPSimpleInit(long audioSystem)
         {
             AIRegisterDMACallback(NULL);
             OSRestoreInterrupts(old);
+#if defined(STRIKERS_VITA_AUDIO_THREAD)
+            AIPortUnlockCallbacks();
+#endif
             return 0;
         }
 
@@ -259,6 +270,9 @@ extern "C" int THPSimpleInit(long audioSystem)
             AIInitDMA((uintptr_t)SoundBuffer[SoundBufferIndex], 0x280);
             AIStartDMA();
         }
+#if defined(STRIKERS_VITA_AUDIO_THREAD)
+        AIPortUnlockCallbacks();
+#endif
     }
 
     Initialized = 1;
@@ -273,9 +287,15 @@ extern "C" void THPSimpleQuit()
     LCDisable();
     if (AudioSystem != 1 && OldAIDCallback != NULL)
     {
+#if defined(STRIKERS_VITA_AUDIO_THREAD)
+        AIPortLockCallbacks();
+#endif
         int old = OSDisableInterrupts();
         AIRegisterDMACallback(OldAIDCallback);
         OSRestoreInterrupts(old);
+#if defined(STRIKERS_VITA_AUDIO_THREAD)
+        AIPortUnlockCallbacks();
+#endif
     }
     Initialized = 0;
 }
@@ -615,7 +635,13 @@ extern "C" int THPSimplePreLoad(long loop)
  */
 extern "C" void THPSimpleAudioStart()
 {
+#if defined(STRIKERS_VITA_AUDIO_THREAD)
+    AIPortLockCallbacks();
+#endif
     ((THPSimpleControlWork*)&SimpleControl)->audioState = 1;
+#if defined(STRIKERS_VITA_AUDIO_THREAD)
+    AIPortUnlockCallbacks();
+#endif
 }
 
 /**
@@ -623,7 +649,13 @@ extern "C" void THPSimpleAudioStart()
  */
 extern "C" void THPSimpleAudioStop()
 {
+#if defined(STRIKERS_VITA_AUDIO_THREAD)
+    AIPortLockCallbacks();
+#endif
     ((THPSimpleControlWork*)&SimpleControl)->audioState = 0;
+#if defined(STRIKERS_VITA_AUDIO_THREAD)
+    AIPortUnlockCallbacks();
+#endif
 }
 
 /**
@@ -751,10 +783,16 @@ extern "C" long THPSimpleDecode(long audioTrack)
                             ((THPSimpleControlWork*)&SimpleControl)->audioBuffer[((THPSimpleControlWork*)&SimpleControl)->audioDecodeIndex].mBuffer,
                             ptr + port_be32(compSizePtr) * audioTrack,
                             0);
+#if defined(STRIKERS_VITA_AUDIO_THREAD)
+                        AIPortLockCallbacks();
+#endif
                         old = OSDisableInterrupts();
                         ((THPSimpleControlWork*)&SimpleControl)->audioBuffer[((THPSimpleControlWork*)&SimpleControl)->audioDecodeIndex].mValidSample = sample;
                         ((THPSimpleControlWork*)&SimpleControl)->audioBuffer[((THPSimpleControlWork*)&SimpleControl)->audioDecodeIndex].mCurPtr = ((THPSimpleControlWork*)&SimpleControl)->audioBuffer[((THPSimpleControlWork*)&SimpleControl)->audioDecodeIndex].mBuffer;
                         OSRestoreInterrupts(old);
+#if defined(STRIKERS_VITA_AUDIO_THREAD)
+                        AIPortUnlockCallbacks();
+#endif
                         if (++((THPSimpleControlWork*)&SimpleControl)->audioDecodeIndex >= NumAudioBuffers)
                         {
                             ((THPSimpleControlWork*)&SimpleControl)->audioDecodeIndex = 0;
@@ -1130,6 +1168,9 @@ extern "C" int THPSimpleSetVolume(long vol, long time)
         if (time < 0)
             time = 0;
 
+#if defined(STRIKERS_VITA_AUDIO_THREAD)
+        AIPortLockCallbacks();
+#endif
         int old = OSDisableInterrupts();
         ctrl = (THPSimpleControlWork*)&SimpleControl;
 
@@ -1147,6 +1188,9 @@ extern "C" int THPSimpleSetVolume(long vol, long time)
         }
 
         OSRestoreInterrupts(old);
+#if defined(STRIKERS_VITA_AUDIO_THREAD)
+        AIPortUnlockCallbacks();
+#endif
         return 1;
     }
     return 0;

@@ -7,10 +7,16 @@
 
 #include <SDL3/SDL.h>
 
+#include <atomic>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <cstdint>
+
+#if defined(PORT_VITA) && defined(STRIKERS_VITA_AUDIO_THREAD)
+#include <pthread.h>
+#include <psp2/kernel/threadmgr.h>
+#endif
 
 // salPortNextBuffer() returns the ring slot the DAC would be playing and advances MusyX by one 5 ms
 // tick.
@@ -37,9 +43,9 @@ bool s_ownsSubsystem = false;
 bool s_failed = false;
 int s_logging = -1;
 
-unsigned long s_buffers = 0;      // ticks handed to the device
-unsigned long s_underruns = 0;    // updates that found the queue already empty
-bool s_everNonSilent = false;
+std::atomic<unsigned long> s_buffers{0};      // ticks handed to the device
+std::atomic<unsigned long> s_underruns{0};    // fills that found the queue already empty
+std::atomic<bool> s_everNonSilent{false};
 bool s_reported = false;
 
 bool logging() {
@@ -50,28 +56,154 @@ bool logging() {
     return s_logging != 0;
 }
 
-static unsigned long s_updateCalls;
-static double s_updateTotalMs;
-static double s_updateMaxMs;
-static unsigned long s_updateOver2ms;
+std::atomic<unsigned long> s_updateCalls{0};
+std::atomic<unsigned long long> s_updateTotalUs{0};
+std::atomic<unsigned long long> s_updateMaxUs{0};
+std::atomic<unsigned long> s_updateOver2ms{0};
+
+#if defined(PORT_VITA) && defined(STRIKERS_VITA_AUDIO_THREAD)
+std::atomic<bool> s_workerStop{false};
+std::atomic<bool> s_workerRunning{false};
+pthread_t s_worker;
+bool s_workerCreated = false;
+#endif
 
 void report() {
-    if (logging() && s_updateCalls != 0)
+    const unsigned long updateCalls = s_updateCalls.load(std::memory_order_relaxed);
+    const unsigned long long updateTotalUs = s_updateTotalUs.load(std::memory_order_relaxed);
+    const unsigned long long updateMaxUs = s_updateMaxUs.load(std::memory_order_relaxed);
+    const unsigned long updateOver2ms = s_updateOver2ms.load(std::memory_order_relaxed);
+    if (logging() && updateCalls != 0)
         std::fprintf(stderr,
-                     "[port] audio: update cost over %lu frames: mean %.3f ms, max %.2f ms, "
-                     "%lu frames over 2 ms\n",
-                     s_updateCalls, s_updateTotalMs / (double)s_updateCalls, s_updateMaxMs,
-                     s_updateOver2ms);
-    if (s_reported || !logging() || s_buffers == 0)
+                     "[port] audio: fill cost over %lu runs: mean %.3f ms, max %.2f ms, "
+                     "%lu runs over 2 ms\n",
+                     updateCalls, (double)updateTotalUs / (double)updateCalls / 1000.0,
+                     (double)updateMaxUs / 1000.0, updateOver2ms);
+    const unsigned long buffers = s_buffers.load(std::memory_order_relaxed);
+    if (s_reported || !logging() || buffers == 0)
         return;
     s_reported = true;
     const unsigned int frames = salPortBufferBytes() / (kChannels * sizeof(int16_t));
     std::fprintf(stderr,
                  "[port] audio: %lu ticks (%.1f s of output), %lu underruns, %s\n",
-                 s_buffers, (double)s_buffers * (double)frames / (double)kSampleRate,
-                 s_underruns,
-                 s_everNonSilent ? "output was non-silent" : "output was silent throughout");
+                 buffers, (double)buffers * (double)frames / (double)kSampleRate,
+                 s_underruns.load(std::memory_order_relaxed),
+                 s_everNonSilent.load(std::memory_order_relaxed)
+                     ? "output was non-silent" : "output was silent throughout");
 }
+
+void recordFillCost(Uint64 startCounter, unsigned long buffersBefore) {
+    const double elapsedUs = (double)(SDL_GetPerformanceCounter() - startCounter) * 1000000.0
+                           / (double)SDL_GetPerformanceFrequency();
+    const unsigned long long us = elapsedUs > 0.0 ? (unsigned long long)elapsedUs : 0;
+    s_updateCalls.fetch_add(1, std::memory_order_relaxed);
+    s_updateTotalUs.fetch_add(us, std::memory_order_relaxed);
+
+    unsigned long long previousMax = s_updateMaxUs.load(std::memory_order_relaxed);
+    while (previousMax < us
+           && !s_updateMaxUs.compare_exchange_weak(previousMax, us, std::memory_order_relaxed)) {
+    }
+
+    if (us > 2000) {
+        const unsigned long over = s_updateOver2ms.fetch_add(1, std::memory_order_relaxed) + 1;
+        if (logging() && over <= 40) {
+            const unsigned long buffersAfter = s_buffers.load(std::memory_order_relaxed);
+            std::fprintf(stderr,
+                         "[port] audio: slow fill %.1f ms for %lu ticks at tick %lu\n",
+                         (double)us / 1000.0, buffersAfter - buffersBefore, buffersAfter);
+        }
+    }
+}
+
+void audioFillQueue() {
+    if (s_stream == nullptr)
+        return;
+
+    const unsigned int bufBytes = salPortBufferBytes();
+    if (bufBytes == 0)
+        return;
+
+    const int queued = SDL_GetAudioStreamQueued(s_stream);
+    if (queued < 0)
+        return;
+
+    if (queued == 0 && s_buffers.load(std::memory_order_relaxed) != 0)
+        s_underruns.fetch_add(1, std::memory_order_relaxed);
+
+    const int target = static_cast<int>(bufBytes) * kTargetBuffers;
+    int want = (target - queued + static_cast<int>(bufBytes) - 1) / static_cast<int>(bufBytes);
+    if (want <= 0)
+        return;
+    if (want > kMaxBuffersPerUpdate)
+        want = kMaxBuffersPerUpdate;
+
+    const Uint64 startCounter = SDL_GetPerformanceCounter();
+    const unsigned long buffersBefore = s_buffers.load(std::memory_order_relaxed);
+
+    for (int i = 0; i < want; ++i) {
+        void* pcm = salPortNextBuffer();
+        if (pcm == nullptr)
+            break;
+
+        if (!s_everNonSilent.load(std::memory_order_relaxed)) {
+            const int16_t* p = static_cast<const int16_t*>(pcm);
+            const unsigned int n = bufBytes / sizeof(int16_t);
+            bool nonSilent = false;
+            for (unsigned int j = 0; j < n; ++j) {
+                if (p[j] != 0) {
+                    nonSilent = true;
+                    break;
+                }
+            }
+            if (nonSilent && !s_everNonSilent.exchange(true, std::memory_order_relaxed)
+                && logging()) {
+                std::fprintf(stderr, "[port] audio: first non-silent buffer at tick %lu\n",
+                             s_buffers.load(std::memory_order_relaxed));
+            }
+        }
+
+        PortAudioDumpWrite(pcm, bufBytes / (kChannels * sizeof(int16_t)));
+        if (!SDL_PutAudioStreamData(s_stream, pcm, static_cast<int>(bufBytes)))
+            break;
+        s_buffers.fetch_add(1, std::memory_order_relaxed);
+    }
+
+    recordFillCost(startCounter, buffersBefore);
+}
+
+#if defined(PORT_VITA) && defined(STRIKERS_VITA_AUDIO_THREAD)
+void* audioWorkerMain(void*) {
+    (void)sceKernelChangeThreadCpuAffinityMask(
+        sceKernelGetThreadId(), SCE_KERNEL_CPU_MASK_USER_1);
+    while (!s_workerStop.load(std::memory_order_acquire)) {
+        audioFillQueue();
+        sceKernelDelayThread(2000);
+    }
+    return nullptr;
+}
+
+void startAudioWorker() {
+    s_workerStop.store(false, std::memory_order_release);
+    if (pthread_create(&s_worker, nullptr, audioWorkerMain, nullptr) == 0) {
+        s_workerCreated = true;
+        s_workerRunning.store(true, std::memory_order_release);
+        return;
+    }
+    s_workerCreated = false;
+    s_workerRunning.store(false, std::memory_order_release);
+    std::fprintf(stderr,
+                 "[port] audio: worker creation failed; falling back to main-thread mixing\n");
+}
+
+void stopAudioWorker() {
+    if (!s_workerCreated)
+        return;
+    s_workerStop.store(true, std::memory_order_release);
+    pthread_join(s_worker, nullptr);
+    s_workerRunning.store(false, std::memory_order_release);
+    s_workerCreated = false;
+}
+#endif
 
 } // namespace
 
@@ -122,6 +254,9 @@ int PortAudioStart(void) {
                          (unsigned)got.format, frames, kSampleRate, salPortBufferBytes());
         }
     }
+#if defined(PORT_VITA) && defined(STRIKERS_VITA_AUDIO_THREAD)
+    startAudioWorker();
+#endif
     return 1;
 }
 
@@ -129,13 +264,18 @@ int PortAudioDeviceOpen(void) { return s_stream != nullptr ? 1 : 0; }
 
 void PortAudioUpdateCost(unsigned long* calls, double* meanMs, double* maxMs,
                          unsigned long* over2ms) {
-    if (calls) *calls = s_updateCalls;
-    if (meanMs) *meanMs = s_updateCalls ? s_updateTotalMs / (double)s_updateCalls : 0.0;
-    if (maxMs) *maxMs = s_updateMaxMs;
-    if (over2ms) *over2ms = s_updateOver2ms;
+    const unsigned long updateCalls = s_updateCalls.load(std::memory_order_relaxed);
+    const unsigned long long totalUs = s_updateTotalUs.load(std::memory_order_relaxed);
+    if (calls) *calls = updateCalls;
+    if (meanMs) *meanMs = updateCalls ? (double)totalUs / (double)updateCalls / 1000.0 : 0.0;
+    if (maxMs) *maxMs = (double)s_updateMaxUs.load(std::memory_order_relaxed) / 1000.0;
+    if (over2ms) *over2ms = s_updateOver2ms.load(std::memory_order_relaxed);
 }
 
 void PortAudioStop(void) {
+#if defined(PORT_VITA) && defined(STRIKERS_VITA_AUDIO_THREAD)
+    stopAudioWorker();
+#endif
     if (s_stream != nullptr) {
         report();
         SDL_DestroyAudioStream(s_stream);
@@ -148,80 +288,20 @@ void PortAudioStop(void) {
 }
 
 void PortAudioUpdate(void) {
-    if (s_stream == nullptr)
+#if defined(PORT_VITA) && defined(STRIKERS_VITA_AUDIO_THREAD)
+    if (s_workerRunning.load(std::memory_order_acquire))
         return;
-    struct Timer {
-        Uint64 t0;
-        unsigned long buffersBefore;
-        ~Timer() {
-            const double ms = (double)(SDL_GetPerformanceCounter() - t0) * 1000.0
-                              / (double)SDL_GetPerformanceFrequency();
-            ++s_updateCalls;
-            s_updateTotalMs += ms;
-            if (ms > s_updateMaxMs) s_updateMaxMs = ms;
-            if (ms > 2.0) {
-                ++s_updateOver2ms;
-                if (logging() && s_updateOver2ms <= 40)
-                    std::fprintf(stderr,
-                                 "[port] audio: slow update %.1f ms for %lu ticks at tick %lu\n",
-                                 ms, s_buffers - buffersBefore, s_buffers);
-            }
-        }
-    } timer{SDL_GetPerformanceCounter(), s_buffers};
-
-    const unsigned int bufBytes = salPortBufferBytes();
-    if (bufBytes == 0)
-        return;
-
-    const int queued = SDL_GetAudioStreamQueued(s_stream);
-    if (queued < 0)
-        return;
-
-    if (queued == 0 && s_buffers != 0)
-        ++s_underruns;
-
-    const int target = static_cast<int>(bufBytes) * kTargetBuffers;
-    int want = (target - queued + static_cast<int>(bufBytes) - 1) / static_cast<int>(bufBytes);
-    if (want <= 0)
-        return;
-    if (want > kMaxBuffersPerUpdate)
-        want = kMaxBuffersPerUpdate;
-
-    for (int i = 0; i < want; ++i) {
-        void* pcm = salPortNextBuffer();
-        if (pcm == nullptr)
-            break;
-
-        if (!s_everNonSilent) {
-            const int16_t* p = static_cast<const int16_t*>(pcm);
-            const unsigned int n = bufBytes / sizeof(int16_t);
-            for (unsigned int j = 0; j < n; ++j) {
-                if (p[j] != 0) {
-                    s_everNonSilent = true;
-                    if (logging())
-                        std::fprintf(stderr, "[port] audio: first non-silent buffer at tick %lu\n",
-                                     s_buffers);
-                    break;
-                }
-            }
-        }
-
-        // What the device is given, which while a movie is playing is not what the mixer rendered.
-        PortAudioDumpWrite(pcm, bufBytes / (kChannels * sizeof(int16_t)));
-
-        if (!SDL_PutAudioStreamData(s_stream, pcm, static_cast<int>(bufBytes)))
-            break;
-        ++s_buffers;
-    }
+#endif
+    audioFillQueue();
 }
 
 void PortAudioStats(unsigned long* outBuffers, unsigned long* outUnderruns, int* outEverNonSilent) {
     if (outBuffers != nullptr)
-        *outBuffers = s_buffers;
+        *outBuffers = s_buffers.load(std::memory_order_relaxed);
     if (outUnderruns != nullptr)
-        *outUnderruns = s_underruns;
+        *outUnderruns = s_underruns.load(std::memory_order_relaxed);
     if (outEverNonSilent != nullptr)
-        *outEverNonSilent = s_everNonSilent ? 1 : 0;
+        *outEverNonSilent = s_everNonSilent.load(std::memory_order_relaxed) ? 1 : 0;
 }
 
 #else // !PORT_USE_AURORA

@@ -47,12 +47,21 @@ static void snd_handle_irq() {
     return;
   }
 
+#if defined(MUSYX_THREADED_AUDIO)
+  hwIRQEnterCritical();
+  streamCorrectLoops();
+  // sndProfStartPCM(&prof.dspCtrl);
+  salCtrlDsp(salAiGetDest());
+  // sndProfStopPMC(&prof.dspCtrl);
+  hwIRQLeaveCritical();
+#else
   streamCorrectLoops();
   hwIRQEnterCritical();
   // sndProfStartPCM(&prof.dspCtrl);
   salCtrlDsp(salAiGetDest());
   // sndProfStopPMC(&prof.dspCtrl);
   hwIRQLeaveCritical();
+#endif
   hwIRQEnterCritical();
   // sndProfStartPCM(&prof.auxProcessing);
   salHandleAuxProcessing();
@@ -142,11 +151,19 @@ s32 hwInit(u32* frq, u16 numVoices, u16 numStudios, u32 flags) {
 }
 
 void hwExit() {
+#if defined(MUSYX_THREADED_AUDIO)
+  salExitAi();
+  hwDisableIrq();
+  salExitDsp();
+  salExitDspCtrl();
+  hwEnableIrq();
+#else
   hwDisableIrq();
   salExitDsp();
   salExitDspCtrl();
   salExitAi();
   hwEnableIrq();
+#endif
   hwExitIrq();
 }
 
