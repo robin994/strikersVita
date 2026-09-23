@@ -984,9 +984,20 @@ int main(int argc, char* argv[])
         // texgen semantics. Keep an environment escape hatch for immediate A/B
         // validation against the graphics-proven CPU vertex path.
         cfg.gxm_lit_fixed_vertex_gpu = true;
+        // The GXM pipeline cache can hold 512 GX entries. Prewarm the complete
+        // learned manifest so known match pipelines are patched before gameplay
+        // instead of only warming the historical 192-entry subset.
+        cfg.pipeline_prewarm_limit = 512;
         const char* litGpu = getenv("STRIKERS_GXM_LIT_GPU");
         if (litGpu != NULL)
             cfg.gxm_lit_fixed_vertex_gpu = litGpu[0] != '0';
+        const char* pipelinePrewarm = getenv("STRIKERS_PIPELINE_PREWARM_LIMIT");
+        if (pipelinePrewarm != NULL)
+        {
+            const unsigned long value = strtoul(pipelinePrewarm, NULL, 10);
+            if (value <= 512)
+                cfg.pipeline_prewarm_limit = (size_t)value;
+        }
 #endif
         const char* staticGeometryMb = getenv("STRIKERS_STATIC_GEOMETRY_MB");
         const char* shaderCache = getenv("STRIKERS_SHADER_CACHE");
