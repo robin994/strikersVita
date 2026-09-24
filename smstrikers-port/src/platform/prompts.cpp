@@ -1,6 +1,10 @@
 #include "port/prompts.h"
 
-#if !defined(PORT_USE_AURORA)
+#if !defined(PORT_USE_AURORA) || defined(STRIKERS_VITA)
+
+// Vita uses the native SceCtrl PAD shim rather than Aurora's SDL controller
+// registry/remapping layer.  The desktop prompt resolver depends on those SDL
+// PAD extension entry points, so keep the original in-game glyphs on Vita.
 
 extern "C" void PortPromptsFontLoaded(nlFont*) {}
 extern "C" void PortPromptsFontUnloading(nlFont*) {}

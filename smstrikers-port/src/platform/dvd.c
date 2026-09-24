@@ -846,6 +846,15 @@ s32 DVDReadAsyncPrio(DVDFileInfo* fileInfo, void* addr, s32 length, s32 offset,
 
 static s32 dvd_read(const DvdEntry* e, void* addr, s32 length, s32 offset)
 {
+    if (e == NULL || addr == NULL || length < 0 || offset < 0)
+        return -1;
+    if (length == 0 || (u32)offset >= e->length)
+        return 0;
+
+    const u32 at = (u32)offset;
+    const u32 remaining = e->length - at;
+    const u32 requested = (u32)length;
+    const u32 expected = requested < remaining ? requested : remaining;
     s32 got = -1;
     if (s_disc != NULL)
     {
@@ -860,7 +869,7 @@ static s32 dvd_read(const DvdEntry* e, void* addr, s32 length, s32 offset)
         FILE* f = fopen(e->host, "rb");
         if (f)
         {
-            if (fseek(f, offset, SEEK_SET) == 0)
+            if (fseek(f, (long)at, SEEK_SET) == 0)
                 got = (s32)fread(addr, 1, expected, f);
             fclose(f);
         }

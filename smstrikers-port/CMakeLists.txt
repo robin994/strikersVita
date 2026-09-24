@@ -516,6 +516,10 @@ if(STRIKERS_VITA)
         "${CMAKE_CURRENT_SOURCE_DIR}/src/platform/launch.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/src/platform/morphwatch.c"
         "${CMAKE_CURRENT_SOURCE_DIR}/src/platform/crashlog.c")
+    # Vita, like Switch, has no Discord client. Reuse the platform-neutral
+    # no-op presence shim so gameplay can call PortDiscordSetMatch unconditionally.
+    list(APPEND PLATFORM_SOURCES
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/platform/switch/discord.c")
 endif()
 
 # Portable slices of the Dolphin SDK: MTX, QUAT and VEC are pure computation Aurora does not

@@ -36,6 +36,7 @@ const std::size_t kRegionSize = 96u * 1024u * 1024u;
 #else
 const std::size_t kRegionSize = 768u * 1024u * 1024u;
 #endif
+#endif
 
 // At least the largest alignment any caller asks for, so the payload never runs over the header.
 const std::size_t kHeaderSize = 32;

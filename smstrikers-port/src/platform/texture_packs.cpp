@@ -1,6 +1,11 @@
 #include "port/texture_packs.h"
 
-#if !defined(PORT_USE_AURORA)
+#if !defined(PORT_USE_AURORA) || defined(STRIKERS_VITA)
+
+// aurora-vita's native GXM backend does not expose the desktop Aurora texture
+// replacement C API (aurora/replacement.h).  Keep the game-facing hooks inert
+// on Vita rather than pulling the removed Dawn replacement layer into the
+// native renderer. Normal GX texture upload/caching is unaffected.
 
 extern "C" void PortTexturesInit(const char*) {}
 extern "C" void PortTexturesReload(void) {}

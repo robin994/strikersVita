@@ -8,6 +8,21 @@
 
 #include <aurora/gfx.h>
 
+#if defined(STRIKERS_VITA)
+
+// Native GXM owns its shader/program-cache warmup in aurora-vita's backend
+// initialization.  The legacy memory-card-screen wait below tracks Aurora's
+// asynchronous Dawn pipeline queue, which does not exist on Vita and whose old
+// aggregate counter API was removed.  Do not add a second wait/progress path on
+// Vita: by the time this stage is reached GXM has already run the configured
+// persistent-cache preload and prewarm.
+void PortShaderStageBegin(void) {}
+int PortShaderStagePending(void) { return 0; }
+int PortShaderStagePercent(void) { return 100; }
+void PortShaderStageEnd(void) {}
+
+#else
+
 namespace
 {
 
@@ -17,19 +32,11 @@ constexpr double kCapSeconds = 120.0;
 bool s_waiting;
 bool s_reported;
 unsigned long long s_waitStart;
+unsigned s_initialQueued;
 
 unsigned queued()
 {
-    uint32_t n = 0;
-    aurora_get_pipeline_counts(&n, NULL);
-    return n;
-}
-
-unsigned created()
-{
-    uint32_t n = 0;
-    aurora_get_pipeline_counts(NULL, &n);
-    return n;
+    return aurora_get_queued_pipeline_count();
 }
 
 double seconds_since(unsigned long long t)
@@ -41,11 +48,12 @@ double seconds_since(unsigned long long t)
 
 void PortShaderStageBegin(void)
 {
-    if (queued() == 0)
-        fprintf(stderr, "[shaders] all %u pipelines the cache knows are compiled\n", created());
+    s_initialQueued = queued();
+    if (s_initialQueued == 0)
+        fprintf(stderr, "[shaders] pipeline compile queue is empty\n");
     else
-        fprintf(stderr, "[shaders] %u pipelines to compile, %u done; the memory card screen waits for them\n",
-                queued(), created());
+        fprintf(stderr, "[shaders] %u pipelines queued; the memory card screen waits for them\n",
+                s_initialQueued);
 }
 
 int PortShaderStagePending(void)
@@ -63,10 +71,11 @@ int PortShaderStagePending(void)
 
 int PortShaderStagePercent(void)
 {
-    uint32_t waiting = 0, done = 0;
-    aurora_get_pipeline_counts(&waiting, &done);
-    const unsigned long long total = (unsigned long long)done + waiting;
-    return total != 0 ? (int)(100ull * done / total) : 100;
+    const unsigned waiting = queued();
+    if (waiting == 0 || s_initialQueued == 0)
+        return 100;
+    const unsigned remaining = waiting < s_initialQueued ? waiting : s_initialQueued;
+    return (int)(100ull * (s_initialQueued - remaining) / s_initialQueued);
 }
 
 void PortShaderStageEnd(void)
@@ -75,16 +84,17 @@ void PortShaderStageEnd(void)
         return;
     s_reported = true;
     if (!s_waiting)
-        fprintf(stderr, "[shaders] %u pipelines ready before the memory card screen finished\n",
-                created());
+        fprintf(stderr, "[shaders] pipeline queue was ready before the memory card screen finished\n");
     else if (queued() == 0)
-        fprintf(stderr, "[shaders] %u pipelines ready; the memory card screen waited %.1f s\n",
-                created(), seconds_since(s_waitStart));
+        fprintf(stderr, "[shaders] pipeline queue ready; the memory card screen waited %.1f s\n",
+                seconds_since(s_waitStart));
     else
         fprintf(stderr,
                 "[shaders] %u pipelines still compiling after %.0f s; moving on, the rest finish "
                 "in the background\n",
                 queued(), seconds_since(s_waitStart));
 }
+
+#endif // STRIKERS_VITA
 
 #endif // PORT_USE_AURORA
