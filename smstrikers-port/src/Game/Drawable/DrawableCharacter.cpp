@@ -356,7 +356,7 @@ void DrawableCharacter::BuildNodeMatrices()
 /**
  * Offset/Address/Size: 0x26C4 | 0x8011B574 | size: 0x130
  */
-void DrawableCharacter::Render(cCharacter& character) const
+void DrawableCharacter::Render(cCharacter& character, bool poseSkinMesh) const
 {
     static const bool bDrawProbe = getenv("STRIKERS_PROBE_CHARDRAW") != NULL;
     static int nCalls, nInvisible, nRenderOnly, nDrawn, nLastReport;
@@ -391,7 +391,8 @@ void DrawableCharacter::Render(cCharacter& character) const
         return;
     }
 
-    character.PoseSkinMesh(mPoseAccumulator);
+    if (poseSkinMesh)
+        character.PoseSkinMesh(mPoseAccumulator);
 
     if (mCharacter->m_pPropModel != NULL)
     {

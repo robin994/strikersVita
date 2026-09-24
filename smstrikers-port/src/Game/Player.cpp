@@ -1540,6 +1540,13 @@ void cPlayer::PlayerHeadTrackCallback(uintptr_t nSelf, unsigned int nParam2, cPo
  */
 void cPlayer::PrePhysicsUpdate(float dt)
 {
+    const bool poseLocal = PreparePrePhysicsPose(dt);
+    CommitPrePhysicsUpdate(poseLocal);
+}
+
+bool cPlayer::PreparePrePhysicsPose(float dt)
+{
+    (void)dt;
     m_pPoseAccumulator->SetBuildNodeMatrixCallback(m_nHeadJointIndex, PlayerHeadTrackCallback, (uintptr_t)this, 0);
 
     bool poseLocal = false;
@@ -1554,6 +1561,12 @@ void cPlayer::PrePhysicsUpdate(float dt)
     }
 
     m_pPoseAccumulator->SetBuildNodeMatrixCallback(m_nHeadJointIndex, NULL, 0, 0);
+
+    return poseLocal;
+}
+
+void cPlayer::CommitPrePhysicsUpdate(bool poseLocal)
+{
 
     if (m_pBall != NULL)
     {

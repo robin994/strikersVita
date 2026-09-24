@@ -15,6 +15,7 @@
 #include "NL/gl/glState.h"
 #include "Game/Render/CrowdManager.h"
 #include "Game/Effects/EmissionManager.h"
+#include "Game/Character.h"
 #if defined(PORT_VITA)
 #include <aurora_vita_backend.hpp>
 #include <cstdlib>
@@ -82,6 +83,44 @@ bool BlendSnapshotObjects(void* opaque, size_t begin, size_t end, uint32_t) noex
     }
     return true;
 }
+
+struct CharacterGrabJob
+{
+    RenderSnapshot* dst;
+    unsigned int serialMask;
+};
+
+bool GrabCharacters(void* opaque, size_t begin, size_t end, uint32_t) noexcept
+{
+    CharacterGrabJob& job = *static_cast<CharacterGrabJob*>(opaque);
+    for (size_t i = begin; i < end; ++i)
+    {
+        if ((job.serialMask & (1u << i)) != 0)
+            continue;
+        job.dst->mCharacters[i].Grab(*g_pCharacters[i]);
+    }
+    return true;
+}
+
+struct CharacterSkinPoseJob
+{
+    const RenderSnapshot* snapshot;
+    unsigned int serialMask;
+};
+
+bool PoseCharacterSkins(void* opaque, size_t begin, size_t end, uint32_t) noexcept
+{
+    CharacterSkinPoseJob& job = *static_cast<CharacterSkinPoseJob*>(opaque);
+    for (size_t i = begin; i < end; ++i)
+    {
+        if ((job.serialMask & (1u << i)) != 0 || !job.snapshot->mCharacters[i].mVisible)
+            continue;
+        cCharacter* character = g_pCharacters[i];
+        if (character != nullptr)
+            character->PoseSkinMesh(job.snapshot->mCharacters[i].mPoseAccumulator);
+    }
+    return true;
+}
 }
 #endif
 
@@ -134,10 +173,33 @@ void RenderSnapshot::Free()
  */
 void RenderSnapshot::Grab()
 {
+#if defined(PORT_VITA)
+    if (VitaGameParallelEnabled() && aurora::vita::worker_threads() != 0)
+    {
+        unsigned int serialMask = 0;
+        for (int i = 0; i < 10; ++i)
+        {
+            // DrawableCharacter::Grab lazily allocates the snapshot pose. Keep
+            // first-use allocation on CPU0; steady-state copies are disjoint.
+            if (mCharacters[i].mPoseAccumulator == nullptr)
+            {
+                mCharacters[i].Grab(*g_pCharacters[i]);
+                serialMask |= 1u << i;
+            }
+        }
+        CharacterGrabJob job = { this, serialMask };
+        (void)aurora::vita::parallel_for(10, 3, GrabCharacters, &job);
+    }
+    else
+    {
+#endif
     for (int i = 0; i < 10; i++)
     {
         mCharacters[i].Grab(*g_pCharacters[i]);
     }
+#if defined(PORT_VITA)
+    }
+#endif
 
     for (int i = 0; i < 150; i++)
     {
@@ -327,9 +389,41 @@ void RenderSnapshot::Render(float deltaTime) const
             mBowser.Render(*(stadium->mpNPCManager->mpBowser));
         }
 
-        for (int i = 0; i < 10; i++)
+#if defined(PORT_VITA)
+        const bool parallelSkin = VitaGameParallelEnabled() && aurora::vita::worker_threads() != 0;
+        if (parallelSkin)
         {
-            mCharacters[i].Render(*g_pCharacters[i]);
+            // ShaderSkinMesh::Pose mutates only the character-owned pose matrix
+            // tree and morph weights. Warm each concrete mesh once on CPU0 so
+            // no legacy allocator/tree insertion can happen on a helper core.
+            static GLSkinMesh* warmedMesh[10] = {};
+            unsigned int serialMask = 0;
+            for (int i = 0; i < 10; ++i)
+            {
+                if (!mCharacters[i].mVisible || g_pCharacters[i] == nullptr)
+                    continue;
+                GLSkinMesh* mesh = g_pCharacters[i]->GetSkinMesh();
+                if (mesh != warmedMesh[i])
+                {
+                    g_pCharacters[i]->PoseSkinMesh(mCharacters[i].mPoseAccumulator);
+                    warmedMesh[i] = mesh;
+                    serialMask |= 1u << i;
+                }
+            }
+
+            CharacterSkinPoseJob poseJob = { this, serialMask };
+            (void)aurora::vita::parallel_for(10, 3, PoseCharacterSkins, &poseJob);
+
+            // GX state emission remains strictly ordered on CPU0. Only the
+            // matrix/morph preparation above is parallel.
+            for (int i = 0; i < 10; ++i)
+                mCharacters[i].Render(*g_pCharacters[i], false);
+        }
+        else
+#endif
+        {
+            for (int i = 0; i < 10; i++)
+                mCharacters[i].Render(*g_pCharacters[i]);
         }
 
         for (int i = 0; i < 150; i++)

@@ -96,6 +96,10 @@ public:
     virtual void PostPhysicsUpdate();
     virtual void PreUpdate(float dt);
     virtual void PrePhysicsUpdate(float dt);
+    // Vita job split: animation/pose evaluation is independent per player;
+    // physics-object mutation remains serialized by FixedUpdateTask.
+    bool PreparePrePhysicsPose(float dt);
+    void CommitPrePhysicsUpdate(bool poseLocal);
     static void PlayerHeadTrackCallback(uintptr_t nSelf, unsigned int nParam2, cPoseAccumulator* pPoseAccumulator,
         unsigned int nJointIndex, int nParentIndex);
     cPN_SingleAxisBlender* CreateSingleAxisBlender(const int* pSABAnims, int nNumSABAnims, int nPrimaryAnim, void (*fWeightCB)(uintptr_t, cPN_SingleAxisBlender*), float fWeightSeek, cPN_SAnimController* pSynchingController);

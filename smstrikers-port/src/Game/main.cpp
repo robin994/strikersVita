@@ -1098,12 +1098,13 @@ int main(int argc, char* argv[])
         cfg.stream_vertex_bytes = 8 * 1024 * 1024;
         cfg.stream_index_bytes = 512 * 1024;
         cfg.stream_slots = 3;
-        // Stable three-core topology. Keep GX/GXM ownership on the proven
-        // synchronous game thread for now: core 0 runs the game and renderer
-        // control path, core 1 is reserved for audio, and one Aurora helper is
-        // pinned to core 2 for parallel vertex/decode work. This preserves the
-        // stable renderer lifetime while removing helper contention from CPU0.
-        cfg.cpu_worker_threads = 1;
+        // Keep GX/GXM ownership on the proven synchronous CPU0 path, but expose
+        // both helper cores to coarse game jobs. Lane 1 is pinned to CPU2; lane
+        // 2 is pinned to CPU1 at lower priority than the audio pthread, so MusyX
+        // always wins CPU1 when it wakes. Aurora's own per-draw vertex work is
+        // capped to CPU0+CPU2 and never waits on the opportunistic audio core.
+        cfg.cpu_worker_threads = 2;
+        cfg.cpu_renderer_execution_lanes = 2;
         // The worker scheduler treats this as the minimum useful work per lane.
         // Avoid waking the helper for tiny draws. Common ~200-vertex Strikers
         // packets still split across the GX owner + helper, while smaller UI
@@ -1113,8 +1114,6 @@ int main(int argc, char* argv[])
         if (workerCount != NULL && workerCount[0] >= '0' && workerCount[0] <= '2' && workerCount[1] == '\0')
         {
             cfg.cpu_worker_threads = (unsigned int)(workerCount[0] - '0');
-            if (cfg.cpu_worker_threads > 1)
-                cfg.cpu_worker_threads = 1;
         }
         const char* parallelMin = getenv("STRIKERS_AURORA_PARALLEL_MIN");
         if (parallelMin != NULL)

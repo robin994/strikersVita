@@ -30,7 +30,7 @@ public:
     void Grab(cCharacter& character);
     static void DrawableBowserHeadTrackCallback(uintptr_t ctx, unsigned int nParam2, cPoseAccumulator* poseAccumulator, unsigned int currentNodeIndex, int nParentIndex);
     void BuildNodeMatrices();
-    void Render(cCharacter& character) const;
+    void Render(cCharacter& character, bool poseSkinMesh = true) const;
     void SendToGl(const cCharacter& character) const;
     void Grab(SkinAnimatedMovableNPC& npc);
     void Render(SkinAnimatedMovableNPC& npc) const;
