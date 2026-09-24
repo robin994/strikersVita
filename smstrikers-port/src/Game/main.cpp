@@ -1126,18 +1126,15 @@ int main(int argc, char* argv[])
         cfg.stream_vertex_bytes = 8 * 1024 * 1024;
         cfg.stream_index_bytes = 512 * 1024;
         cfg.stream_slots = 3;
-        // Keep GX/GXM ownership on the proven synchronous CPU0 path, but expose
-        // both helper cores to coarse game jobs. Lane 1 is pinned to CPU2; lane
-        // 2 is pinned to CPU1 at lower priority than the audio pthread, so MusyX
-        // always wins CPU1 when it wakes. Aurora's own per-draw vertex work is
-        // capped to CPU0+CPU2 and never waits on the opportunistic audio core.
+        // Keep GX/GXM ownership and command ordering on the proven synchronous
+        // CPU0 path. Renderer *preparation* is allowed to use both persistent
+        // helpers: CPU2 normally, plus CPU1 at a lower priority than MusyX so
+        // audio can pre-empt it immediately. GXM API submission stays serial.
         cfg.cpu_worker_threads = 2;
-        cfg.cpu_renderer_execution_lanes = 2;
-        // The worker scheduler treats this as the minimum useful work per lane.
-        // Avoid waking the helper for tiny draws. Common ~200-vertex Strikers
-        // packets still split across the GX owner + helper, while smaller UI
-        // draws remain entirely on the render owner.
-        cfg.cpu_parallel_min_vertices = 96;
+        cfg.cpu_renderer_execution_lanes = 3;
+        // Common ~200-vertex Strikers packets now split over CPU0+CPU2+CPU1
+        // (audio remains higher priority). Tiny UI work still stays serial.
+        cfg.cpu_parallel_min_vertices = 64;
         const char* workerCount = getenv("STRIKERS_AURORA_CPU_WORKERS");
         if (workerCount != NULL && workerCount[0] >= '0' && workerCount[0] <= '2' && workerCount[1] == '\0')
         {
