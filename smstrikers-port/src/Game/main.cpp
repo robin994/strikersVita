@@ -700,6 +700,23 @@ static const char* PortVitaShaderProfileName(VitaShaderProfile profile)
 static void PortVitaSampleRendererStats()
 {
     const aurora::vita::PerformanceSnapshot perf = aurora::vita::performance_snapshot();
+    static uint64_t s_lastNativePipelineUs = 0;
+    static uint64_t s_lastNativeTextureUs = 0;
+    static uint64_t s_lastNativeDrawUs = 0;
+    static uint64_t s_lastNativeEfbEndSceneUs = 0;
+    static uint64_t s_lastNativeEfbTransferSubmitUs = 0;
+    static uint64_t s_lastNativeEfbTransferWaitUs = 0;
+    static uint64_t s_lastNativeEfbCpuFixupUs = 0;
+    if (perf.nativeTimingsSampled)
+    {
+        s_lastNativePipelineUs = perf.nativePipelineUs;
+        s_lastNativeTextureUs = perf.nativeTextureUs;
+        s_lastNativeDrawUs = perf.nativeDrawUs;
+        s_lastNativeEfbEndSceneUs = perf.nativeEfbEndSceneUs;
+        s_lastNativeEfbTransferSubmitUs = perf.nativeEfbTransferSubmitUs;
+        s_lastNativeEfbTransferWaitUs = perf.nativeEfbTransferWaitUs;
+        s_lastNativeEfbCpuFixupUs = perf.nativeEfbCpuFixupUs;
+    }
     PortBenchRendererStats stats = {};
     stats.valid = 1;
     stats.shaderRuntimeCompilationEnabled = perf.shaderRuntimeCompilationEnabled ? 1 : 0;
@@ -710,11 +727,22 @@ static void PortVitaSampleRendererStats()
     stats.shaderDiskCacheMisses = perf.shaderDiskCacheMisses;
     stats.frameUs = perf.frameUs;
     stats.rendererCpuFrameUs = perf.rendererCpuFrameUs;
+    stats.displayQueueLastUs = perf.displayQueueLastUs;
+    stats.displayQueueMaxUs = perf.displayQueueMaxUs;
     stats.displayQueueAverageUs = perf.displayQueueAverageUs;
     stats.displayQueueSamples = perf.displayQueueSamples;
     stats.displayQueueBlockedPercent = perf.displayQueueBlockedPercent;
+    stats.gpuBackpressureLikely = perf.gpuBackpressureLikely ? 1 : 0;
+    stats.nativeTimingsSampled = perf.nativeTimingsSampled ? 1 : 0;
+    stats.nativePipelineUs = s_lastNativePipelineUs;
+    stats.nativeTextureUs = s_lastNativeTextureUs;
+    stats.nativeDrawUs = s_lastNativeDrawUs;
     stats.nativeSceneCount = perf.nativeSceneCount;
     stats.nativeEfbCopies = perf.nativeEfbCopies;
+    stats.nativeEfbEndSceneUs = s_lastNativeEfbEndSceneUs;
+    stats.nativeEfbTransferSubmitUs = s_lastNativeEfbTransferSubmitUs;
+    stats.nativeEfbTransferWaitUs = s_lastNativeEfbTransferWaitUs;
+    stats.nativeEfbCpuFixupUs = s_lastNativeEfbCpuFixupUs;
     stats.staticGeometryHits = perf.staticGeometryHits;
     stats.staticGeometryMisses = perf.staticGeometryMisses;
     stats.staticGeometryLookupFallbacks = perf.staticGeometryLookupFallbacks;

@@ -668,6 +668,33 @@ void draw_frame_tab(const PortBenchLive& live)
     ImGui::Text("present %6.3f ms", live.presentMs);
     ImGui::Text("sleep   %6.3f ms  (idle)", live.sleepMs);
 
+    PortBenchRendererStats renderer = {};
+    PortBenchGetRendererStats(&renderer);
+    if (renderer.valid)
+    {
+        ImGui::SeparatorText("Vita GXM critical path");
+        ImGui::Text("renderer CPU %6.3f ms   frame %6.3f ms",
+                    (double)renderer.rendererCpuFrameUs / 1000.0,
+                    (double)renderer.frameUs / 1000.0);
+        ImGui::Text("display queue last %6.3f ms   avg %6.3f   max %6.3f",
+                    (double)renderer.displayQueueLastUs / 1000.0,
+                    (double)renderer.displayQueueAverageUs / 1000.0,
+                    (double)renderer.displayQueueMaxUs / 1000.0);
+        ImGui::Text("GPU backpressure %s   blocked %u%%   scenes %u   EFB copies %u",
+                    renderer.gpuBackpressureLikely ? "YES" : "no",
+                    renderer.displayQueueBlockedPercent,
+                    renderer.nativeSceneCount, renderer.nativeEfbCopies);
+        ImGui::Text("submit CPU: pipeline %.3f   texture %.3f   draw %.3f ms",
+                    (double)renderer.nativePipelineUs / 1000.0,
+                    (double)renderer.nativeTextureUs / 1000.0,
+                    (double)renderer.nativeDrawUs / 1000.0);
+        ImGui::Text("EFB CPU: end %.3f   submit %.3f   wait %.3f   fixup %.3f ms",
+                    (double)renderer.nativeEfbEndSceneUs / 1000.0,
+                    (double)renderer.nativeEfbTransferSubmitUs / 1000.0,
+                    (double)renderer.nativeEfbTransferWaitUs / 1000.0,
+                    (double)renderer.nativeEfbCpuFixupUs / 1000.0);
+    }
+
     double limitHz = 0.0;
     PortFrameLimitInfo(&limitHz, nullptr, nullptr, nullptr);
     const double field = limitHz > 0.0 ? 1000.0 / limitHz : 1000.0 / 59.94;

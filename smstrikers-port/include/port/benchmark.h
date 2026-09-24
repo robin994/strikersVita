@@ -102,13 +102,24 @@ typedef struct PortBenchRendererStats
 
     unsigned long long frameUs;
     unsigned long long rendererCpuFrameUs;
+    unsigned long long displayQueueLastUs;
+    unsigned long long displayQueueMaxUs;
     unsigned long long displayQueueTotalUs;
     unsigned long long displayQueueAverageUs;
     unsigned long long displayQueueSamples;
     unsigned long long displayQueueBlockedSamples;
     unsigned int displayQueueBlockedPercent;
+    int gpuBackpressureLikely;
+    int nativeTimingsSampled;
+    unsigned long long nativePipelineUs;
+    unsigned long long nativeTextureUs;
+    unsigned long long nativeDrawUs;
     unsigned int nativeSceneCount;
     unsigned int nativeEfbCopies;
+    unsigned long long nativeEfbEndSceneUs;
+    unsigned long long nativeEfbTransferSubmitUs;
+    unsigned long long nativeEfbTransferWaitUs;
+    unsigned long long nativeEfbCpuFixupUs;
     unsigned long long drawFrontendUs;
     unsigned long long stateTranslateUs;
     unsigned long long vertexDecodeUs;
