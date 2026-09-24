@@ -15,9 +15,75 @@
 #include "NL/gl/glState.h"
 #include "Game/Render/CrowdManager.h"
 #include "Game/Effects/EmissionManager.h"
+#if defined(PORT_VITA)
+#include <aurora_vita_backend.hpp>
+#include <cstdlib>
+#endif
 
 extern bool g_GoalLightEnabled;
 float g_AllActorsHidden;
+
+#if defined(PORT_VITA)
+namespace
+{
+bool VitaGameParallelEnabled()
+{
+    static const bool enabled = [] {
+        const char* value = std::getenv("STRIKERS_VITA_GAME_PARALLEL");
+        return value == nullptr || value[0] != '0';
+    }();
+    return enabled;
+}
+
+struct CharacterBlendJob
+{
+    RenderSnapshot* dst;
+    const RenderSnapshot* lhs;
+    const RenderSnapshot* rhs;
+    const float* factors;
+    unsigned int alreadyBlendedMask;
+};
+
+bool BlendCharacters(void* opaque, size_t begin, size_t end, uint32_t) noexcept
+{
+    CharacterBlendJob& job = *static_cast<CharacterBlendJob*>(opaque);
+    for (size_t i = begin; i < end; ++i)
+    {
+        if ((job.alreadyBlendedMask & (1u << i)) != 0)
+            continue;
+        job.dst->mCharacters[i].Blend(job.factors, job.lhs->mCharacters[i], job.rhs->mCharacters[i]);
+    }
+    return true;
+}
+
+struct SnapshotObjectBlendJob
+{
+    RenderSnapshot* dst;
+    const RenderSnapshot* lhs;
+    const RenderSnapshot* rhs;
+    const float* factors;
+};
+
+bool BlendSnapshotObjects(void* opaque, size_t begin, size_t end, uint32_t) noexcept
+{
+    SnapshotObjectBlendJob& job = *static_cast<SnapshotObjectBlendJob*>(opaque);
+    for (size_t item = begin; item < end; ++item)
+    {
+        if (item < 150)
+        {
+            job.dst->mPowerups[item].Blend(job.factors, job.lhs->mPowerups[item], job.rhs->mPowerups[item]);
+        }
+        else
+        {
+            const size_t fragment = item - 150;
+            job.dst->mExplosionFragments[fragment].Blend(
+                job.factors, job.lhs->mExplosionFragments[fragment], job.rhs->mExplosionFragments[fragment]);
+        }
+    }
+    return true;
+}
+}
+#endif
 
 /**
  * Offset/Address/Size: 0x844 | 0x80113518 | size: 0x13C
@@ -310,6 +376,36 @@ void RenderSnapshot::Blend(const float* blendFactors, const RenderSnapshot& lhs,
     mFrameBlendPercent = blendFactors[0];
     mValid = true;
 
+#if defined(PORT_VITA)
+    if (VitaGameParallelEnabled() && aurora::vita::worker_threads() != 0)
+    {
+        // DrawableCharacter::Blend lazily allocates its pose accumulator. Keep
+        // those rare first allocations on CPU0 because the legacy allocator was
+        // never designed as a general multi-threaded heap. Once allocated, each
+        // character owns disjoint destination pose/matrix storage and can blend
+        // independently on CPU0/CPU2.
+        unsigned int serialCharacterMask = 0;
+        for (int i = 0; i < 10; ++i)
+        {
+            if (mCharacters[i].mPoseAccumulator == nullptr)
+            {
+                mCharacters[i].Blend(blendFactors, lhs.mCharacters[i], rhs.mCharacters[i]);
+                serialCharacterMask |= 1u << i;
+            }
+        }
+
+        CharacterBlendJob characterJob = { this, &lhs, &rhs, blendFactors, serialCharacterMask };
+        (void)aurora::vita::parallel_for(10, 3, BlendCharacters, &characterJob);
+
+        // Powerups and explosion fragments are pure value interpolation with
+        // disjoint destinations. Batch them into one job so the barrier cost is
+        // amortized over 170 objects.
+        SnapshotObjectBlendJob objectJob = { this, &lhs, &rhs, blendFactors };
+        (void)aurora::vita::parallel_for(170, 48, BlendSnapshotObjects, &objectJob);
+    }
+    else
+    {
+#endif
     for (int i = 0; i < 10; i++)
     {
         mCharacters[i].Blend(blendFactors, lhs.mCharacters[i], rhs.mCharacters[i]);
@@ -324,6 +420,9 @@ void RenderSnapshot::Blend(const float* blendFactors, const RenderSnapshot& lhs,
     {
         mExplosionFragments[i].Blend(blendFactors, lhs.mExplosionFragments[i], rhs.mExplosionFragments[i]);
     }
+#if defined(PORT_VITA)
+    }
+#endif
 
     mChainChomp.Blend(blendFactors, lhs.mChainChomp, rhs.mChainChomp);
     mBowser.Blend(blendFactors, lhs.mBowser, rhs.mBowser);
