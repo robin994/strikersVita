@@ -1131,8 +1131,17 @@ int main(int argc, char* argv[])
         // 2 is pinned to CPU1 at lower priority than the audio pthread, so MusyX
         // always wins CPU1 when it wakes. Aurora's own per-draw vertex work is
         // capped to CPU0+CPU2 and never waits on the opportunistic audio core.
+#if defined(STRIKERS_VITA_GX_THREAD)
+        // CPU2 exclusively owns GX decode/translation/GXM. Keep one game-only
+        // helper on CPU1 at a priority below audio; renderer-side CPU jobs stay
+        // on the GX owner instead of waiting on another core.
+        cfg.cpu_worker_threads = 1;
+        cfg.cpu_renderer_execution_lanes = 1;
+        cfg.cpu_worker_primary_on_cpu1 = true;
+#else
         cfg.cpu_worker_threads = 2;
         cfg.cpu_renderer_execution_lanes = 2;
+#endif
         // The worker scheduler treats this as the minimum useful work per lane.
         // Avoid waking the helper for tiny draws. Common ~200-vertex Strikers
         // packets still split across the GX owner + helper, while smaller UI
