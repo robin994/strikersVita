@@ -1126,20 +1126,33 @@ int main(int argc, char* argv[])
         cfg.stream_vertex_bytes = 8 * 1024 * 1024;
         cfg.stream_index_bytes = 512 * 1024;
         cfg.stream_slots = 3;
-        // Keep GX/GXM ownership on the proven synchronous CPU0 path, but expose
-        // both helper cores to coarse game jobs. Lane 1 is pinned to CPU2; lane
-        // 2 is pinned to CPU1 at lower priority than the audio pthread, so MusyX
-        // always wins CPU1 when it wakes. Aurora's own per-draw vertex work is
-        // capped to CPU0+CPU2 and never waits on the opportunistic audio core.
-        cfg.cpu_worker_threads = 2;
-        cfg.cpu_renderer_execution_lanes = 2;
+        // Keep GX/GXM ordering on the proven synchronous CPU0 path. CapUnlocker
+        // removes the ThreadMgr affinity restriction for the normally reserved
+        // fourth core, so detect the capability by actually running a tiny
+        // thread there rather than looking for plugin files/modules.
+        bool vitaCore3Available = aurora::vita::probe_system_core();
+        const char* core3Override = getenv("STRIKERS_VITA_CORE3");
+        if (core3Override != NULL && core3Override[0] == '0')
+            vitaCore3Available = false;
+
+        cfg.cpu_use_system_core = vitaCore3Available;
+        cfg.cpu_worker_threads = vitaCore3Available ? 3u : 2u;
+        // Worker ordering with core3: CPU2, CPU3, then CPU1-lowpri. Capping
+        // renderer jobs to three lanes therefore means CPU0+CPU2+CPU3; audio's
+        // CPU1 is only used by larger game-side parallel_for calls.
+        cfg.cpu_renderer_execution_lanes = vitaCore3Available ? 3u : 2u;
+        PortBenchSetLabel("core3", vitaCore3Available ? "CapUnlocker" : "OFF");
         // The worker scheduler treats this as the minimum useful work per lane.
         // Avoid waking the helper for tiny draws. Common ~200-vertex Strikers
         // packets still split across the GX owner + helper, while smaller UI
         // draws remain entirely on the render owner.
-        cfg.cpu_parallel_min_vertices = 96;
+        // With a dedicated fourth core available, split common ~200-vertex
+        // packets three ways. The 3-core fallback retains the validated 96
+        // vertex threshold and therefore behaves exactly as before.
+        cfg.cpu_parallel_min_vertices = vitaCore3Available ? 64u : 96u;
         const char* workerCount = getenv("STRIKERS_AURORA_CPU_WORKERS");
-        if (workerCount != NULL && workerCount[0] >= '0' && workerCount[0] <= '2' && workerCount[1] == '\0')
+        const char maxWorkerChar = vitaCore3Available ? '3' : '2';
+        if (workerCount != NULL && workerCount[0] >= '0' && workerCount[0] <= maxWorkerChar && workerCount[1] == '\0')
         {
             cfg.cpu_worker_threads = (unsigned int)(workerCount[0] - '0');
         }
