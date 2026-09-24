@@ -1205,12 +1205,30 @@ int main(int argc, char* argv[])
         // validation against the graphics-proven CPU vertex path.
 #if defined(STRIKERS_VITA_GX_THREAD)
         cfg.gxm_lit_fixed_vertex_gpu = false;
+        cfg.gxm_dynamic_tex_matrix_gpu = false;
+        cfg.gxm_bump_fixed_vertex_gpu = false;
+        cfg.gxm_primitive_expand_gpu = false;
 #else
         cfg.gxm_lit_fixed_vertex_gpu = true;
+        // Extended persistent-GX path modelled after the successful Melee Vita
+        // renderer: keep matrix selection, bump basis and stable point/line
+        // expansion on GXM whenever Aurora can prove the draw is cache-safe.
+        cfg.gxm_dynamic_tex_matrix_gpu = true;
+        cfg.gxm_bump_fixed_vertex_gpu = true;
+        cfg.gxm_primitive_expand_gpu = true;
 #endif
         const char* litGpu = getenv("STRIKERS_GXM_LIT_GPU");
         if (litGpu != NULL)
             cfg.gxm_lit_fixed_vertex_gpu = litGpu[0] == '1';
+        const char* texMtxGpu = getenv("STRIKERS_GXM_TEXMTX_GPU");
+        if (texMtxGpu != NULL)
+            cfg.gxm_dynamic_tex_matrix_gpu = texMtxGpu[0] == '1';
+        const char* bumpGpu = getenv("STRIKERS_GXM_BUMP_GPU");
+        if (bumpGpu != NULL)
+            cfg.gxm_bump_fixed_vertex_gpu = bumpGpu[0] == '1';
+        const char* primitiveGpu = getenv("STRIKERS_GXM_PRIM_GPU");
+        if (primitiveGpu != NULL)
+            cfg.gxm_primitive_expand_gpu = primitiveGpu[0] == '1';
 #endif
         const char* staticGeometryMb = getenv("STRIKERS_STATIC_GEOMETRY_MB");
         if (staticGeometryMb != NULL)
@@ -1222,9 +1240,12 @@ int main(int argc, char* argv[])
         const char* drawLimit = getenv("STRIKERS_VITA_DRAW_LIMIT");
         if (drawLimit != NULL)
             cfg.diagnostic_draw_limit = (unsigned int)strtoul(drawLimit, NULL, 10);
-        OSReport("[vita] static geometry budget=%u KB gpu_fixed_vertex=%d lit_gpu=%d split_vertex_phases=%d\n",
+        OSReport("[vita] static geometry budget=%u KB gpu_fixed_vertex=%d lit_gpu=%d texmtx_gpu=%d bump_gpu=%d prim_gpu=%d split_vertex_phases=%d\n",
                  (unsigned int)(cfg.static_geometry_budget >> 10), cfg.static_geometry_budget != 0,
                  cfg.gxm_lit_fixed_vertex_gpu ? 1 : 0,
+                 cfg.gxm_dynamic_tex_matrix_gpu ? 1 : 0,
+                 cfg.gxm_bump_fixed_vertex_gpu ? 1 : 0,
+                 cfg.gxm_primitive_expand_gpu ? 1 : 0,
                  cfg.profile_split_vertex_phases ? 1 : 0);
         if (cfg.diagnostic_draw_limit != 0)
             OSReport("[vita] diagnostic draw limit=%u\n", (unsigned int)cfg.diagnostic_draw_limit);
