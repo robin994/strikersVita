@@ -801,7 +801,7 @@ s32 DVDReadAsyncPrio(DVDFileInfo* fileInfo, void* addr, s32 length, s32 offset,
         owe_busy_poll(&fileInfo->cb);
         if (callback)
             callback(got, fileInfo);
-        return got < 0 ? -1 : 0;
+        return TRUE;
     }
 
     // Queue the read on the reader thread; with every slot busy, wait rather than share the file.
@@ -819,7 +819,7 @@ s32 DVDReadAsyncPrio(DVDFileInfo* fileInfo, void* addr, s32 length, s32 offset,
     fileInfo->cb.state = DVD_STATE_BUSY;
     owe_busy_poll(&fileInfo->cb);
     PortDiscQueue(pending_run, job);
-    return 0;
+    return TRUE;
 #else
     const s32 got = dvd_read(e, addr, length, offset);
 
@@ -828,6 +828,17 @@ s32 DVDReadAsyncPrio(DVDFileInfo* fileInfo, void* addr, s32 length, s32 offset,
                  (int)offset, (int)length, (int)got, callback != NULL);
 
     fileInfo->cb.transferredSize = got > 0 ? (u32)got : 0;
+    if (got != (s32)expected)
+    {
+        OSReport("[port] DVDReadAsyncPrio: short/failed read %s off=%d "
+                 "requested=%d expected=%u got=%d\n",
+                 e->host != NULL ? e->host : e->path, (int)offset,
+                 (int)length, (unsigned)expected, (int)got);
+        fileInfo->cb.state = DVD_STATE_FATAL_ERROR;
+        if (callback)
+            callback(-1, fileInfo);
+        return FALSE;
+    }
     if (callback)
     {
         // A caller that asked for a callback gets it here, inline; nothing in this tree does, and
@@ -840,7 +851,7 @@ s32 DVDReadAsyncPrio(DVDFileInfo* fileInfo, void* addr, s32 length, s32 offset,
         // Done, but busy to the first poll. See the header comment.
         fileInfo->cb.state = DVD_STATE_BUSY;
     }
-    return got < 0 ? -1 : 0;
+    return TRUE;
 #endif
 }
 

@@ -53,7 +53,7 @@ int main(void)
             unsigned char buffer[32] = {0};
             read_result = outcomes[i];
             callback_count = 0;
-            DVDReadAsyncPrio(&file, buffer, sizeof buffer, 0, completed, 0);
+            assert(DVDReadAsyncPrio(&file, buffer, sizeof buffer, 0, completed, 0) == TRUE);
             if (!ram) port_yield();
             assert(DVDGetCommandBlockStatus(&file.cb) == DVD_STATE_BUSY);
             assert(DVDGetCommandBlockStatus(&file.cb) == DVD_STATE_END);
