@@ -919,7 +919,11 @@ void DrawableCharacter::SendToGl(const cCharacter& character) const
             params.nVisibleInterval = g_nOnscreenUpdate[characterSizeIndex];
             params.nInvisibleInterval = g_nOffscreenUpdate[characterSizeIndex];
 
-            if (ShouldShadowBeUpdated(params))
+            // RenderCharacterIntoTexture is a no-op in blob-shadow mode. Avoid
+            // duplicating the full character model before making that no-op;
+            // this also guarantees the Vita blob A/B never enters the projected
+            // shadow EFB/GXCopyTex pipeline.
+            if (!g_bShadowBlobs && ShouldShadowBeUpdated(params))
             {
                 params.pModel = glModelDupNoStreams(pModel, true, false);
                 RenderCharacterIntoTexture(params);
