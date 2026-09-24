@@ -11,6 +11,20 @@
 
 static PADSamplingCallback s_sampling_cb;
 
+// Vita reports stick axes in [0,255], with 0 at left/up and 255 at
+// right/down. GameCube PAD uses signed axes with positive Y meaning up.
+// Use 127 for the inverted axis: 128 - 0 would overflow s8 to -128 exactly
+// at full-up, turning maximum up into maximum down in gameplay.
+static s8 vita_axis_x(u8 value)
+{
+    return (s8)((int)value - 128);
+}
+
+static s8 vita_axis_y(u8 value)
+{
+    return (s8)(127 - (int)value);
+}
+
 BOOL PADInit(void)
 {
 #if defined(STRIKERS_VITA)
@@ -55,10 +69,10 @@ u32 PADRead(PADStatus* status)
         if (pad.buttons & SCE_CTRL_START) b |= PAD_BUTTON_START;
 
         status[0].button = b;
-        status[0].stickX = (s8)((int)pad.lx - 128);
-        status[0].stickY = (s8)(128 - (int)pad.ly);
-        status[0].substickX = (s8)((int)pad.rx - 128);
-        status[0].substickY = (s8)(128 - (int)pad.ry);
+        status[0].stickX = vita_axis_x(pad.lx);
+        status[0].stickY = vita_axis_y(pad.ly);
+        status[0].substickX = vita_axis_x(pad.rx);
+        status[0].substickY = vita_axis_y(pad.ry);
         status[0].triggerLeft = (pad.buttons & SCE_CTRL_LTRIGGER) ? 255 : 0;
         status[0].triggerRight = (pad.buttons & SCE_CTRL_RTRIGGER) ? 255 : 0;
         status[0].analogA = (pad.buttons & SCE_CTRL_CROSS) ? 255 : 0;
@@ -134,7 +148,11 @@ void PADClampCircle(PADStatus* status)
     }
 }
 
+#if defined(PORT_VITA)
 void PADControlMotor(u32 chan, u32 command)
+#else
+void PADControlMotor(s32 chan, u32 command)
+#endif
 {
     (void)chan;
     (void)command;

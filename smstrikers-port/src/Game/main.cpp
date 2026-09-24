@@ -1213,7 +1213,12 @@ int main(int argc, char* argv[])
         // Extended persistent-GX path modelled after the successful Melee Vita
         // renderer: keep matrix selection, bump basis and stable point/line
         // expansion on GXM whenever Aurora can prove the draw is cache-safe.
-        cfg.gxm_dynamic_tex_matrix_gpu = true;
+        // Keep per-vertex GX texture-matrix selection on the proven CPU path
+        // for Strikers for now. Hardware testing showed a mirrored + vertically
+        // flipped Health & Safety FE image with this experimental GPU path.
+        // Aurora retains the implementation and STRIKERS_GXM_TEXMTX_GPU=1 can
+        // still opt back in for focused A/B validation.
+        cfg.gxm_dynamic_tex_matrix_gpu = false;
         cfg.gxm_bump_fixed_vertex_gpu = true;
         cfg.gxm_primitive_expand_gpu = true;
 #endif
