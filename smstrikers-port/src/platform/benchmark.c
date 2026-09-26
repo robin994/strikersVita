@@ -152,11 +152,33 @@ void PortBenchSetLabel(const char* key, const char* value)
     s_labelCount++;
 }
 
+static unsigned long long s_counterLastFrame = ~0ull;
+static unsigned long long s_counterFrames, s_counterScenes, s_counterDepthLoad, s_counterDepthStore,
+    s_counterDepthless, s_counterFinish, s_counterScissorFree;
+
 void PortBenchSetRendererStats(const PortBenchRendererStats* stats)
 {
     if (stats == NULL)
         return;
+    if (s_rendererGameplayBaselineValid && !s_rendererGameplayEnded && stats->frameIndex != s_counterLastFrame)
+    {
+        s_counterLastFrame = stats->frameIndex;
+        s_counterFrames++;
+        s_counterScenes += stats->nativeSceneCount;
+        s_counterDepthLoad += stats->nativeDepthLoadScenes;
+        s_counterDepthStore += stats->nativeDepthStoreScenes;
+        s_counterDepthless += stats->nativeDepthlessScenes;
+        s_counterFinish += stats->nativeFinishCalls;
+        s_counterScissorFree += stats->nativeScissorFreeDraws;
+    }
     s_rendererStats = *stats;
+    s_rendererStats.gameplayCounterFrames = s_counterFrames;
+    s_rendererStats.gameplayScenes = s_counterScenes;
+    s_rendererStats.gameplayDepthLoadScenes = s_counterDepthLoad;
+    s_rendererStats.gameplayDepthStoreScenes = s_counterDepthStore;
+    s_rendererStats.gameplayDepthlessScenes = s_counterDepthless;
+    s_rendererStats.gameplayFinishCalls = s_counterFinish;
+    s_rendererStats.gameplayScissorFreeDraws = s_counterScissorFree;
     s_rendererStats.worldCullTested = s_worldCullTested;
     s_rendererStats.worldCullDropped = s_worldCullDropped;
     if (s_rendererGameplayBaselineValid)
@@ -184,6 +206,9 @@ void PortBenchSetRendererStats(const PortBenchRendererStats* stats)
 
 void PortBenchRendererGameplayStart(void)
 {
+    s_counterLastFrame = ~0ull;
+    s_counterFrames = s_counterScenes = s_counterDepthLoad = s_counterDepthStore = 0;
+    s_counterDepthless = s_counterFinish = s_counterScissorFree = 0;
     s_rendererGameplayStartCompiles = s_rendererStats.shaderRuntimeCompiles;
     s_rendererGameplayStartBlocked = s_rendererStats.shaderCompileBlockedMisses;
     s_rendererGameplayStartQueueUs = s_rendererStats.displayQueueTotalUs;
@@ -623,7 +648,9 @@ void PortBenchReport(void)
             "  gxm reuse        stages=%lu create/reuse=%llu/%llu "
             "vp=%lu create/reuse/evict=%llu/%llu/%llu "
             "fp=%lu create/reuse/evict=%llu/%llu/%llu\n"
-            "  geometry         hit=%llu miss=%llu fallback=%llu bytes=%lu entries=%lu\n",
+            "  geometry         hit=%llu miss=%llu fallback=%llu bytes=%lu entries=%lu\n"
+            "  gxm counters     frames=%llu scenes=%llu depth_load=%llu depth_store=%llu "
+            "depthless=%llu finish=%llu scissor_free_draws=%llu\n",
             s_rendererStats.shaderRuntimeCompilationEnabled,
             s_rendererStats.shaderRuntimeCompilesAtGameplayStart,
             s_rendererStats.shaderRuntimeCompilesDuringGameplay,
@@ -681,7 +708,14 @@ void PortBenchReport(void)
             s_rendererStats.staticGeometryMisses,
             s_rendererStats.staticGeometryLookupFallbacks,
             (unsigned long)s_rendererStats.staticGeometryBytes,
-            (unsigned long)s_rendererStats.staticGeometryEntries);
+            (unsigned long)s_rendererStats.staticGeometryEntries,
+            s_rendererStats.gameplayCounterFrames,
+            s_rendererStats.gameplayScenes,
+            s_rendererStats.gameplayDepthLoadScenes,
+            s_rendererStats.gameplayDepthStoreScenes,
+            s_rendererStats.gameplayDepthlessScenes,
+            s_rendererStats.gameplayFinishCalls,
+            s_rendererStats.gameplayScissorFreeDraws);
         fprintf(stderr, "  culling          tested=%u dropped=%u (%.1f%%)\n",
             s_rendererStats.worldCullTested,
             s_rendererStats.worldCullDropped,
@@ -798,7 +832,9 @@ static void write_csv(void)
                 "arena_overflows=%llu "
                 "scenes=%u efb=%u geometry_hits=%llu geometry_misses=%llu "
                 "geometry_fallbacks=%llu geometry_bytes=%lu geometry_entries=%lu "
-                "cull_tested=%u cull_dropped=%u",
+                "cull_tested=%u cull_dropped=%u "
+                "gxm_frames=%llu gxm_scenes=%llu gxm_depth_load=%llu gxm_depth_store=%llu "
+                "gxm_depthless=%llu gxm_finish=%llu gxm_scissor_free_draws=%llu",
                 s_rendererStats.shaderRuntimeCompilationEnabled,
                 s_rendererStats.shaderRuntimeCompilesAtGameplayStart,
                 s_rendererStats.shaderRuntimeCompilesDuringGameplay,
@@ -847,7 +883,14 @@ static void write_csv(void)
                 (unsigned long)s_rendererStats.staticGeometryBytes,
                 (unsigned long)s_rendererStats.staticGeometryEntries,
                 s_rendererStats.worldCullTested,
-                s_rendererStats.worldCullDropped);
+                s_rendererStats.worldCullDropped,
+                s_rendererStats.gameplayCounterFrames,
+                s_rendererStats.gameplayScenes,
+                s_rendererStats.gameplayDepthLoadScenes,
+                s_rendererStats.gameplayDepthStoreScenes,
+                s_rendererStats.gameplayDepthlessScenes,
+                s_rendererStats.gameplayFinishCalls,
+                s_rendererStats.gameplayScissorFreeDraws);
             if (n > 0)
                 fwrite(line, 1, (size_t)n < sizeof(line) ? (size_t)n : sizeof(line) - 1, f);
         }

@@ -701,6 +701,12 @@ static const char* PortVitaShaderProfileName(VitaShaderProfile profile)
     }
 }
 
+#define PORT_VITA_GXM_COUNTER(snapshot, field) \
+    ([](const auto& s) -> unsigned int { \
+        if constexpr (requires { s.field; }) return static_cast<unsigned int>(s.field); \
+        else return 0u; \
+    }(snapshot))
+
 static void PortVitaSampleRendererStats()
 {
     const aurora::vita::PerformanceSnapshot perf = aurora::vita::performance_snapshot();
@@ -743,6 +749,14 @@ static void PortVitaSampleRendererStats()
     stats.nativeDrawUs = s_lastNativeDrawUs;
     stats.nativeSceneCount = perf.nativeSceneCount;
     stats.nativeEfbCopies = perf.nativeEfbCopies;
+    stats.frameIndex = perf.frameIndex;
+    // gxm-optimization counters are absent from older Aurora revisions; the
+    // testbed builds the A/B baseline from the same Strikers source.
+    stats.nativeDepthLoadScenes = PORT_VITA_GXM_COUNTER(perf, nativeDepthLoadScenes);
+    stats.nativeDepthStoreScenes = PORT_VITA_GXM_COUNTER(perf, nativeDepthStoreScenes);
+    stats.nativeDepthlessScenes = PORT_VITA_GXM_COUNTER(perf, nativeDepthlessScenes);
+    stats.nativeFinishCalls = PORT_VITA_GXM_COUNTER(perf, nativeFinishCalls);
+    stats.nativeScissorFreeDraws = PORT_VITA_GXM_COUNTER(perf, nativeScissorFreeDraws);
     stats.nativeEfbEndSceneUs = s_lastNativeEfbEndSceneUs;
     stats.nativeEfbTransferSubmitUs = s_lastNativeEfbTransferSubmitUs;
     stats.nativeEfbTransferWaitUs = s_lastNativeEfbTransferWaitUs;

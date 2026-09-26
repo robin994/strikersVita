@@ -30,3 +30,4 @@ extracted/
 .debug/
 
 *.log
+/ab-artifacts/

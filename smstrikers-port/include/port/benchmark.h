@@ -116,6 +116,21 @@ typedef struct PortBenchRendererStats
     unsigned long long nativeDrawUs;
     unsigned int nativeSceneCount;
     unsigned int nativeEfbCopies;
+    /* gxm-optimization testbed: per-frame native counters (last frame) and
+     * their sums over the measured gameplay window. */
+    unsigned long long frameIndex;
+    unsigned int nativeDepthLoadScenes;
+    unsigned int nativeDepthStoreScenes;
+    unsigned int nativeDepthlessScenes;
+    unsigned int nativeFinishCalls;
+    unsigned int nativeScissorFreeDraws;
+    unsigned long long gameplayCounterFrames;
+    unsigned long long gameplayScenes;
+    unsigned long long gameplayDepthLoadScenes;
+    unsigned long long gameplayDepthStoreScenes;
+    unsigned long long gameplayDepthlessScenes;
+    unsigned long long gameplayFinishCalls;
+    unsigned long long gameplayScissorFreeDraws;
     unsigned long long nativeEfbEndSceneUs;
     unsigned long long nativeEfbTransferSubmitUs;
     unsigned long long nativeEfbTransferWaitUs;
