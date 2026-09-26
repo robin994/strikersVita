@@ -17,7 +17,8 @@ public:
         SC_UNKNOWN = -1,
         SC_REGULAR_PAUSE = 0,
         SC_101_PAUSE = 1,
-        SC_LAST = 2,
+        SC_DEBUG = 2,
+        SC_LAST = 3,
     };
 
     enum TransitionType
@@ -47,6 +48,11 @@ public:
     void OpenItem(TLComponentInstance* instance);
     void CloseItem(TLComponentInstance* instance);
     void SetQuitTextForJapanese(TLComponentInstance* instance);
+    void OnSelectDEBUG(TLComponentInstance* instance);
+    void RefreshDebugMenuLabels();
+
+    static void OpenDebugMenu();
+    static bool DebugMenuRequested();
 
     /* 0x01C */ ScreenContext mContext;
     /* 0x020 */ bool mGameIsOver;
@@ -63,6 +69,8 @@ public:
     static float mDelayBeforeUnpause;
     static u32 mLastTaskManagerState;
     static s32 mLastSelectedIndex;
+    static bool mDebugMenuRequested;
+    static s32 mDebugPage;
 }; // total size: 0x290
 
 #endif // _SHPAUSE_H_

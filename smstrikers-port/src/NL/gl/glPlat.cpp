@@ -83,6 +83,62 @@ static u32 total_val0 = 0;
 static u32 total_val1 = 0;
 static s32 glx_FBSize;
 
+// Vita runtime render-view isolation.  This sits at the final view submission
+// point so diagnostics can remove one whole class of world work without
+// disturbing game simulation or the FE/debug views.
+static unsigned long long s_portDebugViewMask = (1ull << GLV_Num) - 1ull;
+static unsigned int s_portDebugViewLastUs[GLV_Num] = {};
+
+extern "C" int PortDebugRenderViewEnabled(unsigned int view)
+{
+    if (view >= GLV_Num)
+        return 0;
+    return (s_portDebugViewMask & (1ull << view)) != 0 ? 1 : 0;
+}
+
+extern "C" void PortDebugRenderViewSetEnabled(unsigned int view, int enabled)
+{
+    if (view >= GLV_Num)
+        return;
+    const unsigned long long bit = 1ull << view;
+    if (enabled)
+        s_portDebugViewMask |= bit;
+    else
+        s_portDebugViewMask &= ~bit;
+}
+
+extern "C" void PortDebugRenderViewToggle(unsigned int view)
+{
+    if (view < GLV_Num)
+        s_portDebugViewMask ^= (1ull << view);
+}
+
+extern "C" unsigned int PortDebugRenderViewLastUs(unsigned int view)
+{
+    return view < GLV_Num ? s_portDebugViewLastUs[view] : 0u;
+}
+
+struct PortDebugRenderViewTimer
+{
+    explicit PortDebugRenderViewTimer(unsigned int inView)
+        : view(inView), started(port_monotonic_ns())
+    {
+    }
+
+    ~PortDebugRenderViewTimer()
+    {
+        const unsigned long long elapsed = port_monotonic_ns() - started;
+        const unsigned int us = (unsigned int)(elapsed / 1000ull);
+        // Keep the last meaningful sample so opening the pause/debug FE does
+        // not immediately replace the gameplay cost with an empty-view sample.
+        if (us >= 100u)
+            s_portDebugViewLastUs[view] = us;
+    }
+
+    unsigned int view;
+    unsigned long long started;
+};
+
 // Performance metric string array
 static const char* str_perf0[]
     = { "VERTICES", "CLIP_VTX", "CLIP_CLKS", "XF_WAIT_IN", "XF_WAIT_OUT", "XF_XFRM_CLKS", "XF_LIT_CLKS", "XF_BOT_CLKS", "XF_REGLD_CLKS", "XF_REGRD_CLKS", "CLIP_RATIO", "TRIANGLES", "TRIANGLES_CULLED", "TRIANGLES_PASSED", "TRIANGLES_SCISSORED", "TRIANGLES_0TEX", "TRIANGLES_1TEX", "TRIANGLES_2TEX", "TRIANGLES_3TEX", "TRIANGLES_4TEX", "TRIANGLES_5TEX", "TRIANGLES_6TEX", "TRIANGLES_7TEX", "TRIANGLES_8TEX", "TRIANGLES_0CLR", "TRIANGLES_1CLR", "TRIANGLES_2CLR", "QUAD_0CVG", "QUAD_NON0CVG", "QUAD_1CVG", "QUAD_2CVG", "QUAD_3CVG", "QUAD_4CVG", "AVG_QUAD_CNT", "CLOCKS" };
@@ -423,7 +479,13 @@ static void glx_SendViews()
             continue;
         }
 
+        if (!PortDebugRenderViewEnabled((unsigned int)view))
+        {
+            continue;
+        }
+
         PortProfilerRenderViewScope viewProfile((unsigned int)view);
+        PortDebugRenderViewTimer viewTimer((unsigned int)view);
 
         renderList = gl_ViewGetRenderList((eGLView)view);
         isEmpty = renderList->IsEmpty();

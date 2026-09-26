@@ -5,6 +5,7 @@
 
 #include "NL/gl/gl.h"
 #include "Game/Debug/FrameCounter.h"
+#include "port/overlay.h"
 
 //  */
 // void EndFrameTask::GetName()
@@ -29,6 +30,11 @@ void EndFrameTask::Run(float dt)
         }
     }
 
+#if defined(PORT_VITA)
+    // Draw the Vita quick menu after world/front-end/HUD rendering but before
+    // the GX frame is closed, so later scene passes cannot cover the overlay.
+    PortOverlayDraw();
+#endif
     glEndFrame();
     g_FrameCounter.StartTimer(1);
     glSendFrame();

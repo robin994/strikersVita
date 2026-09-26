@@ -1,6 +1,8 @@
 #ifndef PORT_VITA_PROFILER_H
 #define PORT_VITA_PROFILER_H
 
+#include <stdint.h>
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -39,6 +41,27 @@ void PortProfilerAudioFillEnd(void);
 void PortProfilerAudioTickBegin(void);
 void PortProfilerAudioTickEnd(void);
 void PortProfilerAudioQueue(int queuedBytes, int producedBuffers);
+
+typedef struct PortProfilerRendererSample
+{
+    uint64_t rendererCpuFrameUs;
+    uint64_t displayQueueLastUs;
+    uint64_t nativePipelineUs;
+    uint64_t nativeTextureUs;
+    uint64_t nativeDrawUs;
+    uint64_t staticGeometryHits;
+    uint64_t staticGeometryMisses;
+    uint64_t staticGeometryBytes;
+    uint32_t staticGeometryEntries;
+    uint32_t nativeSceneCount;
+    uint32_t displayQueueBlockedPercent;
+    uint32_t gpuBackpressureLikely;
+    uint32_t nativeTimingsSampled;
+} PortProfilerRendererSample;
+
+// Cheap frame counters taken from Aurora after end_frame(). They let a trace
+// distinguish frontend CPU work from native GXM submission/back-pressure.
+void PortProfilerRecordRendererSample(const PortProfilerRendererSample* sample);
 
 #ifdef __cplusplus
 }

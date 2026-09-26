@@ -291,7 +291,11 @@ void FrontEnd::EnterMenuState(FrontEnd::MenuEnterType menuType)
     switch (m_menuType)
     {
     case MET_PAUSE:
-        if (nlSingleton<GameInfoManager>::Instance()->mIsInStrikers101Mode)
+        if (PauseMenuScene::DebugMenuRequested())
+        {
+            nlSingleton<OverlayManager>::Instance()->Push(IGSCENE_PAUSE, SCREEN_NOTHING, false);
+        }
+        else if (nlSingleton<GameInfoManager>::Instance()->mIsInStrikers101Mode)
         {
             nlSingleton<OverlayManager>::Instance()->Push(IGSCENE_STRIKERS_101_PAUSE, SCREEN_NOTHING, false);
         }

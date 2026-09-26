@@ -4,6 +4,7 @@
 #include <math.h>
 
 #include "dolphin/pad.h"
+#include "port/overlay.h"
 
 #if defined(STRIKERS_VITA)
 #include <psp2/ctrl.h>
@@ -54,6 +55,7 @@ u32 PADRead(PADStatus* status)
     memset(&pad, 0, sizeof pad);
     if (sceCtrlPeekBufferPositive(0, &pad, 1) > 0)
     {
+        PortOverlayVitaInput(pad.buttons);
         u16 b = 0;
         if (pad.buttons & SCE_CTRL_LEFT) b |= PAD_BUTTON_LEFT;
         if (pad.buttons & SCE_CTRL_RIGHT) b |= PAD_BUTTON_RIGHT;
@@ -77,6 +79,21 @@ u32 PADRead(PADStatus* status)
         status[0].triggerRight = (pad.buttons & SCE_CTRL_RTRIGGER) ? 255 : 0;
         status[0].analogA = (pad.buttons & SCE_CTRL_CROSS) ? 255 : 0;
         status[0].analogB = (pad.buttons & SCE_CTRL_CIRCLE) ? 255 : 0;
+
+        // The Vita quick menu polls the raw controller itself. Keep its D-pad
+        // and face-button navigation from leaking into the game while open.
+        if (PortOverlayMenuOpen())
+        {
+            status[0].button = 0;
+            status[0].stickX = 0;
+            status[0].stickY = 0;
+            status[0].substickX = 0;
+            status[0].substickY = 0;
+            status[0].triggerLeft = 0;
+            status[0].triggerRight = 0;
+            status[0].analogA = 0;
+            status[0].analogB = 0;
+        }
     }
 #endif
 

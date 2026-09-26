@@ -655,6 +655,10 @@ enum VitaShaderProfile
 #define STRIKERS_VITA_SHADER_PROFILE_DEFAULT "SEALED"
 #endif
 
+#ifndef STRIKERS_VITA_STATIC_GEOMETRY_MB_DEFAULT
+#define STRIKERS_VITA_STATIC_GEOMETRY_MB_DEFAULT 8
+#endif
+
 static VitaShaderProfile s_vitaShaderProfile = VITA_SHADER_SEALED;
 static bool s_vitaShaderGameplayActive = false;
 
@@ -1189,6 +1193,17 @@ int main(int argc, char* argv[])
         const char* gxmD16 = getenv("STRIKERS_GXM_D16");
         if (gxmD16 != NULL)
             cfg.gxm_d16_depth = gxmD16[0] != '0';
+        // Preserve the hardware-proven Strikers baseline. Larger parameter
+        // buffers remain available through STRIKERS_GXM_PARAMETER_MB for
+        // targeted experiments, but are not the default.
+        cfg.gxm_parameter_buffer_bytes = 4u * 1024u * 1024u;
+        const char* parameterMb = getenv("STRIKERS_GXM_PARAMETER_MB");
+        if (parameterMb != NULL)
+        {
+            const unsigned long value = strtoul(parameterMb, NULL, 10);
+            if (value >= 1 && value <= 32)
+                cfg.gxm_parameter_buffer_bytes = (size_t)value * 1024u * 1024u;
+        }
         // Native GXM can keep immutable object-space GX geometry resident and
         // perform fixed PN/texgen work in its vertex shader. The separated GX
         // bring-up must start from the CPU vertex path: the experimental static
@@ -1197,7 +1212,13 @@ int main(int argc, char* argv[])
 #if defined(STRIKERS_VITA_GX_THREAD)
         cfg.static_geometry_budget = 0;
 #else
-        cfg.static_geometry_budget = 8 * 1024 * 1024;
+        cfg.static_geometry_budget =
+            (unsigned int)STRIKERS_VITA_STATIC_GEOMETRY_MB_DEFAULT * 1024u * 1024u;
+        // Strikers submits a large amount of dynamic character/shadow geometry.
+        // Do not spend CPU hashing those transient GX streams just to discover
+        // they are unsuitable for persistent reuse; only display-list-backed
+        // sources enter the fixed-vertex cache.
+        cfg.static_geometry_stable_only = true;
 #endif
         cfg.static_geometry_min_vertices = 16;
         const char* fixedMin = getenv("STRIKERS_GXM_FIXED_MIN");
@@ -1229,11 +1250,16 @@ int main(int argc, char* argv[])
         // validation against the graphics-proven CPU vertex path.
 #if defined(STRIKERS_VITA_GX_THREAD)
         cfg.gxm_lit_fixed_vertex_gpu = false;
+        cfg.gxm_streamed_fixed_vertex_gpu = false;
         cfg.gxm_dynamic_tex_matrix_gpu = false;
         cfg.gxm_bump_fixed_vertex_gpu = false;
         cfg.gxm_primitive_expand_gpu = false;
 #else
         cfg.gxm_lit_fixed_vertex_gpu = true;
+        // Keep the hardware-proven CPU vertex path as the boot default. The
+        // Vita quick menu can enable the streamed fixed-vertex experiment live
+        // for A/B tests without requiring another build.
+        cfg.gxm_streamed_fixed_vertex_gpu = false;
         // Extended persistent-GX path modelled after the successful Melee Vita
         // renderer: keep matrix selection, bump basis and stable point/line
         // expansion on GXM whenever Aurora can prove the draw is cache-safe.
@@ -1249,6 +1275,9 @@ int main(int argc, char* argv[])
         const char* litGpu = getenv("STRIKERS_GXM_LIT_GPU");
         if (litGpu != NULL)
             cfg.gxm_lit_fixed_vertex_gpu = litGpu[0] == '1';
+        const char* streamedGpu = getenv("STRIKERS_GXM_STREAMED_VERTEX_GPU");
+        if (streamedGpu != NULL)
+            cfg.gxm_streamed_fixed_vertex_gpu = streamedGpu[0] == '1';
         const char* texMtxGpu = getenv("STRIKERS_GXM_TEXMTX_GPU");
         if (texMtxGpu != NULL)
             cfg.gxm_dynamic_tex_matrix_gpu = texMtxGpu[0] == '1';
@@ -1269,8 +1298,9 @@ int main(int argc, char* argv[])
         const char* drawLimit = getenv("STRIKERS_VITA_DRAW_LIMIT");
         if (drawLimit != NULL)
             cfg.diagnostic_draw_limit = (unsigned int)strtoul(drawLimit, NULL, 10);
-        OSReport("[vita] static geometry budget=%u KB gpu_fixed_vertex=%d lit_gpu=%d texmtx_gpu=%d bump_gpu=%d prim_gpu=%d split_vertex_phases=%d\n",
+        OSReport("[vita] static geometry budget=%u KB gpu_fixed_vertex=%d streamed_gpu=%d lit_gpu=%d texmtx_gpu=%d bump_gpu=%d prim_gpu=%d split_vertex_phases=%d\n",
                  (unsigned int)(cfg.static_geometry_budget >> 10), cfg.static_geometry_budget != 0,
+                 cfg.gxm_streamed_fixed_vertex_gpu ? 1 : 0,
                  cfg.gxm_lit_fixed_vertex_gpu ? 1 : 0,
                  cfg.gxm_dynamic_tex_matrix_gpu ? 1 : 0,
                  cfg.gxm_bump_fixed_vertex_gpu ? 1 : 0,
@@ -1532,6 +1562,24 @@ int main(int argc, char* argv[])
         PortAudioUpdate();
 #if defined(PORT_VITA)
         aurora::vita::end_frame();
+        {
+            const aurora::vita::PerformanceSnapshot perf = aurora::vita::performance_snapshot();
+            PortProfilerRendererSample sample = {};
+            sample.rendererCpuFrameUs = perf.rendererCpuFrameUs;
+            sample.displayQueueLastUs = perf.displayQueueLastUs;
+            sample.nativePipelineUs = perf.nativePipelineUs;
+            sample.nativeTextureUs = perf.nativeTextureUs;
+            sample.nativeDrawUs = perf.nativeDrawUs;
+            sample.staticGeometryHits = perf.staticGeometryHits;
+            sample.staticGeometryMisses = perf.staticGeometryMisses;
+            sample.staticGeometryBytes = perf.staticGeometryBytes;
+            sample.staticGeometryEntries = (uint32_t)perf.staticGeometryEntries;
+            sample.nativeSceneCount = perf.nativeSceneCount;
+            sample.displayQueueBlockedPercent = perf.displayQueueBlockedPercent;
+            sample.gpuBackpressureLikely = perf.gpuBackpressureLikely ? 1u : 0u;
+            sample.nativeTimingsSampled = perf.nativeTimingsSampled ? 1u : 0u;
+            PortProfilerRecordRendererSample(&sample);
+        }
         VitaMaybeCaptureFrame();
 #else
         aurora_end_frame();

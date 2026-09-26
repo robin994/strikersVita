@@ -816,6 +816,7 @@ void BeginFrameTask::Run(float dt)
         glFontPrintf((eGLView)0x21, 1, 1, white, "Region %d", *GetRegion());
         glFontEnd();
     }
+
 }
 
 static inline LineStreams MakeLineStreams()
