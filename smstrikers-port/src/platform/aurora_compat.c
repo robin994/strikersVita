@@ -13,7 +13,14 @@
 
 void GXWaitDrawDone(void)
 {
+#if defined(PORT_VITA)
+    // Wait only for the token placed by the last GXSetDrawDone, exactly as on
+    // GameCube: with the Vita GX worker the game keeps building the next frame
+    // while the previous one is translated and submitted on another core.
+    GXVitaWaitDrawDone();
+#else
     GXDrawDone();
+#endif
 }
 
 void GXClearGPMetric(void) {}

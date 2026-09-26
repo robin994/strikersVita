@@ -1239,9 +1239,7 @@ int main(int argc, char* argv[])
         // bring-up must start from the CPU vertex path: the experimental static
         // geometry/fixed-vertex path is the current freeze suspect and Aurora's
         // own regression audit recommends budget=0 for the control profile.
-#if defined(STRIKERS_VITA_GX_THREAD)
-        cfg.static_geometry_budget = 0;
-#else
+        {
         cfg.static_geometry_budget =
             (unsigned int)STRIKERS_VITA_STATIC_GEOMETRY_MB_DEFAULT * 1024u * 1024u;
         // Strikers submits a large amount of dynamic character/shadow geometry.
@@ -1249,7 +1247,7 @@ int main(int argc, char* argv[])
         // they are unsuitable for persistent reuse; only display-list-backed
         // sources enter the fixed-vertex cache.
         cfg.static_geometry_stable_only = true;
-#endif
+        }
         cfg.static_geometry_min_vertices = 16;
         const char* fixedMin = getenv("STRIKERS_GXM_FIXED_MIN");
         if (fixedMin != NULL)
@@ -1278,7 +1276,7 @@ int main(int argc, char* argv[])
         // The native shader now reproduces GX channel lighting and COLOR0/COLOR1
         // texgen semantics. Keep an environment escape hatch for immediate A/B
         // validation against the graphics-proven CPU vertex path.
-#if defined(STRIKERS_VITA_GX_THREAD)
+#if 0 // The GX worker keeps the same renderer configuration as the synchronous path.
         cfg.gxm_lit_fixed_vertex_gpu = false;
         cfg.gxm_streamed_fixed_vertex_gpu = false;
         cfg.gxm_dynamic_tex_matrix_gpu = false;

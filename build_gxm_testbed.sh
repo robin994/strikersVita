@@ -44,6 +44,7 @@ cmake -S "$PORT_DIR" -B "$BUILD_DIR" -G "Unix Makefiles" \
   -DSTRIKERS_VITA_NO_LOGS="${VITA_NO_LOGS:-ON}" \
   -DSTRIKERS_VITA_FORCE_60HZ="${VITA_FORCE_60HZ:-ON}" \
   -DSTRIKERS_VITA_GC_NATIVE_RES="${VITA_GC_NATIVE_RES:-OFF}" \
+  -DSTRIKERS_VITA_GX_THREAD="${VITA_GX_THREAD:-OFF}" \
   -DCMAKE_PREFIX_PATH="$VITASDK/arm-vita-eabi" >/dev/null
 cmake --build "$BUILD_DIR" --target strikers_vita.vpk-vpk --parallel "$CORES"
 
