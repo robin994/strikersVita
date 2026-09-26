@@ -1249,6 +1249,16 @@ int main(int argc, char* argv[])
         cfg.static_geometry_stable_only = true;
         }
         cfg.static_geometry_min_vertices = 16;
+        {
+            // Display-list draw-site pipeline fast path (Aurora gxm-optimization).
+            const char* dlFast = getenv("STRIKERS_GXM_DL_FASTPATH");
+            const bool enableDlFast = dlFast == NULL || dlFast[0] != '0';
+            [&](auto& config) {
+                if constexpr (requires { config.gxm_dl_pipeline_fast_path; })
+                    config.gxm_dl_pipeline_fast_path = enableDlFast;
+            }(cfg);
+            (void)enableDlFast;
+        }
         const char* fixedMin = getenv("STRIKERS_GXM_FIXED_MIN");
         if (fixedMin != NULL)
         {
