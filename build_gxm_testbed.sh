@@ -48,7 +48,7 @@ cmake -S "$PORT_DIR" -B "$BUILD_DIR" -G "Unix Makefiles" \
 cmake --build "$BUILD_DIR" --target strikers_vita.vpk-vpk --parallel "$CORES"
 
 mkdir -p "$OUT_DIR"
-for f in strikers_vita.vpk strikers_vita.self strikers_vita eboot.bin; do
+for f in strikers_vita.vpk strikers_vita.self strikers strikers.map; do
   [[ -f "$BUILD_DIR/$f" ]] && cp "$BUILD_DIR/$f" "$OUT_DIR/"
 done
 {
