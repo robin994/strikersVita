@@ -1025,6 +1025,22 @@ int main(int argc, char* argv[])
         if (applied > 0)
             OSReport("[port] %s: %d setting(s)\n",
                      PortConfigPath(), applied);
+#if defined(PORT_VITA)
+        // strikers.ini has no other visible effect on Vita; report exactly what
+        // the loader saw so a silent setenv/fopen failure cannot hide.
+        {
+            FILE* probe = fopen("ux0:data/strikersVita/strikers.ini", "rb");
+            const int probeOpen = probe != NULL;
+            if (probe != NULL)
+                fclose(probe);
+            const int setRc = setenv("STRIKERS_CONFIG_PROBE", "1", 1);
+            const char* probeValue = getenv("STRIKERS_CONFIG_PROBE");
+            const char* bench = getenv("STRIKERS_BENCHMARK");
+            OSReport("[port] config path=%s applied=%d fopen=%d setenv_rc=%d probe=%s benchmark=%s\n",
+                     PortConfigPath() != NULL ? PortConfigPath() : "(none)", applied, probeOpen, setRc,
+                     probeValue != NULL ? probeValue : "(null)", bench != NULL ? bench : "(null)");
+        }
+#endif
     }
     PortBenchInit();
 
