@@ -1259,6 +1259,16 @@ int main(int argc, char* argv[])
             }(cfg);
             (void)enableDlShadow;
         }
+        {
+            // Bisection mask for the Aurora gxm-optimization changes (strikers.ini gxm_disable).
+            const char* disable = getenv("STRIKERS_GXM_DISABLE");
+            const unsigned long mask = disable != NULL ? strtoul(disable, NULL, 0) : 0ul;
+            [&](auto& config) {
+                if constexpr (requires { config.gxm_disable_mask; })
+                    config.gxm_disable_mask = (uint32_t)mask;
+            }(cfg);
+            OSReport("[vita] gxm_disable_mask=0x%lx\n", mask);
+        }
         const char* fixedMin = getenv("STRIKERS_GXM_FIXED_MIN");
         if (fixedMin != NULL)
         {
