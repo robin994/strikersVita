@@ -1627,6 +1627,14 @@ int main(int argc, char* argv[])
             sample.gpuBackpressureLikely = perf.gpuBackpressureLikely ? 1u : 0u;
             sample.nativeTimingsSampled = perf.nativeTimingsSampled ? 1u : 0u;
             PortProfilerRecordRendererSample(&sample);
+            [&](const auto& p) {
+                if constexpr (requires { p.gxProcessTotalUs; })
+                {
+                    static unsigned long long s_lastGx = 0;
+                    PortBenchSetGxUs(p.gxProcessTotalUs - s_lastGx);
+                    s_lastGx = p.gxProcessTotalUs;
+                }
+            }(perf);
         }
         VitaMaybeCaptureFrame();
 #else

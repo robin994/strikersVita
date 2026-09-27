@@ -36,6 +36,9 @@ void PortBenchFrameEnd(void);
 
 void PortBenchAddSleep(unsigned long long ns);
 
+// Aurora GX command-processing time for this frame (microseconds; part of busy).
+void PortBenchSetGxUs(unsigned long long us);
+
 // Time blocked in aurora_begin_frame on the swapchain acquire; counted in the frame total, not busy.
 void PortBenchAddAcquire(unsigned long long ns);
 
