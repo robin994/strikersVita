@@ -14,6 +14,10 @@ while kill -0 $AB 2>/dev/null; do
   sleep 10; i=$((i+1))
   "$ROOT/vita_shot.sh" "$SHOTS/s$(printf %03d $i).png" 2>/dev/null || continue
   h="$(ffmpeg -hide_banner -loglevel error -i "$SHOTS/s$(printf %03d $i).png" -f md5 - 2>/dev/null)"
+  st="$(ffmpeg -hide_banner -i "$SHOTS/s$(printf %03d $i).png" -vf "signalstats,metadata=print" -f null - 2>&1)"
+  ymin="$(sed -n 's/.*YMIN=\([0-9]*\).*/\1/p' <<<"$st" | head -1)"; ymax="$(sed -n 's/.*YMAX=\([0-9]*\).*/\1/p' <<<"$st" | head -1)"
+  # A uniform picture (black/grey) means no capture signal: not evidence of a hang.
+  if (( ${ymax:-0} - ${ymin:-0} < 24 )); then same=0; last=""; continue; fi
   if [[ "$h" == "$last" ]]; then same=$((same+10)); else same=0; last="$h"; fi
   if (( same >= FREEZE_S )); then
     echo "FREEZE detected at shot $i (${same}s identical); destroying app" | tee -a "$LOG"

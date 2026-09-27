@@ -38,6 +38,10 @@ void PortBenchAddSleep(unsigned long long ns);
 
 // Aurora GX command-processing time for this frame (microseconds; part of busy).
 void PortBenchSetGxUs(unsigned long long us);
+// aurora end_frame wall time and the part blocked queueing the present (GPU backpressure).
+// GPU time per scene (diagnostic gxm_disable bit 0x100).
+void PortBenchSetSceneGpuUs(const unsigned int us[4]);
+void PortBenchSetEndFrameUs(unsigned long long endFrameUs, unsigned long long displayQueueUs);
 
 // Time blocked in aurora_begin_frame on the swapchain acquire; counted in the frame total, not busy.
 void PortBenchAddAcquire(unsigned long long ns);

@@ -642,6 +642,7 @@ extern "C" void PortUpdateSyntheticInput(unsigned long frame);
 extern "C" void PortInvokePadSamplingCallback(void);
 
 static unsigned long s_portFrame = 0;
+static unsigned long long s_lastEndFrameUs = 0;
 
 #if defined(PORT_VITA)
 enum VitaShaderProfile
@@ -1366,7 +1367,7 @@ int main(int argc, char* argv[])
         cfg.diagnostics = false;
         cfg.profile_split_vertex_phases = false;
         cfg.texture_decode_diagnostics = false;
-        cfg.diagnostic_draw_limit = 0;
+        // diagnostic_draw_limit stays as set by strikers.ini (vita_draw_limit, default 0).
         cfg.telemetry_log_path = NULL;
         cfg.coverage_log_path = NULL;
         cfg.trace_log_path = NULL;
@@ -1609,9 +1610,14 @@ int main(int argc, char* argv[])
         // PORT: the audio clock. MusyX runs only inside this call; see include/port/audio.h.
         PortAudioUpdate();
 #if defined(PORT_VITA)
-        aurora::vita::end_frame();
+        {
+            const unsigned long long endFrameStart = sceKernelGetProcessTimeWide();
+            aurora::vita::end_frame();
+            s_lastEndFrameUs = sceKernelGetProcessTimeWide() - endFrameStart;
+        }
         {
             const aurora::vita::PerformanceSnapshot perf = aurora::vita::performance_snapshot();
+            PortBenchSetEndFrameUs(s_lastEndFrameUs, perf.displayQueueLastUs);
             PortProfilerRendererSample sample = {};
             sample.rendererCpuFrameUs = perf.rendererCpuFrameUs;
             sample.displayQueueLastUs = perf.displayQueueLastUs;
@@ -1633,6 +1639,11 @@ int main(int argc, char* argv[])
                     static unsigned long long s_lastGx = 0;
                     PortBenchSetGxUs(p.gxProcessTotalUs - s_lastGx);
                     s_lastGx = p.gxProcessTotalUs;
+                }
+                if constexpr (requires { p.diagSceneGpuUs; })
+                {
+                    const unsigned int g[4] = {p.diagSceneGpuUs[0], p.diagSceneGpuUs[1], p.diagSceneGpuUs[2], p.diagSceneGpuUs[3]};
+                    PortBenchSetSceneGpuUs(g);
                 }
             }(perf);
         }

@@ -46,6 +46,10 @@ static unsigned int s_acquireUs[BENCH_CAP];
 static unsigned int s_inputAgeUs[BENCH_CAP];   // event pump to end of frame
 static unsigned int s_gxUs[BENCH_CAP];         // Aurora GX command processing (subset of busy)
 static unsigned long long s_gxThisFrame;
+static unsigned int s_endFrameUs[BENCH_CAP], s_dqUs[BENCH_CAP];
+static unsigned long long s_endFrameThisFrame, s_dqThisFrame;
+static unsigned int s_sceneGpuUs[BENCH_CAP][4];
+static unsigned int s_sceneGpuThisFrame[4];
 static unsigned int s_pipelinesCreated[BENCH_CAP];
 static unsigned int s_lastCreated;
 static unsigned int s_draws[BENCH_CAP], s_texUploadBytes[BENCH_CAP], s_vertBytes[BENCH_CAP];
@@ -364,6 +368,18 @@ void PortBenchSetGxUs(unsigned long long us)
     s_gxThisFrame = us;
 }
 
+void PortBenchSetSceneGpuUs(const unsigned int us[4])
+{
+    int k;
+    for (k = 0; k < 4; k++) s_sceneGpuThisFrame[k] = us[k];
+}
+
+void PortBenchSetEndFrameUs(unsigned long long endFrameUs, unsigned long long displayQueueUs)
+{
+    s_endFrameThisFrame = endFrameUs;
+    s_dqThisFrame = displayQueueUs;
+}
+
 void PortBenchAfterTasks(void)
 {
     s_tTasks = port_monotonic_ns();
@@ -500,6 +516,9 @@ void PortBenchFrameEnd(void)
         s_acquireUs[s_count] = (unsigned int)(s_acquireThisFrame / 1000ull);
         s_inputAgeUs[s_count] = (unsigned int)(inputAge / 1000ull);
         s_gxUs[s_count] = (unsigned int)s_gxThisFrame;
+        s_endFrameUs[s_count] = (unsigned int)s_endFrameThisFrame;
+        s_dqUs[s_count] = (unsigned int)s_dqThisFrame;
+        memcpy(s_sceneGpuUs[s_count], s_sceneGpuThisFrame, sizeof s_sceneGpuThisFrame);
         {
             unsigned int created = 0;
             if (aurora_get_stats != NULL)
@@ -902,14 +921,15 @@ static void write_csv(void)
             if (n > 0)
                 fwrite(line, 1, (size_t)n < sizeof(line) ? (size_t)n : sizeof(line) - 1, f);
         }
-        fwrite("\nframe,busy_us,present_us,frame_us,acquire_us,pipelines_created,draws,tex_upload_bytes,vert_bytes,input_age_us,gx_us\n", 1,
-               sizeof("\nframe,busy_us,present_us,frame_us,acquire_us,pipelines_created,draws,tex_upload_bytes,vert_bytes,input_age_us,gx_us\n") - 1, f);
+        fwrite("\nframe,busy_us,present_us,frame_us,acquire_us,pipelines_created,draws,tex_upload_bytes,vert_bytes,input_age_us,gx_us,endframe_us,dq_us,g0_us,g1_us,g2_us,g3_us\n", 1,
+               sizeof("\nframe,busy_us,present_us,frame_us,acquire_us,pipelines_created,draws,tex_upload_bytes,vert_bytes,input_age_us,gx_us,endframe_us,dq_us,g0_us,g1_us,g2_us,g3_us\n") - 1, f);
         for (i = 0; i < s_count; i++)
         {
-            n = snprintf(line, sizeof(line), "%lu,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u\n",
+            n = snprintf(line, sizeof(line), "%lu,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u\n",
                          (unsigned long)i, s_busyUs[i], s_presentUs[i], s_frameUs[i],
                          s_acquireUs[i], s_pipelinesCreated[i], s_draws[i],
-                         s_texUploadBytes[i], s_vertBytes[i], s_inputAgeUs[i], s_gxUs[i]);
+                         s_texUploadBytes[i], s_vertBytes[i], s_inputAgeUs[i], s_gxUs[i], s_endFrameUs[i], s_dqUs[i],
+                         s_sceneGpuUs[i][0], s_sceneGpuUs[i][1], s_sceneGpuUs[i][2], s_sceneGpuUs[i][3]);
             if (n > 0) fwrite(line, 1, (size_t)n < sizeof(line) ? (size_t)n : sizeof(line) - 1, f);
         }
     }
