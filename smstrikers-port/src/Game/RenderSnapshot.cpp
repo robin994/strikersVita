@@ -15,9 +15,114 @@
 #include "NL/gl/glState.h"
 #include "Game/Render/CrowdManager.h"
 #include "Game/Effects/EmissionManager.h"
+#include "Game/Character.h"
+#if defined(PORT_VITA)
+#include <aurora_vita_backend.hpp>
+#include <cstdlib>
+#endif
 
 extern bool g_GoalLightEnabled;
 float g_AllActorsHidden;
+
+#if defined(PORT_VITA)
+namespace
+{
+bool VitaGameParallelEnabled()
+{
+    static const bool enabled = [] {
+        const char* value = std::getenv("STRIKERS_VITA_GAME_PARALLEL");
+        return value == nullptr || value[0] != '0';
+    }();
+    return enabled;
+}
+
+struct CharacterBlendJob
+{
+    RenderSnapshot* dst;
+    const RenderSnapshot* lhs;
+    const RenderSnapshot* rhs;
+    const float* factors;
+    unsigned int alreadyBlendedMask;
+};
+
+bool BlendCharacters(void* opaque, size_t begin, size_t end, uint32_t) noexcept
+{
+    CharacterBlendJob& job = *static_cast<CharacterBlendJob*>(opaque);
+    for (size_t i = begin; i < end; ++i)
+    {
+        if ((job.alreadyBlendedMask & (1u << i)) != 0)
+            continue;
+        job.dst->mCharacters[i].Blend(job.factors, job.lhs->mCharacters[i], job.rhs->mCharacters[i]);
+    }
+    return true;
+}
+
+struct SnapshotObjectBlendJob
+{
+    RenderSnapshot* dst;
+    const RenderSnapshot* lhs;
+    const RenderSnapshot* rhs;
+    const float* factors;
+};
+
+bool BlendSnapshotObjects(void* opaque, size_t begin, size_t end, uint32_t) noexcept
+{
+    SnapshotObjectBlendJob& job = *static_cast<SnapshotObjectBlendJob*>(opaque);
+    for (size_t item = begin; item < end; ++item)
+    {
+        if (item < 150)
+        {
+            job.dst->mPowerups[item].Blend(job.factors, job.lhs->mPowerups[item], job.rhs->mPowerups[item]);
+        }
+        else
+        {
+            const size_t fragment = item - 150;
+            job.dst->mExplosionFragments[fragment].Blend(
+                job.factors, job.lhs->mExplosionFragments[fragment], job.rhs->mExplosionFragments[fragment]);
+        }
+    }
+    return true;
+}
+
+struct CharacterGrabJob
+{
+    RenderSnapshot* dst;
+    unsigned int serialMask;
+};
+
+bool GrabCharacters(void* opaque, size_t begin, size_t end, uint32_t) noexcept
+{
+    CharacterGrabJob& job = *static_cast<CharacterGrabJob*>(opaque);
+    for (size_t i = begin; i < end; ++i)
+    {
+        if ((job.serialMask & (1u << i)) != 0)
+            continue;
+        job.dst->mCharacters[i].Grab(*g_pCharacters[i]);
+    }
+    return true;
+}
+
+struct CharacterSkinPoseJob
+{
+    const RenderSnapshot* snapshot;
+    unsigned int serialMask;
+};
+
+bool PoseCharacterSkins(void* opaque, size_t begin, size_t end, uint32_t) noexcept
+{
+    CharacterSkinPoseJob& job = *static_cast<CharacterSkinPoseJob*>(opaque);
+    for (size_t i = begin; i < end; ++i)
+    {
+        if ((job.serialMask & (1u << i)) != 0 || !job.snapshot->mCharacters[i].mVisible)
+            continue;
+        cCharacter* character = g_pCharacters[i];
+        if (character != nullptr)
+            character->PoseSkinMesh(job.snapshot->mCharacters[i].mPoseAccumulator);
+    }
+    return true;
+}
+}
+#endif
 
 /**
  * Offset/Address/Size: 0x844 | 0x80113518 | size: 0x13C
@@ -68,10 +173,33 @@ void RenderSnapshot::Free()
  */
 void RenderSnapshot::Grab()
 {
+#if defined(PORT_VITA)
+    if (VitaGameParallelEnabled() && aurora::vita::worker_threads() != 0)
+    {
+        unsigned int serialMask = 0;
+        for (int i = 0; i < 10; ++i)
+        {
+            // DrawableCharacter::Grab lazily allocates the snapshot pose. Keep
+            // first-use allocation on CPU0; steady-state copies are disjoint.
+            if (mCharacters[i].mPoseAccumulator == nullptr)
+            {
+                mCharacters[i].Grab(*g_pCharacters[i]);
+                serialMask |= 1u << i;
+            }
+        }
+        CharacterGrabJob job = { this, serialMask };
+        (void)aurora::vita::parallel_for(10, 3, GrabCharacters, &job);
+    }
+    else
+    {
+#endif
     for (int i = 0; i < 10; i++)
     {
         mCharacters[i].Grab(*g_pCharacters[i]);
     }
+#if defined(PORT_VITA)
+    }
+#endif
 
     for (int i = 0; i < 150; i++)
     {
@@ -261,9 +389,41 @@ void RenderSnapshot::Render(float deltaTime) const
             mBowser.Render(*(stadium->mpNPCManager->mpBowser));
         }
 
-        for (int i = 0; i < 10; i++)
+#if defined(PORT_VITA)
+        const bool parallelSkin = VitaGameParallelEnabled() && aurora::vita::worker_threads() != 0;
+        if (parallelSkin)
         {
-            mCharacters[i].Render(*g_pCharacters[i]);
+            // ShaderSkinMesh::Pose mutates only the character-owned pose matrix
+            // tree and morph weights. Warm each concrete mesh once on CPU0 so
+            // no legacy allocator/tree insertion can happen on a helper core.
+            static GLSkinMesh* warmedMesh[10] = {};
+            unsigned int serialMask = 0;
+            for (int i = 0; i < 10; ++i)
+            {
+                if (!mCharacters[i].mVisible || g_pCharacters[i] == nullptr)
+                    continue;
+                GLSkinMesh* mesh = g_pCharacters[i]->GetSkinMesh();
+                if (mesh != warmedMesh[i])
+                {
+                    g_pCharacters[i]->PoseSkinMesh(mCharacters[i].mPoseAccumulator);
+                    warmedMesh[i] = mesh;
+                    serialMask |= 1u << i;
+                }
+            }
+
+            CharacterSkinPoseJob poseJob = { this, serialMask };
+            (void)aurora::vita::parallel_for(10, 3, PoseCharacterSkins, &poseJob);
+
+            // GX state emission remains strictly ordered on CPU0. Only the
+            // matrix/morph preparation above is parallel.
+            for (int i = 0; i < 10; ++i)
+                mCharacters[i].Render(*g_pCharacters[i], false);
+        }
+        else
+#endif
+        {
+            for (int i = 0; i < 10; i++)
+                mCharacters[i].Render(*g_pCharacters[i]);
         }
 
         for (int i = 0; i < 150; i++)
@@ -310,6 +470,36 @@ void RenderSnapshot::Blend(const float* blendFactors, const RenderSnapshot& lhs,
     mFrameBlendPercent = blendFactors[0];
     mValid = true;
 
+#if defined(PORT_VITA)
+    if (VitaGameParallelEnabled() && aurora::vita::worker_threads() != 0)
+    {
+        // DrawableCharacter::Blend lazily allocates its pose accumulator. Keep
+        // those rare first allocations on CPU0 because the legacy allocator was
+        // never designed as a general multi-threaded heap. Once allocated, each
+        // character owns disjoint destination pose/matrix storage and can blend
+        // independently on CPU0/CPU2.
+        unsigned int serialCharacterMask = 0;
+        for (int i = 0; i < 10; ++i)
+        {
+            if (mCharacters[i].mPoseAccumulator == nullptr)
+            {
+                mCharacters[i].Blend(blendFactors, lhs.mCharacters[i], rhs.mCharacters[i]);
+                serialCharacterMask |= 1u << i;
+            }
+        }
+
+        CharacterBlendJob characterJob = { this, &lhs, &rhs, blendFactors, serialCharacterMask };
+        (void)aurora::vita::parallel_for(10, 3, BlendCharacters, &characterJob);
+
+        // Powerups and explosion fragments are pure value interpolation with
+        // disjoint destinations. Batch them into one job so the barrier cost is
+        // amortized over 170 objects.
+        SnapshotObjectBlendJob objectJob = { this, &lhs, &rhs, blendFactors };
+        (void)aurora::vita::parallel_for(170, 48, BlendSnapshotObjects, &objectJob);
+    }
+    else
+    {
+#endif
     for (int i = 0; i < 10; i++)
     {
         mCharacters[i].Blend(blendFactors, lhs.mCharacters[i], rhs.mCharacters[i]);
@@ -324,6 +514,9 @@ void RenderSnapshot::Blend(const float* blendFactors, const RenderSnapshot& lhs,
     {
         mExplosionFragments[i].Blend(blendFactors, lhs.mExplosionFragments[i], rhs.mExplosionFragments[i]);
     }
+#if defined(PORT_VITA)
+    }
+#endif
 
     mChainChomp.Blend(blendFactors, lhs.mChainChomp, rhs.mChainChomp);
     mBowser.Blend(blendFactors, lhs.mBowser, rhs.mBowser);

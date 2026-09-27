@@ -642,6 +642,7 @@ extern "C" void PortUpdateSyntheticInput(unsigned long frame);
 extern "C" void PortInvokePadSamplingCallback(void);
 
 static unsigned long s_portFrame = 0;
+static unsigned long long s_lastEndFrameUs = 0;
 
 #if defined(PORT_VITA)
 enum VitaShaderProfile
@@ -653,6 +654,10 @@ enum VitaShaderProfile
 
 #ifndef STRIKERS_VITA_SHADER_PROFILE_DEFAULT
 #define STRIKERS_VITA_SHADER_PROFILE_DEFAULT "SEALED"
+#endif
+
+#ifndef STRIKERS_VITA_STATIC_GEOMETRY_MB_DEFAULT
+#define STRIKERS_VITA_STATIC_GEOMETRY_MB_DEFAULT 8
 #endif
 
 static VitaShaderProfile s_vitaShaderProfile = VITA_SHADER_SEALED;
@@ -697,9 +702,32 @@ static const char* PortVitaShaderProfileName(VitaShaderProfile profile)
     }
 }
 
+#define PORT_VITA_GXM_COUNTER(snapshot, field) \
+    ([](const auto& s) -> unsigned int { \
+        if constexpr (requires { s.field; }) return static_cast<unsigned int>(s.field); \
+        else return 0u; \
+    }(snapshot))
+
 static void PortVitaSampleRendererStats()
 {
     const aurora::vita::PerformanceSnapshot perf = aurora::vita::performance_snapshot();
+    static uint64_t s_lastNativePipelineUs = 0;
+    static uint64_t s_lastNativeTextureUs = 0;
+    static uint64_t s_lastNativeDrawUs = 0;
+    static uint64_t s_lastNativeEfbEndSceneUs = 0;
+    static uint64_t s_lastNativeEfbTransferSubmitUs = 0;
+    static uint64_t s_lastNativeEfbTransferWaitUs = 0;
+    static uint64_t s_lastNativeEfbCpuFixupUs = 0;
+    if (perf.nativeTimingsSampled)
+    {
+        s_lastNativePipelineUs = perf.nativePipelineUs;
+        s_lastNativeTextureUs = perf.nativeTextureUs;
+        s_lastNativeDrawUs = perf.nativeDrawUs;
+        s_lastNativeEfbEndSceneUs = perf.nativeEfbEndSceneUs;
+        s_lastNativeEfbTransferSubmitUs = perf.nativeEfbTransferSubmitUs;
+        s_lastNativeEfbTransferWaitUs = perf.nativeEfbTransferWaitUs;
+        s_lastNativeEfbCpuFixupUs = perf.nativeEfbCpuFixupUs;
+    }
     PortBenchRendererStats stats = {};
     stats.valid = 1;
     stats.shaderRuntimeCompilationEnabled = perf.shaderRuntimeCompilationEnabled ? 1 : 0;
@@ -710,11 +738,30 @@ static void PortVitaSampleRendererStats()
     stats.shaderDiskCacheMisses = perf.shaderDiskCacheMisses;
     stats.frameUs = perf.frameUs;
     stats.rendererCpuFrameUs = perf.rendererCpuFrameUs;
+    stats.displayQueueLastUs = perf.displayQueueLastUs;
+    stats.displayQueueMaxUs = perf.displayQueueMaxUs;
     stats.displayQueueAverageUs = perf.displayQueueAverageUs;
     stats.displayQueueSamples = perf.displayQueueSamples;
     stats.displayQueueBlockedPercent = perf.displayQueueBlockedPercent;
+    stats.gpuBackpressureLikely = perf.gpuBackpressureLikely ? 1 : 0;
+    stats.nativeTimingsSampled = perf.nativeTimingsSampled ? 1 : 0;
+    stats.nativePipelineUs = s_lastNativePipelineUs;
+    stats.nativeTextureUs = s_lastNativeTextureUs;
+    stats.nativeDrawUs = s_lastNativeDrawUs;
     stats.nativeSceneCount = perf.nativeSceneCount;
     stats.nativeEfbCopies = perf.nativeEfbCopies;
+    stats.frameIndex = perf.frameIndex;
+    // gxm-optimization counters are absent from older Aurora revisions; the
+    // testbed builds the A/B baseline from the same Strikers source.
+    stats.nativeDepthLoadScenes = PORT_VITA_GXM_COUNTER(perf, nativeDepthLoadScenes);
+    stats.nativeDepthStoreScenes = PORT_VITA_GXM_COUNTER(perf, nativeDepthStoreScenes);
+    stats.nativeDepthlessScenes = PORT_VITA_GXM_COUNTER(perf, nativeDepthlessScenes);
+    stats.nativeFinishCalls = PORT_VITA_GXM_COUNTER(perf, nativeFinishCalls);
+    stats.nativeScissorFreeDraws = PORT_VITA_GXM_COUNTER(perf, nativeScissorFreeDraws);
+    stats.nativeEfbEndSceneUs = s_lastNativeEfbEndSceneUs;
+    stats.nativeEfbTransferSubmitUs = s_lastNativeEfbTransferSubmitUs;
+    stats.nativeEfbTransferWaitUs = s_lastNativeEfbTransferWaitUs;
+    stats.nativeEfbCpuFixupUs = s_lastNativeEfbCpuFixupUs;
     stats.staticGeometryHits = perf.staticGeometryHits;
     stats.staticGeometryMisses = perf.staticGeometryMisses;
     stats.staticGeometryLookupFallbacks = perf.staticGeometryLookupFallbacks;
@@ -979,6 +1026,22 @@ int main(int argc, char* argv[])
         if (applied > 0)
             OSReport("[port] %s: %d setting(s)\n",
                      PortConfigPath(), applied);
+#if defined(PORT_VITA)
+        // strikers.ini has no other visible effect on Vita; report exactly what
+        // the loader saw so a silent setenv/fopen failure cannot hide.
+        {
+            FILE* probe = fopen("ux0:data/strikersVita/strikers.ini", "rb");
+            const int probeOpen = probe != NULL;
+            if (probe != NULL)
+                fclose(probe);
+            const int setRc = setenv("STRIKERS_CONFIG_PROBE", "1", 1);
+            const char* probeValue = getenv("STRIKERS_CONFIG_PROBE");
+            const char* bench = getenv("STRIKERS_BENCHMARK");
+            OSReport("[port] config path=%s applied=%d fopen=%d setenv_rc=%d probe=%s benchmark=%s\n",
+                     PortConfigPath() != NULL ? PortConfigPath() : "(none)", applied, probeOpen, setRc,
+                     probeValue != NULL ? probeValue : "(null)", bench != NULL ? bench : "(null)");
+        }
+#endif
     }
     PortBenchInit();
 
@@ -1098,23 +1161,19 @@ int main(int argc, char* argv[])
         cfg.stream_vertex_bytes = 8 * 1024 * 1024;
         cfg.stream_index_bytes = 512 * 1024;
         cfg.stream_slots = 3;
-        // Stable three-core topology. Keep GX/GXM ownership on the proven
-        // synchronous game thread for now: core 0 runs the game and renderer
-        // control path, core 1 is reserved for audio, and one Aurora helper is
-        // pinned to core 2 for parallel vertex/decode work. This preserves the
-        // stable renderer lifetime while removing helper contention from CPU0.
-        cfg.cpu_worker_threads = 1;
-        // The worker scheduler treats this as the minimum useful work per lane.
-        // Avoid waking the helper for tiny draws. Common ~200-vertex Strikers
-        // packets still split across the GX owner + helper, while smaller UI
-        // draws remain entirely on the render owner.
-        cfg.cpu_parallel_min_vertices = 96;
+        // Keep GX/GXM ownership and command ordering on the proven synchronous
+        // CPU0 path. Renderer *preparation* is allowed to use both persistent
+        // helpers: CPU2 normally, plus CPU1 at a lower priority than MusyX so
+        // audio can pre-empt it immediately. GXM API submission stays serial.
+        cfg.cpu_worker_threads = 2;
+        cfg.cpu_renderer_execution_lanes = 3;
+        // Common ~200-vertex Strikers packets now split over CPU0+CPU2+CPU1
+        // (audio remains higher priority). Tiny UI work still stays serial.
+        cfg.cpu_parallel_min_vertices = 64;
         const char* workerCount = getenv("STRIKERS_AURORA_CPU_WORKERS");
         if (workerCount != NULL && workerCount[0] >= '0' && workerCount[0] <= '2' && workerCount[1] == '\0')
         {
             cfg.cpu_worker_threads = (unsigned int)(workerCount[0] - '0');
-            if (cfg.cpu_worker_threads > 1)
-                cfg.cpu_worker_threads = 1;
         }
         const char* parallelMin = getenv("STRIKERS_AURORA_PARALLEL_MIN");
         if (parallelMin != NULL)
@@ -1165,17 +1224,52 @@ int main(int argc, char* argv[])
         const char* gxmD16 = getenv("STRIKERS_GXM_D16");
         if (gxmD16 != NULL)
             cfg.gxm_d16_depth = gxmD16[0] != '0';
+        // Preserve the hardware-proven Strikers baseline. Larger parameter
+        // buffers remain available through STRIKERS_GXM_PARAMETER_MB for
+        // targeted experiments, but are not the default.
+        cfg.gxm_parameter_buffer_bytes = 4u * 1024u * 1024u;
+        const char* parameterMb = getenv("STRIKERS_GXM_PARAMETER_MB");
+        if (parameterMb != NULL)
+        {
+            const unsigned long value = strtoul(parameterMb, NULL, 10);
+            if (value >= 1 && value <= 32)
+                cfg.gxm_parameter_buffer_bytes = (size_t)value * 1024u * 1024u;
+        }
         // Native GXM can keep immutable object-space GX geometry resident and
         // perform fixed PN/texgen work in its vertex shader. The separated GX
         // bring-up must start from the CPU vertex path: the experimental static
         // geometry/fixed-vertex path is the current freeze suspect and Aurora's
         // own regression audit recommends budget=0 for the control profile.
-#if defined(STRIKERS_VITA_GX_THREAD)
-        cfg.static_geometry_budget = 0;
-#else
-        cfg.static_geometry_budget = 8 * 1024 * 1024;
-#endif
+        {
+        cfg.static_geometry_budget =
+            (unsigned int)STRIKERS_VITA_STATIC_GEOMETRY_MB_DEFAULT * 1024u * 1024u;
+        // Strikers submits a large amount of dynamic character/shadow geometry.
+        // Do not spend CPU hashing those transient GX streams just to discover
+        // they are unsuitable for persistent reuse; only display-list-backed
+        // sources enter the fixed-vertex cache.
+        cfg.static_geometry_stable_only = true;
+        }
         cfg.static_geometry_min_vertices = 16;
+        {
+            // CDRAM display-list shadows (Aurora gxm-optimization); gxm_dl_shadow=0 disables.
+            const char* dlShadow = getenv("STRIKERS_GXM_DL_SHADOW");
+            const bool enableDlShadow = dlShadow == NULL || dlShadow[0] != '0';
+            [&](auto& config) {
+                if constexpr (requires { config.display_list_shadow; })
+                    config.display_list_shadow = enableDlShadow;
+            }(cfg);
+            (void)enableDlShadow;
+        }
+        {
+            // Bisection mask for the Aurora gxm-optimization changes (strikers.ini gxm_disable).
+            const char* disable = getenv("STRIKERS_GXM_DISABLE");
+            const unsigned long mask = disable != NULL ? strtoul(disable, NULL, 0) : 0ul;
+            [&](auto& config) {
+                if constexpr (requires { config.gxm_disable_mask; })
+                    config.gxm_disable_mask = (uint32_t)mask;
+            }(cfg);
+            OSReport("[vita] gxm_disable_mask=0x%lx\n", mask);
+        }
         const char* fixedMin = getenv("STRIKERS_GXM_FIXED_MIN");
         if (fixedMin != NULL)
         {
@@ -1203,13 +1297,18 @@ int main(int argc, char* argv[])
         // The native shader now reproduces GX channel lighting and COLOR0/COLOR1
         // texgen semantics. Keep an environment escape hatch for immediate A/B
         // validation against the graphics-proven CPU vertex path.
-#if defined(STRIKERS_VITA_GX_THREAD)
+#if 0 // The GX worker keeps the same renderer configuration as the synchronous path.
         cfg.gxm_lit_fixed_vertex_gpu = false;
+        cfg.gxm_streamed_fixed_vertex_gpu = false;
         cfg.gxm_dynamic_tex_matrix_gpu = false;
         cfg.gxm_bump_fixed_vertex_gpu = false;
         cfg.gxm_primitive_expand_gpu = false;
 #else
         cfg.gxm_lit_fixed_vertex_gpu = true;
+        // Keep the hardware-proven CPU vertex path as the boot default. The
+        // Vita quick menu can enable the streamed fixed-vertex experiment live
+        // for A/B tests without requiring another build.
+        cfg.gxm_streamed_fixed_vertex_gpu = false;
         // Extended persistent-GX path modelled after the successful Melee Vita
         // renderer: keep matrix selection, bump basis and stable point/line
         // expansion on GXM whenever Aurora can prove the draw is cache-safe.
@@ -1225,6 +1324,9 @@ int main(int argc, char* argv[])
         const char* litGpu = getenv("STRIKERS_GXM_LIT_GPU");
         if (litGpu != NULL)
             cfg.gxm_lit_fixed_vertex_gpu = litGpu[0] == '1';
+        const char* streamedGpu = getenv("STRIKERS_GXM_STREAMED_VERTEX_GPU");
+        if (streamedGpu != NULL)
+            cfg.gxm_streamed_fixed_vertex_gpu = streamedGpu[0] == '1';
         const char* texMtxGpu = getenv("STRIKERS_GXM_TEXMTX_GPU");
         if (texMtxGpu != NULL)
             cfg.gxm_dynamic_tex_matrix_gpu = texMtxGpu[0] == '1';
@@ -1245,8 +1347,9 @@ int main(int argc, char* argv[])
         const char* drawLimit = getenv("STRIKERS_VITA_DRAW_LIMIT");
         if (drawLimit != NULL)
             cfg.diagnostic_draw_limit = (unsigned int)strtoul(drawLimit, NULL, 10);
-        OSReport("[vita] static geometry budget=%u KB gpu_fixed_vertex=%d lit_gpu=%d texmtx_gpu=%d bump_gpu=%d prim_gpu=%d split_vertex_phases=%d\n",
+        OSReport("[vita] static geometry budget=%u KB gpu_fixed_vertex=%d streamed_gpu=%d lit_gpu=%d texmtx_gpu=%d bump_gpu=%d prim_gpu=%d split_vertex_phases=%d\n",
                  (unsigned int)(cfg.static_geometry_budget >> 10), cfg.static_geometry_budget != 0,
+                 cfg.gxm_streamed_fixed_vertex_gpu ? 1 : 0,
                  cfg.gxm_lit_fixed_vertex_gpu ? 1 : 0,
                  cfg.gxm_dynamic_tex_matrix_gpu ? 1 : 0,
                  cfg.gxm_bump_fixed_vertex_gpu ? 1 : 0,
@@ -1264,7 +1367,7 @@ int main(int argc, char* argv[])
         cfg.diagnostics = false;
         cfg.profile_split_vertex_phases = false;
         cfg.texture_decode_diagnostics = false;
-        cfg.diagnostic_draw_limit = 0;
+        // diagnostic_draw_limit stays as set by strikers.ini (vita_draw_limit, default 0).
         cfg.telemetry_log_path = NULL;
         cfg.coverage_log_path = NULL;
         cfg.trace_log_path = NULL;
@@ -1507,7 +1610,43 @@ int main(int argc, char* argv[])
         // PORT: the audio clock. MusyX runs only inside this call; see include/port/audio.h.
         PortAudioUpdate();
 #if defined(PORT_VITA)
-        aurora::vita::end_frame();
+        {
+            const unsigned long long endFrameStart = sceKernelGetProcessTimeWide();
+            aurora::vita::end_frame();
+            s_lastEndFrameUs = sceKernelGetProcessTimeWide() - endFrameStart;
+        }
+        {
+            const aurora::vita::PerformanceSnapshot perf = aurora::vita::performance_snapshot();
+            PortBenchSetEndFrameUs(s_lastEndFrameUs, perf.displayQueueLastUs);
+            PortProfilerRendererSample sample = {};
+            sample.rendererCpuFrameUs = perf.rendererCpuFrameUs;
+            sample.displayQueueLastUs = perf.displayQueueLastUs;
+            sample.nativePipelineUs = perf.nativePipelineUs;
+            sample.nativeTextureUs = perf.nativeTextureUs;
+            sample.nativeDrawUs = perf.nativeDrawUs;
+            sample.staticGeometryHits = perf.staticGeometryHits;
+            sample.staticGeometryMisses = perf.staticGeometryMisses;
+            sample.staticGeometryBytes = perf.staticGeometryBytes;
+            sample.staticGeometryEntries = (uint32_t)perf.staticGeometryEntries;
+            sample.nativeSceneCount = perf.nativeSceneCount;
+            sample.displayQueueBlockedPercent = perf.displayQueueBlockedPercent;
+            sample.gpuBackpressureLikely = perf.gpuBackpressureLikely ? 1u : 0u;
+            sample.nativeTimingsSampled = perf.nativeTimingsSampled ? 1u : 0u;
+            PortProfilerRecordRendererSample(&sample);
+            [&](const auto& p) {
+                if constexpr (requires { p.gxProcessTotalUs; })
+                {
+                    static unsigned long long s_lastGx = 0;
+                    PortBenchSetGxUs(p.gxProcessTotalUs - s_lastGx);
+                    s_lastGx = p.gxProcessTotalUs;
+                }
+                if constexpr (requires { p.diagSceneGpuUs; })
+                {
+                    const unsigned int g[4] = {p.diagSceneGpuUs[0], p.diagSceneGpuUs[1], p.diagSceneGpuUs[2], p.diagSceneGpuUs[3]};
+                    PortBenchSetSceneGpuUs(g);
+                }
+            }(perf);
+        }
         VitaMaybeCaptureFrame();
 #else
         aurora_end_frame();

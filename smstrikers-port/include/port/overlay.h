@@ -25,6 +25,9 @@ const char* PortOverlaySceneName(void);
 void PortOverlayToggleMenu(void);
 int  PortOverlayMenuOpen(void);
 void PortOverlayHandleKey(int scancode, int down);
+// Vita raw buttons are forwarded from PADRead so menu input is independent of
+// the render task that draws the overlay.
+void PortOverlayVitaInput(unsigned int buttons);
 
 // Set by the menu's quit button; main()'s loop ends when it reads non-zero.
 int PortQuitRequested(void);

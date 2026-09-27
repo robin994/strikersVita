@@ -20,8 +20,8 @@
 namespace {
 
 constexpr uint32_t kRingCapacity = 4096;
-constexpr uint32_t kNameCapacity = 128;
-constexpr size_t kNameTextCapacity = 8192;
+constexpr uint32_t kNameCapacity = 192;
+constexpr size_t kNameTextCapacity = 16 * 1024;
 constexpr size_t kStreamBufferCapacity = 16 * 1024;
 constexpr size_t kDrainBatch = kStreamBufferCapacity / VP_WIRE_EVENT_SIZE;
 constexpr uint32_t kTaskCapacity = 48;
@@ -45,6 +45,19 @@ uint32_t s_audioThreadName;
 uint32_t s_gxThreadName;
 uint32_t s_gxPublishName;
 uint32_t s_gxConsumeName;
+uint32_t s_rendererCpuFrameName;
+uint32_t s_displayQueueLastName;
+uint32_t s_nativePipelineName;
+uint32_t s_nativeTextureName;
+uint32_t s_nativeDrawName;
+uint32_t s_staticGeometryHitsName;
+uint32_t s_staticGeometryMissesName;
+uint32_t s_staticGeometryBytesName;
+uint32_t s_staticGeometryEntriesName;
+uint32_t s_nativeSceneCountName;
+uint32_t s_displayQueueBlockedName;
+uint32_t s_gpuBackpressureName;
+uint32_t s_nativeTimingsSampledName;
 uint32_t s_unknownTaskRunName;
 uint32_t s_unknownTaskTransitionName;
 uint32_t s_renderPhaseNames[5];
@@ -256,8 +269,10 @@ void cleanup()
 
 extern "C" int PortProfilerStart(void)
 {
+#if !defined(STRIKERS_VITA_PROFILE_AUTOSTART)
     if (!envEnabled("STRIKERS_VITA_PROFILE"))
         return 0;
+#endif
     if (s_active.load(std::memory_order_acquire))
         return 1;
 
@@ -289,6 +304,19 @@ extern "C" int PortProfilerStart(void)
         || !registerName("GX consumer", &s_gxThreadName)
         || !registerName("GX FIFO publish", &s_gxPublishName)
         || !registerName("GX FIFO consume", &s_gxConsumeName)
+        || !registerName("renderer cpu frame us", &s_rendererCpuFrameName)
+        || !registerName("display queue last us", &s_displayQueueLastName)
+        || !registerName("native pipeline us", &s_nativePipelineName)
+        || !registerName("native texture us", &s_nativeTextureName)
+        || !registerName("native draw us", &s_nativeDrawName)
+        || !registerName("static geometry hits", &s_staticGeometryHitsName)
+        || !registerName("static geometry misses", &s_staticGeometryMissesName)
+        || !registerName("static geometry bytes", &s_staticGeometryBytesName)
+        || !registerName("static geometry entries", &s_staticGeometryEntriesName)
+        || !registerName("native scene count", &s_nativeSceneCountName)
+        || !registerName("display queue blocked percent", &s_displayQueueBlockedName)
+        || !registerName("gpu backpressure likely", &s_gpuBackpressureName)
+        || !registerName("native timings sampled", &s_nativeTimingsSampledName)
         || !registerName("render swap_pre", &s_renderPhaseNames[0])
         || !registerName("render send_frame", &s_renderPhaseNames[1])
         || !registerName("render send_views", &s_renderPhaseNames[2])
@@ -551,6 +579,26 @@ extern "C" void PortProfilerAudioQueue(int queuedBytes, int producedBuffers)
     (void)vp_counter(&s_context, s_audioProducedName, producedBuffers);
 }
 
+extern "C" void PortProfilerRecordRendererSample(const PortProfilerRendererSample* sample)
+{
+    if (sample == nullptr || !s_active.load(std::memory_order_acquire))
+        return;
+
+    (void)vp_counter(&s_context, s_rendererCpuFrameName, (int64_t)sample->rendererCpuFrameUs);
+    (void)vp_counter(&s_context, s_displayQueueLastName, (int64_t)sample->displayQueueLastUs);
+    (void)vp_counter(&s_context, s_nativePipelineName, (int64_t)sample->nativePipelineUs);
+    (void)vp_counter(&s_context, s_nativeTextureName, (int64_t)sample->nativeTextureUs);
+    (void)vp_counter(&s_context, s_nativeDrawName, (int64_t)sample->nativeDrawUs);
+    (void)vp_counter(&s_context, s_staticGeometryHitsName, (int64_t)sample->staticGeometryHits);
+    (void)vp_counter(&s_context, s_staticGeometryMissesName, (int64_t)sample->staticGeometryMisses);
+    (void)vp_counter(&s_context, s_staticGeometryBytesName, (int64_t)sample->staticGeometryBytes);
+    (void)vp_counter(&s_context, s_staticGeometryEntriesName, sample->staticGeometryEntries);
+    (void)vp_counter(&s_context, s_nativeSceneCountName, sample->nativeSceneCount);
+    (void)vp_counter(&s_context, s_displayQueueBlockedName, sample->displayQueueBlockedPercent);
+    (void)vp_counter(&s_context, s_gpuBackpressureName, sample->gpuBackpressureLikely);
+    (void)vp_counter(&s_context, s_nativeTimingsSampledName, sample->nativeTimingsSampled);
+}
+
 #else
 
 extern "C" int PortProfilerStart(void) { return 0; }
@@ -577,5 +625,6 @@ extern "C" void PortProfilerAudioFillEnd(void) {}
 extern "C" void PortProfilerAudioTickBegin(void) {}
 extern "C" void PortProfilerAudioTickEnd(void) {}
 extern "C" void PortProfilerAudioQueue(int, int) {}
+extern "C" void PortProfilerRecordRendererSample(const PortProfilerRendererSample*) {}
 
 #endif

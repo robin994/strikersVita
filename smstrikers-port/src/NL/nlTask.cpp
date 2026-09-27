@@ -9,6 +9,21 @@
 #include <cstdio>
 #include <cstdlib>
 
+// PORT: profiling output that survives no-log builds (stderr goes nowhere on Vita).
+static FILE* PortProfileOut()
+{
+#if defined(PORT_VITA)
+    static FILE* s_out = nullptr;
+    if (s_out == nullptr)
+        s_out = std::fopen("ux0:data/strikersVita/task_profile.log", "a");
+    if (s_out != nullptr && s_out != stderr)
+        std::setvbuf(s_out, nullptr, _IOLBF, 0);
+    if (s_out != nullptr)
+        return s_out;
+#endif
+    return stderr;
+}
+
 #define assert(condition) ((condition) ? ((void)0) : ((void)0))
 
 u8 g_StackWatermarkFiller = 0x78;
@@ -67,7 +82,7 @@ TaskProfileSlot* TaskProfileGet(nlTask* task)
 
 void TaskProfileReport()
 {
-    std::fprintf(stderr, "[task-profile] frames=%u\n", s_TaskProfileFrames);
+    std::fprintf(PortProfileOut(), "[task-profile] frames=%u\n", s_TaskProfileFrames);
     bool emitted[32]{};
     for (unsigned int rank = 0; rank < 12; ++rank)
     {
@@ -84,7 +99,7 @@ void TaskProfileReport()
         emitted[best] = true;
         const TaskProfileSlot& slot = s_TaskProfile[best];
         const char* name = slot.task->GetName();
-        std::fprintf(stderr, "[task-profile] %-24s total_us=%llu mean_us=%llu max_us=%llu calls=%u\n",
+        std::fprintf(PortProfileOut(), "[task-profile] %-24s total_us=%llu mean_us=%llu max_us=%llu calls=%u\n",
                      name != nullptr ? name : "?",
                      slot.totalNs / 1000ull,
                      slot.calls != 0 ? slot.totalNs / (1000ull * slot.calls) : 0ull,

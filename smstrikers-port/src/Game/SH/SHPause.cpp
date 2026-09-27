@@ -12,13 +12,43 @@
 #include "Game/FE/tlTextInstance.h"
 #include "Game/GameInfo.h"
 #include "Game/Game.h"
+#include "NL/gl/gl.h"
 #include "NL/glx/glxSwap.h"
 #include "NL/nlLocalization.h"
 #include "NL/nlPrint.h"
 #include "NL/nlTask.h"
 
+#include <cstdio>
+
 extern FEInput* g_pFEInput;
 extern nlColour MenuHighliteColour;
+
+extern bool g_bRenderWorld;
+extern bool g_bFrameStatsOnScreen;
+extern unsigned char g_bShadowBlobs;
+extern unsigned char g_bClipToFrustum;
+extern unsigned char g_bWhiteDiffuse;
+extern unsigned char g_TexDetail;
+extern unsigned char g_TexShadow;
+extern unsigned char g_TexSelfIllum;
+extern unsigned char g_TexGloss;
+extern bool g_bShadowVolumes;
+extern bool g_bEnableDrawableModel;
+extern bool g_bDrawPlanarShadows;
+extern bool g_bBallGlow;
+extern bool g_bEnableDrawableSkinModel;
+extern unsigned char g_hudVisible;
+extern bool g_bAllowLighting;
+extern bool g_bAllowSpecular;
+
+extern "C" unsigned int aurora_vita_debug_runtime_flags(void) noexcept;
+extern "C" unsigned int aurora_vita_debug_runtime_capabilities(void) noexcept;
+extern "C" void aurora_vita_debug_set_runtime_flags(unsigned int flags) noexcept;
+extern "C" int aurora_vita_debug_shader_runtime_compile(void) noexcept;
+extern "C" void aurora_vita_debug_set_shader_runtime_compile(int enabled) noexcept;
+extern "C" int PortDebugRenderViewEnabled(unsigned int view);
+extern "C" void PortDebugRenderViewToggle(unsigned int view);
+extern "C" unsigned int PortDebugRenderViewLastUs(unsigned int view);
 
 
 static char sPauseOutSlide[] = "out";
@@ -26,6 +56,8 @@ eFEINPUT_PAD PauseMenuScene::mControllingInput = FE_ALL_PADS;
 float PauseMenuScene::mDelayBeforeUnpause = 0.1f;
 u32 PauseMenuScene::mLastTaskManagerState;
 s32 PauseMenuScene::mLastSelectedIndex;
+bool PauseMenuScene::mDebugMenuRequested;
+s32 PauseMenuScene::mDebugPage;
 
 namespace DoubleHighlite
 {
@@ -38,6 +70,216 @@ typedef Detail::MemFunImpl<void, void (PauseMenuScene::*)()> MemFunImpl_Pause_v_
 typedef Detail::MemFunImpl<void, void (PauseMenuScene::*)(TLComponentInstance*)> MemFunImpl_Pause_p_t;
 typedef BindExp1<void, MemFunImpl_Pause_v_t, PauseMenuScene*> BindExp1_Pause_t;
 typedef BindExp2<void, MemFunImpl_Pause_p_t, PauseMenuScene*, Placeholder<0> > BindExp2_Pause_t;
+
+namespace
+{
+enum DebugRuntimeBits : unsigned int
+{
+    DR_STATIC_GEOMETRY = 1u << 0,
+    DR_STREAMED_VERTEX = 1u << 1,
+    DR_LIT_VERTEX = 1u << 2,
+    DR_DYNAMIC_TEX_MTX = 1u << 3,
+    DR_BUMP_VERTEX = 1u << 4,
+    DR_PRIMITIVE_EXPAND = 1u << 5,
+    DR_STATIC_STABLE_ONLY = 1u << 6,
+};
+
+static const int kDebugPageCount = 10;
+static const char* const kDebugPageNames[kDebugPageCount] = {
+    "RENDER", "SHADOWS", "SHADERS", "EFFECTS",
+    "VIEWS A", "VIEWS B", "VIEWS C", "POST FX",
+    "GXM", "ADVANCED"
+};
+static unsigned short sDebugMenuText[6][64];
+
+struct DebugViewEntry
+{
+    eGLView view;
+    const char* label;
+};
+
+static const DebugViewEntry kDebugViewPages[4][4] = {
+    {
+        { GLV_Characters, "CHARACTERS" },
+        { GLV_Shadowed, "SHADOWED" },
+        { GLV_WorldShadowed, "WORLD SHADOWED" },
+        { GLV_Unshadowed, "UNSHADOWED" },
+    },
+    {
+        { GLV_Skybox, "SKYBOX" },
+        { GLV_ShadowTexture, "SHADOW TEXTURE" },
+        { GLV_Shadow0, "SHADOW 0" },
+        { GLV_Shadow1, "SHADOW 1" },
+    },
+    {
+        { GLV_Particles, "PARTICLES" },
+        { GLV_LingeringParticles, "LINGERING PARTICLES" },
+        { GLV_CoPlanar, "COPLANAR" },
+        { GLV_UnsortedPerspective, "UNSORTED PERSPECT" },
+    },
+    {
+        { GLV_Warble, "WARBLE" },
+        { GLV_DepthOfField, "DEPTH OF FIELD" },
+        { GLV_ElectricFence, "ELECTRIC FENCE" },
+        { GLV_CameraSpace, "CAMERA SPACE" },
+    },
+};
+
+static const char* OnOff(bool value)
+{
+    return value ? "ON" : "OFF";
+}
+
+static void ToWide(const char* src, unsigned short* dst, unsigned int capacity)
+{
+    if (capacity == 0)
+        return;
+    unsigned int i = 0;
+    while (src[i] != '\0' && i + 1 < capacity)
+    {
+        dst[i] = (unsigned short)(unsigned char)src[i];
+        ++i;
+    }
+    dst[i] = 0;
+}
+
+static void FormatDebugLabel(int page, int row, char* out, unsigned int outSize)
+{
+    const unsigned int flags = aurora_vita_debug_runtime_flags();
+    const unsigned int caps = aurora_vita_debug_runtime_capabilities();
+    const char* label = "-";
+    const char* value = "";
+
+    if (row == 4)
+    {
+        const int prev = (page + kDebugPageCount - 1) % kDebugPageCount;
+        std::snprintf(out, outSize, "< PREV  [%s]", kDebugPageNames[prev]);
+        return;
+    }
+    if (row == 5)
+    {
+        const int next = (page + 1) % kDebugPageCount;
+        std::snprintf(out, outSize, "NEXT  [%s] >", kDebugPageNames[next]);
+        return;
+    }
+
+    if (page >= 4 && page <= 7 && row >= 0 && row < 4)
+    {
+        const DebugViewEntry& entry = kDebugViewPages[page - 4][row];
+        const unsigned int us = PortDebugRenderViewLastUs((unsigned int)entry.view);
+        std::snprintf(
+            out,
+            outSize,
+            "%s : %s  %u.%u ms",
+            entry.label,
+            OnOff(PortDebugRenderViewEnabled((unsigned int)entry.view) != 0),
+            us / 1000u,
+            (us % 1000u) / 100u);
+        return;
+    }
+
+    switch (page)
+    {
+    case 0:
+        if (row == 0) { label = "WORLD"; value = OnOff(g_bRenderWorld); }
+        if (row == 1) { label = "HUD"; value = OnOff(g_hudVisible != 0); }
+        if (row == 2) { label = "STATIC MODELS"; value = OnOff(g_bEnableDrawableModel); }
+        if (row == 3) { label = "SKINNED MODELS"; value = OnOff(g_bEnableDrawableSkinModel); }
+        break;
+    case 1:
+        if (row == 0) { label = "BLOB SHADOWS"; value = OnOff(g_bShadowBlobs != 0); }
+        if (row == 1) { label = "PLANAR SHADOWS"; value = OnOff(g_bDrawPlanarShadows); }
+        if (row == 2) { label = "SHADOW VOLUMES"; value = OnOff(g_bShadowVolumes); }
+        if (row == 3) { label = "SHADOW TEX STAGE"; value = OnOff(g_TexShadow != 0); }
+        break;
+    case 2:
+        if (row == 0) { label = "LIGHTING"; value = OnOff(g_bAllowLighting); }
+        if (row == 1) { label = "SPECULAR"; value = OnOff(g_bAllowSpecular); }
+        if (row == 2) { label = "DETAIL STAGE"; value = OnOff(g_TexDetail != 0); }
+        if (row == 3) { label = "GLOSS STAGE"; value = OnOff(g_TexGloss != 0); }
+        break;
+    case 3:
+        if (row == 0) { label = "SELF ILLUMINATION"; value = OnOff(g_TexSelfIllum != 0); }
+        if (row == 1) { label = "BALL GLOW"; value = OnOff(g_bBallGlow); }
+        if (row == 2) { label = "WHITE DIFFUSE"; value = OnOff(g_bWhiteDiffuse != 0); }
+        if (row == 3) { label = "FRUSTUM CULLING"; value = OnOff(g_bClipToFrustum != 0); }
+        break;
+    case 8:
+        if (row == 0) { label = "STATIC GEOMETRY GPU"; value = (caps & DR_STATIC_GEOMETRY) ? OnOff((flags & DR_STATIC_GEOMETRY) != 0) : "N/A"; }
+        if (row == 1) { label = "STREAMED GPU VERTEX"; value = "LOCKED"; }
+        if (row == 2) { label = "LIT FIXED VERTEX"; value = OnOff((flags & DR_LIT_VERTEX) != 0); }
+        if (row == 3) { label = "PRIMITIVE EXPANSION"; value = OnOff((flags & DR_PRIMITIVE_EXPAND) != 0); }
+        break;
+    case 9:
+        if (row == 0) { label = "DYNAMIC TEX MATRIX"; value = OnOff((flags & DR_DYNAMIC_TEX_MTX) != 0); }
+        if (row == 1) { label = "BUMP FIXED VERTEX"; value = OnOff((flags & DR_BUMP_VERTEX) != 0); }
+        if (row == 2) { label = "STATIC STABLE ONLY"; value = OnOff((flags & DR_STATIC_STABLE_ONLY) != 0); }
+        if (row == 3) { label = "RUNTIME SHADER COMPILE"; value = OnOff(aurora_vita_debug_shader_runtime_compile() != 0); }
+        break;
+    default:
+        break;
+    }
+
+    std::snprintf(out, outSize, "%s : %s", label, value);
+}
+
+static void ToggleDebugOption(int page, int row)
+{
+    unsigned int flags = aurora_vita_debug_runtime_flags();
+    switch (page)
+    {
+    case 0:
+        if (row == 0) g_bRenderWorld = !g_bRenderWorld;
+        if (row == 1) g_hudVisible = g_hudVisible ? 0 : 1;
+        if (row == 2) g_bEnableDrawableModel = !g_bEnableDrawableModel;
+        if (row == 3) g_bEnableDrawableSkinModel = !g_bEnableDrawableSkinModel;
+        break;
+    case 1:
+        if (row == 0) g_bShadowBlobs = g_bShadowBlobs ? 0 : 1;
+        if (row == 1) g_bDrawPlanarShadows = !g_bDrawPlanarShadows;
+        if (row == 2) g_bShadowVolumes = !g_bShadowVolumes;
+        if (row == 3) g_TexShadow = g_TexShadow ? 0 : 1;
+        break;
+    case 2:
+        if (row == 0) g_bAllowLighting = !g_bAllowLighting;
+        if (row == 1) g_bAllowSpecular = !g_bAllowSpecular;
+        if (row == 2) g_TexDetail = g_TexDetail ? 0 : 1;
+        if (row == 3) g_TexGloss = g_TexGloss ? 0 : 1;
+        break;
+    case 3:
+        if (row == 0) g_TexSelfIllum = g_TexSelfIllum ? 0 : 1;
+        if (row == 1) g_bBallGlow = !g_bBallGlow;
+        if (row == 2) g_bWhiteDiffuse = g_bWhiteDiffuse ? 0 : 1;
+        if (row == 3) g_bClipToFrustum = g_bClipToFrustum ? 0 : 1;
+        break;
+    case 4:
+    case 5:
+    case 6:
+    case 7:
+        if (row >= 0 && row < 4)
+        {
+            const DebugViewEntry& entry = kDebugViewPages[page - 4][row];
+            PortDebugRenderViewToggle((unsigned int)entry.view);
+        }
+        break;
+    case 8:
+        if (row == 0 && (aurora_vita_debug_runtime_capabilities() & DR_STATIC_GEOMETRY)) flags ^= DR_STATIC_GEOMETRY;
+        if (row == 2) flags ^= DR_LIT_VERTEX;
+        if (row == 3) flags ^= DR_PRIMITIVE_EXPAND;
+        aurora_vita_debug_set_runtime_flags(flags);
+        break;
+    case 9:
+        if (row == 0) flags ^= DR_DYNAMIC_TEX_MTX;
+        if (row == 1) flags ^= DR_BUMP_VERTEX;
+        if (row == 2) flags ^= DR_STATIC_STABLE_ONLY;
+        if (row < 3) aurora_vita_debug_set_runtime_flags(flags);
+        if (row == 3) aurora_vita_debug_set_shader_runtime_compile(!aurora_vita_debug_shader_runtime_compile());
+        break;
+    default:
+        break;
+    }
+}
+}
 
 /**
  * Offset/Address/Size: 0x225C | 0x800AF754 | size: 0xDC
@@ -55,7 +297,27 @@ PauseMenuScene::PauseMenuScene(PauseMenuScene::ScreenContext context)
     , mButtons()
     , mButtons2()
 {
+    if (mDebugMenuRequested)
+    {
+        mContext = SC_DEBUG;
+        mDebugMenuRequested = false;
+    }
     mDelayBeforeUnpause = 0.1f;
+}
+
+void PauseMenuScene::OpenDebugMenu()
+{
+    if (FrontEnd::m_bInPauseMenuState)
+        return;
+    mDebugPage = 0;
+    mLastSelectedIndex = 0;
+    mDebugMenuRequested = true;
+    FrontEnd::EnterMenuState(FrontEnd::MET_PAUSE);
+}
+
+bool PauseMenuScene::DebugMenuRequested()
+{
+    return mDebugMenuRequested;
 }
 
 /**
@@ -392,6 +654,45 @@ void PauseMenuScene::SceneCreated()
         mMenuItems.RunCallbackOnCurrent(ON_HIGHLIGHT);
         break;
     }
+    case SC_DEBUG:
+    {
+        FEPresentation* presentation = m_pFEScene->m_pFEPackage->GetPresentation();
+        static char* MENU_NAMES[6]
+            = { "MENU ITEM1", "MENU ITEM2", "MENU ITEM3", "MENU ITEM6", "MENU ITEM4", "MENU ITEM5" };
+
+        for (int i = 0; i < 6; ++i)
+        {
+            TLInstance* instance = FEFinder<TLInstance, 4>::Find<TLSlide>(
+                presentation->m_currentSlide,
+                InlineHasher(nlStringLowerHash("Layer")),
+                InlineHasher(nlStringLowerHash(MENU_NAMES[i])));
+            TLComponentInstance* compinstance = (TLComponentInstance*)instance;
+            MenuItem<TLComponentInstance>* menuItem = mMenuItems.AddItem(compinstance);
+
+            menuItem->SetCallback(
+                ON_HIGHLIGHT,
+                MenuCallback(Bind<void>(MemFun<PauseMenuScene, void, TLComponentInstance*>(
+                    &PauseMenuScene::OpenItem), this, placeholder0)));
+            menuItem->SetCallback(
+                ON_UNHIGHLIGHT,
+                MenuCallback(Bind<void>(MemFun<PauseMenuScene, void, TLComponentInstance*>(
+                    &PauseMenuScene::CloseItem), this, placeholder0)));
+            menuItem->SetCallback(
+                ON_APPLY,
+                MenuCallback(Bind<void>(MemFun<PauseMenuScene, void, TLComponentInstance*>(
+                    &PauseMenuScene::OnSelectDEBUG), this, placeholder0)));
+
+            if (i == 0)
+                menuItem->RunCallback(ON_HIGHLIGHT);
+            else
+                menuItem->RunCallback(ON_UNHIGHLIGHT);
+        }
+
+        mMenuItems.SetFlag(1);
+        mMenuItems.SetActiveItemIndex(0);
+        RefreshDebugMenuLabels();
+        break;
+    }
     default:
         break;
     }
@@ -413,6 +714,50 @@ void PauseMenuScene::SceneCreated()
 
     EnableAutoPressed();
     FEAudio::EnableSounds(true);
+}
+
+void PauseMenuScene::RefreshDebugMenuLabels()
+{
+    if (mContext != SC_DEBUG)
+        return;
+
+    const int count = mMenuItems.GetNumItemsAdded();
+    for (int i = 0; i < count && i < 6; ++i)
+    {
+        TLComponentInstance* instance = mMenuItems.GetMenuItem(i)->GetType();
+        if (instance == NULL || instance->GetActiveSlide() == NULL)
+            continue;
+
+        TLTextInstance* text = FEFinder<TLTextInstance, 3>::Find<TLSlide>(
+            instance->GetActiveSlide(),
+            InlineHasher(nlStringLowerHash("pauseresume")));
+        if (text == NULL)
+            continue;
+
+        char label[64];
+        FormatDebugLabel(mDebugPage, i, label, sizeof(label));
+        ToWide(label, sDebugMenuText[i], 64);
+        text->SetString(sDebugMenuText[i]);
+    }
+}
+
+void PauseMenuScene::OnSelectDEBUG(TLComponentInstance* instance)
+{
+    (void)instance;
+    const int row = mMenuItems.GetActiveItemIndex();
+    if (row == 4)
+    {
+        mDebugPage = (mDebugPage + kDebugPageCount - 1) % kDebugPageCount;
+    }
+    else if (row == 5)
+    {
+        mDebugPage = (mDebugPage + 1) % kDebugPageCount;
+    }
+    else
+    {
+        ToggleDebugOption(mDebugPage, row);
+    }
+    RefreshDebugMenuLabels();
 }
 
 /**
@@ -630,6 +975,12 @@ void PauseMenuScene::OpenItem(TLComponentInstance* instance)
 {
     DoubleHighlite::OpenItem(instance);
 
+    if (mContext == SC_DEBUG)
+    {
+        RefreshDebugMenuLabels();
+        return;
+    }
+
     if (mMenuItems.GetMenuItem()->IsDisabled())
     {
         TLTextInstance* text = FEFinder<TLTextInstance, 3>::Find(
@@ -654,6 +1005,12 @@ void PauseMenuScene::OpenItem(TLComponentInstance* instance)
 void PauseMenuScene::CloseItem(TLComponentInstance* instance)
 {
     DoubleHighlite::CloseItem(instance);
+
+    if (mContext == SC_DEBUG)
+    {
+        RefreshDebugMenuLabels();
+        return;
+    }
 
     if (mMenuItems.GetActiveItemIndex() == 5)
     {

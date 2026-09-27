@@ -11,9 +11,26 @@
 
 #include "port/aurora_compat.h"
 
+#if defined(PORT_VITA)
+/* Weak so the testbed can still build older Aurora revisions without it. */
+extern void GXVitaWaitDrawDone(void) __attribute__((weak));
+#endif
+
 void GXWaitDrawDone(void)
 {
+#if defined(PORT_VITA)
+    if (GXVitaWaitDrawDone == NULL)
+    {
+        GXDrawDone();
+        return;
+    }
+    // Wait only for the token placed by the last GXSetDrawDone, exactly as on
+    // GameCube: with the Vita GX worker the game keeps building the next frame
+    // while the previous one is translated and submitted on another core.
+    GXVitaWaitDrawDone();
+#else
     GXDrawDone();
+#endif
 }
 
 void GXClearGPMetric(void) {}

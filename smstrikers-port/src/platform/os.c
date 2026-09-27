@@ -118,7 +118,9 @@ void DCFlushRange(void* addr, u32 nBytes) { PORT_AURORA_MEMORY_WRITE(addr, nByte
 void DCFlushRangeNoSync(void* addr, u32 nBytes) { PORT_AURORA_MEMORY_WRITE(addr, nBytes); }
 void DCStoreRange(void* addr, u32 nBytes) { PORT_AURORA_MEMORY_WRITE(addr, nBytes); }
 void DCStoreRangeNoSync(void* addr, u32 nBytes) { PORT_AURORA_MEMORY_WRITE(addr, nBytes); }
-void DCInvalidateRange(void* addr, u32 nBytes) { (void)addr; (void)nBytes; }
+/* GameCube code invalidates a range because something other than the CPU
+ * (DVD/ARAM DMA) replaced it: treat it as a write for Aurora's caches. */
+void DCInvalidateRange(void* addr, u32 nBytes) { PORT_AURORA_MEMORY_WRITE(addr, nBytes); }
 void DCZeroRange(void* addr, u32 nBytes) { memset(addr, 0, nBytes); PORT_AURORA_MEMORY_WRITE(addr, nBytes); }
 void LCEnable(void) {}
 void LCDisable(void) {}

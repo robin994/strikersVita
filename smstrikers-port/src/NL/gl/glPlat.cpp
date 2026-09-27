@@ -32,6 +32,21 @@
 #include <cstdlib>
 #if defined(PORT_VITA)
 #include <aurora_vita_backend.hpp>
+
+// PORT: profiling output that survives no-log builds (stderr goes nowhere on Vita).
+static FILE* PortProfileOut()
+{
+#if defined(PORT_VITA)
+    static FILE* s_out = nullptr;
+    if (s_out == nullptr)
+        s_out = std::fopen("ux0:data/strikersVita/task_profile.log", "a");
+    if (s_out != nullptr && s_out != stderr)
+        std::setvbuf(s_out, nullptr, _IOLBF, 0);
+    if (s_out != nullptr)
+        return s_out;
+#endif
+    return stderr;
+}
 #endif
 
 // PAL 480i deflicker render mode (first symbol in .data)
@@ -82,6 +97,62 @@ static void* glx_FrameBuffer[2];
 static u32 total_val0 = 0;
 static u32 total_val1 = 0;
 static s32 glx_FBSize;
+
+// Vita runtime render-view isolation.  This sits at the final view submission
+// point so diagnostics can remove one whole class of world work without
+// disturbing game simulation or the FE/debug views.
+static unsigned long long s_portDebugViewMask = (1ull << GLV_Num) - 1ull;
+static unsigned int s_portDebugViewLastUs[GLV_Num] = {};
+
+extern "C" int PortDebugRenderViewEnabled(unsigned int view)
+{
+    if (view >= GLV_Num)
+        return 0;
+    return (s_portDebugViewMask & (1ull << view)) != 0 ? 1 : 0;
+}
+
+extern "C" void PortDebugRenderViewSetEnabled(unsigned int view, int enabled)
+{
+    if (view >= GLV_Num)
+        return;
+    const unsigned long long bit = 1ull << view;
+    if (enabled)
+        s_portDebugViewMask |= bit;
+    else
+        s_portDebugViewMask &= ~bit;
+}
+
+extern "C" void PortDebugRenderViewToggle(unsigned int view)
+{
+    if (view < GLV_Num)
+        s_portDebugViewMask ^= (1ull << view);
+}
+
+extern "C" unsigned int PortDebugRenderViewLastUs(unsigned int view)
+{
+    return view < GLV_Num ? s_portDebugViewLastUs[view] : 0u;
+}
+
+struct PortDebugRenderViewTimer
+{
+    explicit PortDebugRenderViewTimer(unsigned int inView)
+        : view(inView), started(port_monotonic_ns())
+    {
+    }
+
+    ~PortDebugRenderViewTimer()
+    {
+        const unsigned long long elapsed = port_monotonic_ns() - started;
+        const unsigned int us = (unsigned int)(elapsed / 1000ull);
+        // Keep the last meaningful sample so opening the pause/debug FE does
+        // not immediately replace the gameplay cost with an empty-view sample.
+        if (us >= 100u)
+            s_portDebugViewLastUs[view] = us;
+    }
+
+    unsigned int view;
+    unsigned long long started;
+};
 
 // Performance metric string array
 static const char* str_perf0[]
@@ -317,7 +388,7 @@ void glplatSendFrame()
         {
             static const char* names[5] = { "swap_pre", "send_frame", "send_views", "swap_post", "frame_alloc" };
             for (unsigned int i = 0; i < 5; ++i)
-                std::fprintf(stderr, "[render-profile] %-12s mean_us=%llu max_us=%llu total_us=%llu\n",
+                std::fprintf(PortProfileOut(), "[render-profile] %-12s mean_us=%llu max_us=%llu total_us=%llu\n",
                              names[i], totals[i] / (1000ull * profileFrames), maxima[i] / 1000ull, totals[i] / 1000ull);
             for (unsigned int i = 0; i < 5; ++i)
                 totals[i] = maxima[i] = 0;
@@ -423,7 +494,13 @@ static void glx_SendViews()
             continue;
         }
 
+        if (!PortDebugRenderViewEnabled((unsigned int)view))
+        {
+            continue;
+        }
+
         PortProfilerRenderViewScope viewProfile((unsigned int)view);
+        PortDebugRenderViewTimer viewTimer((unsigned int)view);
 
         renderList = gl_ViewGetRenderList((eGLView)view);
         isEmpty = renderList->IsEmpty();

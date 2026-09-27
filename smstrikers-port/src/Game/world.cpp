@@ -40,6 +40,10 @@
 #include "Game/Physics/CharacterPhysicsElement.h"
 #include "ctype_api.h"
 #include "Game/Drawable/DrawableCharacter.h"
+#if defined(PORT_VITA)
+#include <aurora_vita_backend.hpp>
+#include <vector>
+#endif
 
 // PORT: linkable, so the debug menu can drive it. Only the keyword changed.
 unsigned char g_bClipToFrustum = 1;
@@ -1502,6 +1506,65 @@ static inline u8 World_IsSphereInFrustumInline(World* pWorld, const nlMatrix4& m
     return true;
 }
 
+#if defined(PORT_VITA)
+namespace
+{
+struct VitaCullEntry
+{
+    DrawableObject* object;
+    nlVector3 position;
+    float radius;
+    u8 forceVisible;
+    u8 visible;
+};
+
+struct VitaCullJob
+{
+    VitaCullEntry* entries;
+    nlVector4 planes[6];
+};
+
+bool VitaCullRange(void* opaque, size_t begin, size_t end, uint32_t) noexcept
+{
+    VitaCullJob& job = *static_cast<VitaCullJob*>(opaque);
+    for (size_t i = begin; i < end; ++i)
+    {
+        VitaCullEntry& entry = job.entries[i];
+        if (entry.forceVisible)
+        {
+            entry.visible = 1;
+            continue;
+        }
+
+        const float negRadius = -entry.radius;
+        u8 visible = 1;
+        for (int plane = 0; plane < 6; ++plane)
+        {
+            const nlVector4& p = job.planes[plane];
+            const float dot = entry.position.x * p.x + entry.position.y * p.y +
+                              entry.position.z * p.z + p.w;
+            if (dot < negRadius)
+            {
+                visible = 0;
+                break;
+            }
+        }
+        entry.visible = visible;
+    }
+    return true;
+}
+
+bool VitaWorldParallelEnabled()
+{
+    static const bool enabled = [] {
+        const char* value = getenv("STRIKERS_VITA_GAME_PARALLEL");
+        return value == NULL || value[0] != '0';
+    }();
+    return enabled;
+}
+}
+#endif
+
 static void RenderBoundingSphere(const nlMatrix4& matWorld, f32 fRadius);
 
 /**
@@ -1541,6 +1604,111 @@ void World::Render()
 
     if (g_bClipToFrustum)
     {
+#if defined(PORT_VITA)
+        if (VitaWorldParallelEnabled() && aurora::vita::worker_threads() != 0)
+        {
+            // Keep the AVL traversal, lazy world-matrix materialization and all
+            // draw/state mutation on CPU0. CPU2 receives only immutable sphere
+            // positions/radii plus a snapshot of the six frustum planes.
+            static std::vector<VitaCullEntry> cullEntries;
+            cullEntries.clear();
+            if (cullEntries.capacity() < 256)
+                cullEntries.reserve(256);
+
+            static const bool bNoCull = getenv("STRIKERS_NO_CULL") != NULL;
+            while (iter->IsValid())
+            {
+                DrawableObject* pObject = iter->CurrentValue();
+                if (sbIsHyperShootToScoreRenderingEnabled)
+                {
+                    const float x = pObject->GetWorldMatrix().e2[3][0];
+                    if ((x < 0.0f && sbShowPositiveXNetDuringHyperStrike)
+                        || (x > 0.0f && !sbShowPositiveXNetDuringHyperStrike))
+                    {
+                        iter->Next();
+                        continue;
+                    }
+                }
+
+                bool bHammer = false;
+                bool bBall = false;
+                if (pObject->IsDrawableModel())
+                {
+                    bHammer = (pObject->AsDrawableModel()->m_pModel->id == HammerModelID);
+                    bBall = (pObject->AsDrawableModel()->m_pModel->id == BallModelID);
+                }
+                DrawableObject* ballDrawable = g_pBall->GetDrawableBall();
+                if ((DrawableObject*)pObject->AsDrawableModel() == ballDrawable)
+                {
+                    iter->Next();
+                    continue;
+                }
+
+                const u32 objectFlags = pObject->m_uObjectFlags;
+                if (objectFlags & 0x80)
+                {
+                    iter->Next();
+                    continue;
+                }
+                const bool bSkybox = !sbSkyboxRenderingDisabled && (pObject->m_uObjectCreationFlags & 0x100);
+                if (sbStadiumRenderingDisabled && !bBall && !bHammer && !bSkybox)
+                {
+                    iter->Next();
+                    continue;
+                }
+
+                if (objectFlags & 0x1)
+                {
+                    const nlMatrix4& world = pObject->GetWorldMatrix();
+                    VitaCullEntry entry;
+                    entry.object = pObject;
+                    entry.position = world.GetTranslation();
+                    entry.radius = pObject->m_fBoundingRadius;
+                    entry.forceVisible = (objectFlags & 0x10) || bNoCull;
+                    entry.visible = entry.forceVisible;
+                    cullEntries.push_back(entry);
+                    ++nSubmitted;
+                }
+                else
+                {
+                    pObject->m_translucency = 1.0f;
+                }
+                iter->Next();
+            }
+
+            if (!cullEntries.empty() && !bNoCull)
+            {
+                VitaCullJob job;
+                job.entries = cullEntries.data();
+                for (int plane = 0; plane < 6; ++plane)
+                    job.planes[plane] = pWorld->m_frustumPlane[plane];
+                (void)aurora::vita::parallel_for(cullEntries.size(), 24, VitaCullRange, &job);
+            }
+
+            for (size_t i = 0; i < cullEntries.size(); ++i)
+            {
+                VitaCullEntry& entry = cullEntries[i];
+                DrawableObject* pObject = entry.object;
+                if (entry.visible)
+                {
+                    if (pObject->m_uObjectCreationFlags & 0xF000)
+                        DoTranslucency(pObject);
+                    pObject->Draw();
+                    if (g_bDrawBoundingSphere)
+                        RenderBoundingSphere(pObject->GetWorldMatrix(), pObject->m_fBoundingRadius);
+                    ++nDrawn;
+                }
+                else
+                {
+                    pObject->m_translucency = 1.0f;
+                }
+            }
+            delete iter;
+            iter = NULL;
+        }
+        else
+        {
+#endif
         while (iter->IsValid())
         {
             DrawableObject* pObject = iter->CurrentValue();
@@ -1624,6 +1792,9 @@ void World::Render()
             }
             iter->Next();
         }
+#if defined(PORT_VITA)
+        }
+#endif
     }
     else
     {

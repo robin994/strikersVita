@@ -12,6 +12,7 @@
 #include "Game/Render/SidelineExplodable.h"
 #include "Game/ReplayManager.h"
 #include "Game/Team.h"
+#include "Game/Player.h"
 #include "NL/platpad.h"
 #include "NL/gl/gl.h"
 #include "port/determinism.h"
@@ -20,6 +21,9 @@
 
 #include <algorithm>
 #include <cstdlib>
+#if defined(PORT_VITA)
+#include <aurora_vita_backend.hpp>
+#endif
 
 float g_fFixedUpdateTick = 0.02f;
 extern PhysicsWorld* g_PhysicsWorld;
@@ -35,6 +39,28 @@ float FixedUpdateTask::mTimeScale = 1.0f;
 namespace
 {
 #if defined(PORT_VITA)
+struct PrePhysicsPoseJob
+{
+    bool poseLocal[10];
+};
+
+bool PreparePlayerPoses(void* opaque, size_t begin, size_t end, uint32_t) noexcept
+{
+    PrePhysicsPoseJob& job = *static_cast<PrePhysicsPoseJob*>(opaque);
+    for (size_t i = begin; i < end; ++i)
+        job.poseLocal[i] = static_cast<cPlayer*>(g_pCharacters[i])->PreparePrePhysicsPose(g_fSimulationTick);
+    return true;
+}
+
+bool PortGameParallelEnabled()
+{
+    static const bool enabled = [] {
+        const char* value = getenv("STRIKERS_VITA_GAME_PARALLEL");
+        return value == NULL || value[0] != '0';
+    }();
+    return enabled;
+}
+
 bool PortGameplayFrameskipEnabled()
 {
     static int initialized;
@@ -195,6 +221,19 @@ void FixedUpdateTask::AIUpdateTask(float fDeltaT)
 
 void FixedUpdateTask::PrePhysicsAITask(float fDeltaT)
 {
+#if defined(PORT_VITA)
+    if (PortGameParallelEnabled() && aurora::vita::worker_threads() != 0)
+    {
+        PrePhysicsPoseJob job = {};
+        (void)aurora::vita::parallel_for(10, 3, PreparePlayerPoses, &job);
+
+        // Physics objects and the held ball are deliberately committed in the
+        // original deterministic character order on CPU0.
+        for (int i = 0; i < 10; ++i)
+            static_cast<cPlayer*>(g_pCharacters[i])->CommitPrePhysicsUpdate(job.poseLocal[i]);
+        return;
+    }
+#endif
     int i;
     for (i = 0; i < 10; i++)
     {

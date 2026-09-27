@@ -356,7 +356,7 @@ void DrawableCharacter::BuildNodeMatrices()
 /**
  * Offset/Address/Size: 0x26C4 | 0x8011B574 | size: 0x130
  */
-void DrawableCharacter::Render(cCharacter& character) const
+void DrawableCharacter::Render(cCharacter& character, bool poseSkinMesh) const
 {
     static const bool bDrawProbe = getenv("STRIKERS_PROBE_CHARDRAW") != NULL;
     static int nCalls, nInvisible, nRenderOnly, nDrawn, nLastReport;
@@ -391,7 +391,8 @@ void DrawableCharacter::Render(cCharacter& character) const
         return;
     }
 
-    character.PoseSkinMesh(mPoseAccumulator);
+    if (poseSkinMesh)
+        character.PoseSkinMesh(mPoseAccumulator);
 
     if (mCharacter->m_pPropModel != NULL)
     {
@@ -918,7 +919,11 @@ void DrawableCharacter::SendToGl(const cCharacter& character) const
             params.nVisibleInterval = g_nOnscreenUpdate[characterSizeIndex];
             params.nInvisibleInterval = g_nOffscreenUpdate[characterSizeIndex];
 
-            if (ShouldShadowBeUpdated(params))
+            // RenderCharacterIntoTexture is a no-op in blob-shadow mode. Avoid
+            // duplicating the full character model before making that no-op;
+            // this also guarantees the Vita blob A/B never enters the projected
+            // shadow EFB/GXCopyTex pipeline.
+            if (!g_bShadowBlobs && ShouldShadowBeUpdated(params))
             {
                 params.pModel = glModelDupNoStreams(pModel, true, false);
                 RenderCharacterIntoTexture(params);

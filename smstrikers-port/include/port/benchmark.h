@@ -36,6 +36,13 @@ void PortBenchFrameEnd(void);
 
 void PortBenchAddSleep(unsigned long long ns);
 
+// Aurora GX command-processing time for this frame (microseconds; part of busy).
+void PortBenchSetGxUs(unsigned long long us);
+// aurora end_frame wall time and the part blocked queueing the present (GPU backpressure).
+// GPU time per scene (diagnostic gxm_disable bit 0x100).
+void PortBenchSetSceneGpuUs(const unsigned int us[4]);
+void PortBenchSetEndFrameUs(unsigned long long endFrameUs, unsigned long long displayQueueUs);
+
 // Time blocked in aurora_begin_frame on the swapchain acquire; counted in the frame total, not busy.
 void PortBenchAddAcquire(unsigned long long ns);
 
@@ -102,13 +109,39 @@ typedef struct PortBenchRendererStats
 
     unsigned long long frameUs;
     unsigned long long rendererCpuFrameUs;
+    unsigned long long displayQueueLastUs;
+    unsigned long long displayQueueMaxUs;
     unsigned long long displayQueueTotalUs;
     unsigned long long displayQueueAverageUs;
     unsigned long long displayQueueSamples;
     unsigned long long displayQueueBlockedSamples;
     unsigned int displayQueueBlockedPercent;
+    int gpuBackpressureLikely;
+    int nativeTimingsSampled;
+    unsigned long long nativePipelineUs;
+    unsigned long long nativeTextureUs;
+    unsigned long long nativeDrawUs;
     unsigned int nativeSceneCount;
     unsigned int nativeEfbCopies;
+    /* gxm-optimization testbed: per-frame native counters (last frame) and
+     * their sums over the measured gameplay window. */
+    unsigned long long frameIndex;
+    unsigned int nativeDepthLoadScenes;
+    unsigned int nativeDepthStoreScenes;
+    unsigned int nativeDepthlessScenes;
+    unsigned int nativeFinishCalls;
+    unsigned int nativeScissorFreeDraws;
+    unsigned long long gameplayCounterFrames;
+    unsigned long long gameplayScenes;
+    unsigned long long gameplayDepthLoadScenes;
+    unsigned long long gameplayDepthStoreScenes;
+    unsigned long long gameplayDepthlessScenes;
+    unsigned long long gameplayFinishCalls;
+    unsigned long long gameplayScissorFreeDraws;
+    unsigned long long nativeEfbEndSceneUs;
+    unsigned long long nativeEfbTransferSubmitUs;
+    unsigned long long nativeEfbTransferWaitUs;
+    unsigned long long nativeEfbCpuFixupUs;
     unsigned long long drawFrontendUs;
     unsigned long long stateTranslateUs;
     unsigned long long vertexDecodeUs;

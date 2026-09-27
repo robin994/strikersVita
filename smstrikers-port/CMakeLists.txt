@@ -52,12 +52,21 @@ option(STRIKERS_VITA_FAST_PROFILER_BUILD
     OFF)
 option(STRIKERS_VITA_AUDIO_THREAD "Run the Vita MusyX software mixer on a dedicated worker" ON)
 option(STRIKERS_VITA_GX_THREAD "Run the Vita GX FIFO frontend on a dedicated consumer thread" OFF)
+option(STRIKERS_VITA_GXM_DIRECT_STREAM_WRITE
+    "Write packed Vita GXM vertex/index streams directly into GPU-visible ring pages" OFF)
+option(STRIKERS_VITA_GXM_DIRECT_DRAW_SUBMIT
+    "Submit common streamed Vita GXM draws without the intermediate command stream" OFF)
 option(STRIKERS_VITA_PROFILER "Build VitaDebugger's user-mode profiler into the Vita port" OFF)
+option(STRIKERS_VITA_PROFILE_AUTOSTART
+    "Start the Vita profiler automatically at boot instead of requiring an environment variable"
+    OFF)
 set(STRIKERS_VITADEBUGGER_ROOT "" CACHE PATH
     "Path to a VitaDebugger checkout when STRIKERS_VITA_PROFILER is enabled")
 set(STRIKERS_VITA_SHADER_PROFILE "SEALED" CACHE STRING
     "Vita GXM shader-cache profile: CONTROL, WARM, or SEALED")
 set_property(CACHE STRIKERS_VITA_SHADER_PROFILE PROPERTY STRINGS CONTROL WARM SEALED)
+set(STRIKERS_VITA_STATIC_GEOMETRY_MB "8" CACHE STRING
+    "Vita GXM immutable geometry cache size in MiB (0 disables the experimental fixed-vertex GPU path)")
 
 # Aurora is a drop-in replacement for the Dolphin SDK: it defines the real GX/VI/PAD/DVD/CARD/SI
 # symbols over WebGPU and SDL3.
@@ -143,6 +152,9 @@ endif()
 if(STRIKERS_VITA AND STRIKERS_VITA_PROFILER)
     list(APPEND PORT_DEFINES STRIKERS_VITA_PROFILER=1)
 endif()
+if(STRIKERS_VITA AND STRIKERS_VITA_PROFILER AND STRIKERS_VITA_PROFILE_AUTOSTART)
+    list(APPEND PORT_DEFINES STRIKERS_VITA_PROFILE_AUTOSTART=1)
+endif()
 
 set(STRIKERS_MAIN_COMPILE_DEFINITIONS)
 if(STRIKERS_VITA AND STRIKERS_VITA_NO_LOGS)
@@ -163,7 +175,8 @@ if(STRIKERS_VITA)
             "STRIKERS_VITA_SHADER_PROFILE must be CONTROL, WARM, or SEALED")
     endif()
     list(APPEND STRIKERS_MAIN_COMPILE_DEFINITIONS
-        STRIKERS_VITA_SHADER_PROFILE_DEFAULT=\"${_strikers_vita_shader_profile}\")
+        STRIKERS_VITA_SHADER_PROFILE_DEFAULT=\"${_strikers_vita_shader_profile}\"
+        STRIKERS_VITA_STATIC_GEOMETRY_MB_DEFAULT=${STRIKERS_VITA_STATIC_GEOMETRY_MB})
 endif()
 if(STRIKERS_MAIN_COMPILE_DEFINITIONS)
     # These switches only affect backend setup in main.cpp. Keep them source-local
@@ -328,7 +341,12 @@ if(STRIKERS_AURORA AND STRIKERS_VITA)
     set(AURORA_VITA_RENDERER GXM CACHE STRING "" FORCE)
     set(AURORA_VITA_PORT_ABI GAMECUBE CACHE STRING "" FORCE)
     set(AURORA_VITA_LTO ${STRIKERS_VITA_AURORA_LTO} CACHE BOOL "" FORCE)
+    set(AURORA_VITA_LTO_JOBS ${STRIKERS_VITA_LTO_JOBS} CACHE STRING "" FORCE)
     set(AURORA_VITA_ASYNC_GX ${STRIKERS_VITA_GX_THREAD} CACHE BOOL "" FORCE)
+    set(AURORA_VITA_GXM_DIRECT_STREAM_WRITE
+        ${STRIKERS_VITA_GXM_DIRECT_STREAM_WRITE} CACHE BOOL "" FORCE)
+    set(AURORA_VITA_GXM_DIRECT_DRAW_SUBMIT
+        ${STRIKERS_VITA_GXM_DIRECT_DRAW_SUBMIT} CACHE BOOL "" FORCE)
     if(STRIKERS_VITA_NO_LOGS)
         set(AURORA_VITA_RUNTIME_LOGGING OFF CACHE BOOL "" FORCE)
     endif()

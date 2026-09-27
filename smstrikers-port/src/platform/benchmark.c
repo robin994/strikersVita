@@ -44,6 +44,12 @@ static unsigned int s_presentUs[BENCH_CAP];
 static unsigned int s_frameUs[BENCH_CAP];
 static unsigned int s_acquireUs[BENCH_CAP];
 static unsigned int s_inputAgeUs[BENCH_CAP];   // event pump to end of frame
+static unsigned int s_gxUs[BENCH_CAP];         // Aurora GX command processing (subset of busy)
+static unsigned long long s_gxThisFrame;
+static unsigned int s_endFrameUs[BENCH_CAP], s_dqUs[BENCH_CAP];
+static unsigned long long s_endFrameThisFrame, s_dqThisFrame;
+static unsigned int s_sceneGpuUs[BENCH_CAP][4];
+static unsigned int s_sceneGpuThisFrame[4];
 static unsigned int s_pipelinesCreated[BENCH_CAP];
 static unsigned int s_lastCreated;
 static unsigned int s_draws[BENCH_CAP], s_texUploadBytes[BENCH_CAP], s_vertBytes[BENCH_CAP];
@@ -152,11 +158,33 @@ void PortBenchSetLabel(const char* key, const char* value)
     s_labelCount++;
 }
 
+static unsigned long long s_counterLastFrame = ~0ull;
+static unsigned long long s_counterFrames, s_counterScenes, s_counterDepthLoad, s_counterDepthStore,
+    s_counterDepthless, s_counterFinish, s_counterScissorFree;
+
 void PortBenchSetRendererStats(const PortBenchRendererStats* stats)
 {
     if (stats == NULL)
         return;
+    if (s_rendererGameplayBaselineValid && !s_rendererGameplayEnded && stats->frameIndex != s_counterLastFrame)
+    {
+        s_counterLastFrame = stats->frameIndex;
+        s_counterFrames++;
+        s_counterScenes += stats->nativeSceneCount;
+        s_counterDepthLoad += stats->nativeDepthLoadScenes;
+        s_counterDepthStore += stats->nativeDepthStoreScenes;
+        s_counterDepthless += stats->nativeDepthlessScenes;
+        s_counterFinish += stats->nativeFinishCalls;
+        s_counterScissorFree += stats->nativeScissorFreeDraws;
+    }
     s_rendererStats = *stats;
+    s_rendererStats.gameplayCounterFrames = s_counterFrames;
+    s_rendererStats.gameplayScenes = s_counterScenes;
+    s_rendererStats.gameplayDepthLoadScenes = s_counterDepthLoad;
+    s_rendererStats.gameplayDepthStoreScenes = s_counterDepthStore;
+    s_rendererStats.gameplayDepthlessScenes = s_counterDepthless;
+    s_rendererStats.gameplayFinishCalls = s_counterFinish;
+    s_rendererStats.gameplayScissorFreeDraws = s_counterScissorFree;
     s_rendererStats.worldCullTested = s_worldCullTested;
     s_rendererStats.worldCullDropped = s_worldCullDropped;
     if (s_rendererGameplayBaselineValid)
@@ -184,6 +212,9 @@ void PortBenchSetRendererStats(const PortBenchRendererStats* stats)
 
 void PortBenchRendererGameplayStart(void)
 {
+    s_counterLastFrame = ~0ull;
+    s_counterFrames = s_counterScenes = s_counterDepthLoad = s_counterDepthStore = 0;
+    s_counterDepthless = s_counterFinish = s_counterScissorFree = 0;
     s_rendererGameplayStartCompiles = s_rendererStats.shaderRuntimeCompiles;
     s_rendererGameplayStartBlocked = s_rendererStats.shaderCompileBlockedMisses;
     s_rendererGameplayStartQueueUs = s_rendererStats.displayQueueTotalUs;
@@ -332,6 +363,23 @@ void PortBenchAddAcquire(unsigned long long ns)
     s_acquireThisFrame = ns;
 }
 
+void PortBenchSetGxUs(unsigned long long us)
+{
+    s_gxThisFrame = us;
+}
+
+void PortBenchSetSceneGpuUs(const unsigned int us[4])
+{
+    int k;
+    for (k = 0; k < 4; k++) s_sceneGpuThisFrame[k] = us[k];
+}
+
+void PortBenchSetEndFrameUs(unsigned long long endFrameUs, unsigned long long displayQueueUs)
+{
+    s_endFrameThisFrame = endFrameUs;
+    s_dqThisFrame = displayQueueUs;
+}
+
 void PortBenchAfterTasks(void)
 {
     s_tTasks = port_monotonic_ns();
@@ -467,6 +515,10 @@ void PortBenchFrameEnd(void)
         s_frameUs[s_count] = (unsigned int)(frame / 1000ull);
         s_acquireUs[s_count] = (unsigned int)(s_acquireThisFrame / 1000ull);
         s_inputAgeUs[s_count] = (unsigned int)(inputAge / 1000ull);
+        s_gxUs[s_count] = (unsigned int)s_gxThisFrame;
+        s_endFrameUs[s_count] = (unsigned int)s_endFrameThisFrame;
+        s_dqUs[s_count] = (unsigned int)s_dqThisFrame;
+        memcpy(s_sceneGpuUs[s_count], s_sceneGpuThisFrame, sizeof s_sceneGpuThisFrame);
         {
             unsigned int created = 0;
             if (aurora_get_stats != NULL)
@@ -623,7 +675,9 @@ void PortBenchReport(void)
             "  gxm reuse        stages=%lu create/reuse=%llu/%llu "
             "vp=%lu create/reuse/evict=%llu/%llu/%llu "
             "fp=%lu create/reuse/evict=%llu/%llu/%llu\n"
-            "  geometry         hit=%llu miss=%llu fallback=%llu bytes=%lu entries=%lu\n",
+            "  geometry         hit=%llu miss=%llu fallback=%llu bytes=%lu entries=%lu\n"
+            "  gxm counters     frames=%llu scenes=%llu depth_load=%llu depth_store=%llu "
+            "depthless=%llu finish=%llu scissor_free_draws=%llu\n",
             s_rendererStats.shaderRuntimeCompilationEnabled,
             s_rendererStats.shaderRuntimeCompilesAtGameplayStart,
             s_rendererStats.shaderRuntimeCompilesDuringGameplay,
@@ -681,7 +735,14 @@ void PortBenchReport(void)
             s_rendererStats.staticGeometryMisses,
             s_rendererStats.staticGeometryLookupFallbacks,
             (unsigned long)s_rendererStats.staticGeometryBytes,
-            (unsigned long)s_rendererStats.staticGeometryEntries);
+            (unsigned long)s_rendererStats.staticGeometryEntries,
+            s_rendererStats.gameplayCounterFrames,
+            s_rendererStats.gameplayScenes,
+            s_rendererStats.gameplayDepthLoadScenes,
+            s_rendererStats.gameplayDepthStoreScenes,
+            s_rendererStats.gameplayDepthlessScenes,
+            s_rendererStats.gameplayFinishCalls,
+            s_rendererStats.gameplayScissorFreeDraws);
         fprintf(stderr, "  culling          tested=%u dropped=%u (%.1f%%)\n",
             s_rendererStats.worldCullTested,
             s_rendererStats.worldCullDropped,
@@ -798,7 +859,9 @@ static void write_csv(void)
                 "arena_overflows=%llu "
                 "scenes=%u efb=%u geometry_hits=%llu geometry_misses=%llu "
                 "geometry_fallbacks=%llu geometry_bytes=%lu geometry_entries=%lu "
-                "cull_tested=%u cull_dropped=%u",
+                "cull_tested=%u cull_dropped=%u "
+                "gxm_frames=%llu gxm_scenes=%llu gxm_depth_load=%llu gxm_depth_store=%llu "
+                "gxm_depthless=%llu gxm_finish=%llu gxm_scissor_free_draws=%llu",
                 s_rendererStats.shaderRuntimeCompilationEnabled,
                 s_rendererStats.shaderRuntimeCompilesAtGameplayStart,
                 s_rendererStats.shaderRuntimeCompilesDuringGameplay,
@@ -847,18 +910,26 @@ static void write_csv(void)
                 (unsigned long)s_rendererStats.staticGeometryBytes,
                 (unsigned long)s_rendererStats.staticGeometryEntries,
                 s_rendererStats.worldCullTested,
-                s_rendererStats.worldCullDropped);
+                s_rendererStats.worldCullDropped,
+                s_rendererStats.gameplayCounterFrames,
+                s_rendererStats.gameplayScenes,
+                s_rendererStats.gameplayDepthLoadScenes,
+                s_rendererStats.gameplayDepthStoreScenes,
+                s_rendererStats.gameplayDepthlessScenes,
+                s_rendererStats.gameplayFinishCalls,
+                s_rendererStats.gameplayScissorFreeDraws);
             if (n > 0)
                 fwrite(line, 1, (size_t)n < sizeof(line) ? (size_t)n : sizeof(line) - 1, f);
         }
-        fwrite("\nframe,busy_us,present_us,frame_us,acquire_us,pipelines_created,draws,tex_upload_bytes,vert_bytes,input_age_us\n", 1,
-               sizeof("\nframe,busy_us,present_us,frame_us,acquire_us,pipelines_created,draws,tex_upload_bytes,vert_bytes,input_age_us\n") - 1, f);
+        fwrite("\nframe,busy_us,present_us,frame_us,acquire_us,pipelines_created,draws,tex_upload_bytes,vert_bytes,input_age_us,gx_us,endframe_us,dq_us,g0_us,g1_us,g2_us,g3_us\n", 1,
+               sizeof("\nframe,busy_us,present_us,frame_us,acquire_us,pipelines_created,draws,tex_upload_bytes,vert_bytes,input_age_us,gx_us,endframe_us,dq_us,g0_us,g1_us,g2_us,g3_us\n") - 1, f);
         for (i = 0; i < s_count; i++)
         {
-            n = snprintf(line, sizeof(line), "%lu,%u,%u,%u,%u,%u,%u,%u,%u,%u\n",
+            n = snprintf(line, sizeof(line), "%lu,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u\n",
                          (unsigned long)i, s_busyUs[i], s_presentUs[i], s_frameUs[i],
                          s_acquireUs[i], s_pipelinesCreated[i], s_draws[i],
-                         s_texUploadBytes[i], s_vertBytes[i], s_inputAgeUs[i]);
+                         s_texUploadBytes[i], s_vertBytes[i], s_inputAgeUs[i], s_gxUs[i], s_endFrameUs[i], s_dqUs[i],
+                         s_sceneGpuUs[i][0], s_sceneGpuUs[i][1], s_sceneGpuUs[i][2], s_sceneGpuUs[i][3]);
             if (n > 0) fwrite(line, 1, (size_t)n < sizeof(line) ? (size_t)n : sizeof(line) - 1, f);
         }
     }

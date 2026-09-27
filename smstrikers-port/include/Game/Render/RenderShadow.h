@@ -34,5 +34,6 @@ void RenderShadowModel(unsigned long flags, glModel* model, uintptr_t matrix);
 void ShadowStartup();
 
 extern int MaxProjectedShadows;
+extern u8 g_bShadowBlobs;
 
 #endif // _RENDERSHADOW_H_
