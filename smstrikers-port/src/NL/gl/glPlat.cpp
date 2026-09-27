@@ -32,6 +32,21 @@
 #include <cstdlib>
 #if defined(PORT_VITA)
 #include <aurora_vita_backend.hpp>
+
+// PORT: profiling output that survives no-log builds (stderr goes nowhere on Vita).
+static FILE* PortProfileOut()
+{
+#if defined(PORT_VITA)
+    static FILE* s_out = nullptr;
+    if (s_out == nullptr)
+        s_out = std::fopen("ux0:data/strikersVita/task_profile.log", "a");
+    if (s_out != nullptr && s_out != stderr)
+        std::setvbuf(s_out, nullptr, _IOLBF, 0);
+    if (s_out != nullptr)
+        return s_out;
+#endif
+    return stderr;
+}
 #endif
 
 // PAL 480i deflicker render mode (first symbol in .data)
@@ -373,7 +388,7 @@ void glplatSendFrame()
         {
             static const char* names[5] = { "swap_pre", "send_frame", "send_views", "swap_post", "frame_alloc" };
             for (unsigned int i = 0; i < 5; ++i)
-                std::fprintf(stderr, "[render-profile] %-12s mean_us=%llu max_us=%llu total_us=%llu\n",
+                std::fprintf(PortProfileOut(), "[render-profile] %-12s mean_us=%llu max_us=%llu total_us=%llu\n",
                              names[i], totals[i] / (1000ull * profileFrames), maxima[i] / 1000ull, totals[i] / 1000ull);
             for (unsigned int i = 0; i < 5; ++i)
                 totals[i] = maxima[i] = 0;
