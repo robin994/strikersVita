@@ -1250,14 +1250,14 @@ int main(int argc, char* argv[])
         }
         cfg.static_geometry_min_vertices = 16;
         {
-            // Display-list draw-site pipeline fast path (Aurora gxm-optimization).
-            const char* dlFast = getenv("STRIKERS_GXM_DL_FASTPATH");
-            const bool enableDlFast = dlFast == NULL || dlFast[0] != '0';
+            // CDRAM display-list shadows (Aurora gxm-optimization); gxm_dl_shadow=0 disables.
+            const char* dlShadow = getenv("STRIKERS_GXM_DL_SHADOW");
+            const bool enableDlShadow = dlShadow == NULL || dlShadow[0] != '0';
             [&](auto& config) {
-                if constexpr (requires { config.gxm_dl_pipeline_fast_path; })
-                    config.gxm_dl_pipeline_fast_path = enableDlFast;
+                if constexpr (requires { config.display_list_shadow; })
+                    config.display_list_shadow = enableDlShadow;
             }(cfg);
-            (void)enableDlFast;
+            (void)enableDlShadow;
         }
         const char* fixedMin = getenv("STRIKERS_GXM_FIXED_MIN");
         if (fixedMin != NULL)

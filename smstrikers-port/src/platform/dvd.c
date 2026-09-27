@@ -641,7 +641,22 @@ BOOL DVDOpen(const char* fileName, DVDFileInfo* fileInfo)
 }
 
 
-static s32 dvd_read(const DvdEntry* e, void* addr, s32 length, s32 offset);
+static s32 dvd_read_raw(const DvdEntry* e, void* addr, s32 length, s32 offset);
+#if defined(PORT_VITA)
+extern void aurora_vita_notify_memory_write(const void* address, size_t bytes);
+#endif
+/* Disc reads replace guest memory behind the CPU. Publish them like a
+ * DCStore so Aurora's display-list shadows and stable-geometry revisions
+ * never keep serving the previous contents of a reused buffer. */
+static s32 dvd_read(const DvdEntry* e, void* addr, s32 length, s32 offset)
+{
+    const s32 got = dvd_read_raw(e, addr, length, offset);
+#if defined(PORT_VITA)
+    if (got > 0)
+        aurora_vita_notify_memory_write(addr, (size_t)got);
+#endif
+    return got;
+}
 
 #if defined(__SWITCH__)
 // Pending reads share a fixed-size pool across open files.
@@ -855,7 +870,7 @@ s32 DVDReadAsyncPrio(DVDFileInfo* fileInfo, void* addr, s32 length, s32 offset,
 #endif
 }
 
-static s32 dvd_read(const DvdEntry* e, void* addr, s32 length, s32 offset)
+static s32 dvd_read_raw(const DvdEntry* e, void* addr, s32 length, s32 offset)
 {
     if (e == NULL || addr == NULL || length < 0 || offset < 0)
         return -1;
