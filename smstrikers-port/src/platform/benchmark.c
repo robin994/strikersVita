@@ -3,65 +3,19 @@
 #include "port/benchmark.h"
 #include "port/host.h"
 
-// The frame budget the limiter is running to; see src/platform/vi.c.
-unsigned long long PortFramePeriodNs(void);
-
-// Aurora's GPU frame time. Weak so a build without Aurora still links; see the note in
-// extern/aurora/lib/aurora.cpp on why this is not a timestamp query.
-__attribute__((weak)) void aurora_gpu_frame_time(unsigned long long*, unsigned long long*,
-                                                 unsigned long long*, unsigned long long*);
-
-// AuroraStats as Aurora lays it out, weak for the same reason, to tie long frames to pipeline compiles.
-typedef struct { unsigned int queuedPipelines, createdPipelines, drawCallCount, mergedDrawCallCount, lastVertSize, lastUniformSize, lastIndexSize, lastStorageSize, lastTextureUploadSize; } PortAuroraStatsHead;
-__attribute__((weak)) const PortAuroraStatsHead* aurora_get_stats(void);
-
-#include <stdio.h>
-#include <stdlib.h>
 #include <string.h>
 
-// Per-frame samples, in microseconds. Kept rather than averaged: one missed frame in fifty averages
-// well and stutters visibly. 262144 frames is about 73 minutes at 60Hz; past that it stops and says
-// so.
-#define BENCH_CAP 262144
-
-static int s_enabled;
-static int s_wantsDemo;
 static int s_read;
-static double s_intervalSec;      // 0 = summary at exit only
-static double s_runSeconds;       // 0 = run until stopped
 
 static unsigned long long s_t0;   // start of the current frame
 static unsigned long long s_tTasks;
 static unsigned long long s_sleepThisFrame;
 static unsigned long long s_acquireThisFrame;   // blocked in aurora_begin_frame
 static unsigned long long s_preSleepThisFrame;  // limiter sleep deferred to the top of the frame
-static unsigned long long s_inputPumpedAt;      // when this frame's events were pumped
-static unsigned long long s_runStart;
-static unsigned long long s_lastReport;
-
-static unsigned int s_busyUs[BENCH_CAP];
-static unsigned int s_presentUs[BENCH_CAP];
-static unsigned int s_frameUs[BENCH_CAP];
-static unsigned int s_acquireUs[BENCH_CAP];
-static unsigned int s_inputAgeUs[BENCH_CAP];   // event pump to end of frame
-static unsigned int s_gxUs[BENCH_CAP];         // Aurora GX command processing (subset of busy)
-static unsigned long long s_gxThisFrame;
-static unsigned int s_endFrameUs[BENCH_CAP], s_dqUs[BENCH_CAP];
-static unsigned long long s_endFrameThisFrame, s_dqThisFrame;
-static unsigned int s_sceneGpuUs[BENCH_CAP][4];
-static unsigned int s_sceneGpuThisFrame[4];
-static unsigned int s_pipelinesCreated[BENCH_CAP];
-static unsigned int s_lastCreated;
-static unsigned int s_draws[BENCH_CAP], s_texUploadBytes[BENCH_CAP], s_vertBytes[BENCH_CAP];
-static unsigned long long s_sleepUsTotal;
-static size_t s_count;
-static size_t s_dropped;
-static size_t s_skipped;          // frames before the match started
 static int s_matchActive;
-static int s_skipKickoff;         // discard the frame the match starts on
 
-// Always-on frame timing, for the overlay. Two clock reads a frame, so they are collected whether
-// or not STRIKERS_BENCHMARK is set: watching a spike during ordinary play is the case that matters.
+// Always-on frame timing for the overlay. The old environment-controlled benchmark mode was
+// removed; ordinary play is now the only runtime mode.
 #define LIVE_WINDOW 256
 
 static unsigned int s_liveBusyUs[LIVE_WINDOW];
@@ -69,17 +23,9 @@ static unsigned int s_liveFrameUs[LIVE_WINDOW];
 static size_t s_liveNext;
 static size_t s_liveFilled;
 static unsigned int s_lastBusyUs, s_lastPresentUs, s_lastFrameUs, s_lastSleepUs;
-static unsigned long s_frameCounter;
+static unsigned long s_matchFrameCounter;
 static unsigned int s_worstUs;
 static unsigned long s_worstFrame;
-
-// Labels. Fixed slots rather than a map: there are four of them, they are set once, and a benchmark
-// is not the place for an allocator.
-#define LABEL_MAX 8
-#define LABEL_LEN 64
-static char s_labelKey[LABEL_MAX][LABEL_LEN];
-static char s_labelVal[LABEL_MAX][LABEL_LEN];
-static size_t s_labelCount;
 
 static PortBenchRendererStats s_rendererStats;
 static unsigned long long s_rendererGameplayStartCompiles;
@@ -126,36 +72,6 @@ static void update_gameplay_display_queue_stats(void)
     s_rendererStats.displayQueueAverageUs = samples ? totalUs / samples : 0;
     s_rendererStats.displayQueueBlockedPercent =
         samples ? (unsigned int)((blocked * 100ull) / samples) : 0;
-}
-
-static void copy_label(char* dst, const char* src)
-{
-    size_t i = 0;
-    if (src == NULL)
-        src = "";
-    for (; src[i] != '\0' && i < LABEL_LEN - 1; i++)
-        dst[i] = src[i];
-    dst[i] = '\0';
-}
-
-void PortBenchSetLabel(const char* key, const char* value)
-{
-    size_t i;
-    if (key == NULL)
-        return;
-    for (i = 0; i < s_labelCount; i++)
-    {
-        if (strcmp(s_labelKey[i], key) == 0)
-        {
-            copy_label(s_labelVal[i], value);
-            return;
-        }
-    }
-    if (s_labelCount >= LABEL_MAX)
-        return;                      // a lost label is not worth a failed run
-    copy_label(s_labelKey[s_labelCount], key);
-    copy_label(s_labelVal[s_labelCount], value);
-    s_labelCount++;
 }
 
 static unsigned long long s_counterLastFrame = ~0ull;
@@ -212,6 +128,10 @@ void PortBenchSetRendererStats(const PortBenchRendererStats* stats)
 
 void PortBenchRendererGameplayStart(void)
 {
+    s_matchActive = 1;
+    s_matchFrameCounter = 0;
+    s_worstUs = 0;
+    s_worstFrame = 0;
     s_counterLastFrame = ~0ull;
     s_counterFrames = s_counterScenes = s_counterDepthLoad = s_counterDepthStore = 0;
     s_counterDepthless = s_counterFinish = s_counterScissorFree = 0;
@@ -239,6 +159,7 @@ void PortBenchRendererGameplayStart(void)
 
 void PortBenchRendererGameplayEnd(void)
 {
+    s_matchActive = 0;
     if (!s_rendererGameplayBaselineValid)
         return;
     s_rendererGameplayFinalCompiles =
@@ -277,68 +198,6 @@ void PortBenchInit(void)
     if (s_read)
         return;
     s_read = 1;
-
-    const char* env = getenv("STRIKERS_BENCHMARK");
-    if (env == NULL || *env == '\0' || strcmp(env, "0") == 0)
-        return;
-
-    s_enabled = 1;
-
-    // "fe" measures the front end, which is the one case where driving the demo match would defeat
-    // the point.
-    s_wantsDemo = (strcmp(env, "fe") != 0);
-
-    // A number greater than 1 is a reporting interval in seconds, so a long run says something
-    // before it ends; a headless soak that only reported at exit would be silent for exactly as
-    // long as it ran.
-    double v = atof(env);
-    s_intervalSec = (v > 1.0) ? v : 0.0;
-
-    const char* secs = getenv("STRIKERS_BENCHMARK_SECONDS");
-    s_runSeconds = (secs != NULL) ? atof(secs) : 0.0;
-
-    s_runStart = port_monotonic_ns();
-    s_lastReport = s_runStart;
-}
-
-// PORT_BUILD_TYPE comes from CMake. If it is ever missing, say so rather than guessing: "unknown"
-// is a useful thing to read in a summary and a silent default is not.
-#ifndef PORT_BUILD_TYPE
-#define PORT_BUILD_TYPE "unknown"
-#endif
-
-int PortBenchEnabled(void) { return s_enabled; }
-int PortBenchWantsDemo(void) { return s_enabled && s_wantsDemo; }
-double PortBenchRunSeconds(void) { return s_runSeconds; }
-
-void PortBenchMatchActive(void)
-{
-    if (!s_enabled || s_matchActive)
-        return;
-    // First frame of the match: throw away everything measured on the way in and restart the clock,
-    // so the summary describes the match alone.
-    s_matchActive = 1;
-    // Discard the frame this fires on as well: cGame's update calls this partway through the first
-    // frame of the match, and the rest of that frame is the transition finishing, ~140ms of `busy`
-    // against a 16.6ms median.
-    s_skipKickoff = 1;
-    s_skipped = s_count + s_dropped;
-    s_count = 0;
-    s_dropped = 0;
-    s_sleepUsTotal = 0;
-    s_runStart = port_monotonic_ns();
-    s_lastReport = s_runStart;
-}
-
-double PortBenchElapsed(void)
-{
-    if (!s_enabled)
-        return 0.0;
-    // Before the match, report 0 so STRIKERS_BENCHMARK_SECONDS cannot expire during the loading
-    // screen and summarise a run that never played.
-    if (!s_matchActive)
-        return 0.0;
-    return (double)(port_monotonic_ns() - s_runStart) / 1e9;
 }
 
 void PortBenchFrameBegin(void)
@@ -353,31 +212,9 @@ void PortBenchAddPreFrameSleep(unsigned long long ns)
     s_preSleepThisFrame += ns;
 }
 
-void PortBenchInputPumped(void)
-{
-    s_inputPumpedAt = port_monotonic_ns();
-}
-
 void PortBenchAddAcquire(unsigned long long ns)
 {
     s_acquireThisFrame = ns;
-}
-
-void PortBenchSetGxUs(unsigned long long us)
-{
-    s_gxThisFrame = us;
-}
-
-void PortBenchSetSceneGpuUs(const unsigned int us[4])
-{
-    int k;
-    for (k = 0; k < 4; k++) s_sceneGpuThisFrame[k] = us[k];
-}
-
-void PortBenchSetEndFrameUs(unsigned long long endFrameUs, unsigned long long displayQueueUs)
-{
-    s_endFrameThisFrame = endFrameUs;
-    s_dqThisFrame = displayQueueUs;
 }
 
 void PortBenchAfterTasks(void)
@@ -425,7 +262,7 @@ void PortBenchGetLive(PortBenchLive* out)
     out->sleepMs = (double)s_lastSleepUs / 1000.0;
     out->worstMs = (double)s_worstUs / 1000.0;
     out->worstFrame = s_worstFrame;
-    out->frames = (unsigned long)s_count;
+    out->frames = s_matchFrameCounter;
     out->matchActive = s_matchActive;
 
     n = s_liveFilled;
@@ -464,96 +301,32 @@ void PortBenchFrameEnd(void)
     const unsigned long long preSleep = s_preSleepThisFrame;
     s_preSleepThisFrame = 0;
     const unsigned long long frame = (end - s_t0) + s_acquireThisFrame + preSleep;
-    const unsigned long long inputAge = (s_inputPumpedAt != 0 && end > s_inputPumpedAt) ? end - s_inputPumpedAt : 0;
-
     // The frame limiter sleeps inside the tasks phase, so tasks time is not all work.
     unsigned long long busy = (tasks > s_sleepThisFrame) ? tasks - s_sleepThisFrame : 0;
 
-    // The overlay's view. Always collected, see the note by LIVE_WINDOW, and deliberately before
-    // the s_enabled test below, because the overlay is most wanted during ordinary play rather than
-    // during a benchmark.
+    // The overlay's view is always collected during ordinary play.
     s_lastBusyUs = (unsigned int)(busy / 1000ull);
     s_lastPresentUs = (unsigned int)(present / 1000ull);
     s_lastFrameUs = (unsigned int)(frame / 1000ull);
     s_lastSleepUs = (unsigned int)((s_sleepThisFrame + preSleep) / 1000ull);
-    s_frameCounter++;
-
     s_liveBusyUs[s_liveNext] = s_lastBusyUs;
     s_liveFrameUs[s_liveNext] = s_lastFrameUs;
     s_liveNext = (s_liveNext + 1) % LIVE_WINDOW;
     if (s_liveFilled < LIVE_WINDOW)
         s_liveFilled++;
-
-    if (!s_enabled)
-        return;
-
-    // Count, but do not record, anything before the match: see PortBenchMatchActive.
-    if (!s_matchActive)
+    if (s_matchActive)
     {
-        s_count++;
-        return;
-    }
-
-    if (s_skipKickoff)
-    {
-        s_skipKickoff = 0;
-        s_skipped++;
-        return;
-    }
-
-    // The worst frame of the run, and which frame it was.
-    if (s_lastFrameUs > s_worstUs)
-    {
-        s_worstUs = s_lastFrameUs;
-        s_worstFrame = (unsigned long)s_count;   // frame index within the match
-    }
-
-    if (s_count < BENCH_CAP)
-    {
-        s_busyUs[s_count] = (unsigned int)(busy / 1000ull);
-        s_presentUs[s_count] = (unsigned int)(present / 1000ull);
-        s_frameUs[s_count] = (unsigned int)(frame / 1000ull);
-        s_acquireUs[s_count] = (unsigned int)(s_acquireThisFrame / 1000ull);
-        s_inputAgeUs[s_count] = (unsigned int)(inputAge / 1000ull);
-        s_gxUs[s_count] = (unsigned int)s_gxThisFrame;
-        s_endFrameUs[s_count] = (unsigned int)s_endFrameThisFrame;
-        s_dqUs[s_count] = (unsigned int)s_dqThisFrame;
-        memcpy(s_sceneGpuUs[s_count], s_sceneGpuThisFrame, sizeof s_sceneGpuThisFrame);
+        if (s_lastFrameUs > s_worstUs)
         {
-            unsigned int created = 0;
-            if (aurora_get_stats != NULL)
-            {
-                const PortAuroraStatsHead* st = aurora_get_stats();
-                if (st != NULL)
-                {
-                    created = st->createdPipelines - s_lastCreated;
-                    s_lastCreated = st->createdPipelines;
-                    s_draws[s_count] = st->drawCallCount;
-                    s_texUploadBytes[s_count] = st->lastTextureUploadSize;
-                    s_vertBytes[s_count] = st->lastVertSize;
-                }
-            }
-            s_pipelinesCreated[s_count] = created;
+            s_worstUs = s_lastFrameUs;
+            s_worstFrame = s_matchFrameCounter;
         }
-        s_count++;
+        ++s_matchFrameCounter;
     }
-    else
-    {
-        s_dropped++;
-    }
-    s_sleepUsTotal += (s_sleepThisFrame + preSleep) / 1000ull;
 
-    if (s_intervalSec > 0.0)
-    {
-        double since = (double)(end - s_lastReport) / 1e9;
-        if (since >= s_intervalSec)
-        {
-            PortBenchReport();
-            s_lastReport = end;
-        }
-    }
 }
 
+#if 0 // Legacy benchmark recorder removed from the runtime; kept only as historical reference.
 static int cmp_u32(const void* a, const void* b)
 {
     unsigned int x = *(const unsigned int*)a;
@@ -936,3 +709,4 @@ static void write_csv(void)
     fclose(f);
     fprintf(stderr, "[bench] wrote %lu frames\n", (unsigned long)s_count);
 }
+#endif

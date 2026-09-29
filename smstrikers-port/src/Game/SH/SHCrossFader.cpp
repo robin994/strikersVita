@@ -1,6 +1,4 @@
 #include "Game/SH/SHCrossFader.h"
-#include "port/benchmark.h"
-
 #include "NL/nlColour.h"
 #include "NL/nlConfig.h"
 #include "NL/nlFileGC.h"

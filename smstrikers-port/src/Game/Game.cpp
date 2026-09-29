@@ -49,7 +49,6 @@ extern cBall* g_pBall;
 #include "NL/nlTask.h"
 extern eCameraType g_eCurrentCameraType;   // Camera/CameraMan.cpp
 extern PowerupBase* g_pPowerups[25];       // AI/Powerups.cpp
-#include "port/benchmark.h"
 extern PowerupBase* g_pPowerups[];
 extern cCharacter* g_pCurrentlyUpdatingCharacter;
 extern cTeam* g_pCurrentlyUpdatingTeam;
@@ -1152,9 +1151,6 @@ extern "C" void PortDebugFrame(void)
 void cGame::Update(float deltaTime)
 {
     mThoughtsAllowedThisUpdate = 1;
-
-    // PORT: the benchmark discards everything before this point.
-    PortBenchMatchActive();
 
     // PORT: Discord rich presence; the title screen's demo match counts as the menus.
     GameInfoManager* pPresenceInfo = nlSingleton<GameInfoManager>::Instance();

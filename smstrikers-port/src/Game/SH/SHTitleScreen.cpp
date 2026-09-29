@@ -8,7 +8,6 @@
 #include "Game/Audio/StreamTrack.h"
 #include "Game/FE/tlComponentInstance.h"
 #include "Game/SH/SHLoading.h"
-#include "port/benchmark.h"
 #include "Game/SH/SHMainMenu.h"
 #include "Game/main.h"
 
@@ -142,18 +141,12 @@ void TitleScene::Update(float dt)
     }
 
     float demoTimeout = GetConfigFloat(Config::Global(), "fe_demo_mode_time_out", 60.0f);
-    // PORT: the benchmark enters the AI-vs-AI match directly. The stock path goes
-    // through the intro movie and a music-idle callback, and must not depend on
-    // idle pads either; fixed teams/stadium keep A/B runs comparable.
-    const bool benchDemo = PortBenchWantsDemo() != 0;
-    if (benchDemo)
-        demoTimeout = 3.0f;
 
     if (!mStartedDemo && m_fTimeElapsed >= demoTimeout)
     {
         if (nlSingleton<GameInfoManager>::Instance()->mDemoEnabled)
         {
-            bool doSoak = benchDemo || GetConfigBool(Config::Global(), "dosoak", false);
+            bool doSoak = GetConfigBool(Config::Global(), "dosoak", false);
 
             if (doSoak)
             {
@@ -205,18 +198,13 @@ void TitleScene::Update(float dt)
                     awaySidekick = (eSidekickID)nlRandom(4, &nlDefaultSeed);
                 }
 
-                if (g_e3_Build || benchDemo)
+                if (g_e3_Build)
                 {
                     homeSidekick = SK_TOAD;
                     awaySidekick = SK_KOOPA;
                 }
-                if (benchDemo)
-                {
-                    homeTeam = TEAM_MARIO;
-                    awayTeam = TEAM_LUIGI;
-                }
 
-                gim->SetStadium(benchDemo ? STAD_MARIO_STADIUM : gim->PickStadium(false, STAD_INVALID));
+                gim->SetStadium(gim->PickStadium(false, STAD_INVALID));
                 gim->SetTeam(0, homeTeam);
                 gim->SetTeam(1, awayTeam);
                 gim->SetSidekick(0, homeSidekick);

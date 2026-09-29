@@ -399,7 +399,6 @@ void PortOverlaySetStadium(const char* name)
     copy_into(s_stadium, sizeof(s_stadium), name);
     // The summary needs this as much as the overlay does, and for a better reason: it is what says
     // whether two runs measured the same content.
-    PortBenchSetLabel("stadium", s_stadium);
 }
 
 void PortOverlaySetMatch(float clock, int scoreHome, int scoreAway)
@@ -766,8 +765,6 @@ void draw_frame_tab(const PortBenchLive& live)
             ImGui::Text("%.2fx expansion", (double)uploaded / (double)src);
     }
 
-    if (ImGui::Button("print benchmark summary to stderr"))
-        PortBenchReport();
 }
 
 void draw_match_tab()

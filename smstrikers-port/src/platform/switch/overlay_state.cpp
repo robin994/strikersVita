@@ -314,7 +314,6 @@ const char* PortOverlaySceneName(void) { return s_scene; }
 void PortOverlaySetStadium(const char* name)
 {
     copy_into(s_stadium, sizeof(s_stadium), name);
-    PortBenchSetLabel("stadium", s_stadium);
 }
 
 void PortOverlaySetMatch(float, int, int) {}

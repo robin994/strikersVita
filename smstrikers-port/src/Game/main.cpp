@@ -161,6 +161,231 @@ extern "C" {
 unsigned int _newlib_heap_size_user = 128u * 1024u * 1024u;
 }
 
+namespace
+{
+constexpr unsigned VitaBootWidth = 960;
+constexpr unsigned VitaBootHeight = 544;
+constexpr unsigned VitaBootPitch = 1024;
+
+struct VitaBootUiState
+{
+    SceUID memblock = -1;
+    unsigned int* pixels = NULL;
+    bool active = false;
+};
+
+VitaBootUiState g_vitaBootUi;
+
+static const unsigned char kBootFont[26][7] = {
+    {0x0E,0x11,0x11,0x1F,0x11,0x11,0x11}, // A
+    {0x1E,0x11,0x11,0x1E,0x11,0x11,0x1E}, // B
+    {0x0E,0x11,0x10,0x10,0x10,0x11,0x0E}, // C
+    {0x1E,0x11,0x11,0x11,0x11,0x11,0x1E}, // D
+    {0x1F,0x10,0x10,0x1E,0x10,0x10,0x1F}, // E
+    {0x1F,0x10,0x10,0x1E,0x10,0x10,0x10}, // F
+    {0x0E,0x11,0x10,0x17,0x11,0x11,0x0F}, // G
+    {0x11,0x11,0x11,0x1F,0x11,0x11,0x11}, // H
+    {0x0E,0x04,0x04,0x04,0x04,0x04,0x0E}, // I
+    {0x07,0x02,0x02,0x02,0x02,0x12,0x0C}, // J
+    {0x11,0x12,0x14,0x18,0x14,0x12,0x11}, // K
+    {0x10,0x10,0x10,0x10,0x10,0x10,0x1F}, // L
+    {0x11,0x1B,0x15,0x15,0x11,0x11,0x11}, // M
+    {0x11,0x19,0x15,0x13,0x11,0x11,0x11}, // N
+    {0x0E,0x11,0x11,0x11,0x11,0x11,0x0E}, // O
+    {0x1E,0x11,0x11,0x1E,0x10,0x10,0x10}, // P
+    {0x0E,0x11,0x11,0x11,0x15,0x12,0x0D}, // Q
+    {0x1E,0x11,0x11,0x1E,0x14,0x12,0x11}, // R
+    {0x0F,0x10,0x10,0x0E,0x01,0x01,0x1E}, // S
+    {0x1F,0x04,0x04,0x04,0x04,0x04,0x04}, // T
+    {0x11,0x11,0x11,0x11,0x11,0x11,0x0E}, // U
+    {0x11,0x11,0x11,0x11,0x11,0x0A,0x04}, // V
+    {0x11,0x11,0x11,0x15,0x15,0x15,0x0A}, // W
+    {0x11,0x11,0x0A,0x04,0x0A,0x11,0x11}, // X
+    {0x11,0x11,0x0A,0x04,0x04,0x04,0x04}, // Y
+    {0x1F,0x01,0x02,0x04,0x08,0x10,0x1F}, // Z
+};
+
+static unsigned VitaBootTextLength(const char* text)
+{
+    unsigned length = 0;
+    while (text != NULL && text[length] != '\0')
+        ++length;
+    return length;
+}
+
+static void VitaBootRect(unsigned x, unsigned y, unsigned w, unsigned h, unsigned int color)
+{
+    if (g_vitaBootUi.pixels == NULL)
+        return;
+    if (x >= VitaBootWidth || y >= VitaBootHeight)
+        return;
+    if (x + w > VitaBootWidth) w = VitaBootWidth - x;
+    if (y + h > VitaBootHeight) h = VitaBootHeight - y;
+    for (unsigned row = 0; row < h; ++row)
+    {
+        unsigned int* dst = g_vitaBootUi.pixels + (y + row) * VitaBootPitch + x;
+        for (unsigned col = 0; col < w; ++col)
+            dst[col] = color;
+    }
+}
+
+static void VitaBootText(const char* text, unsigned x, unsigned y, unsigned scale, unsigned int color)
+{
+    if (text == NULL || scale == 0)
+        return;
+    for (unsigned n = 0; text[n] != '\0'; ++n)
+    {
+        char c = text[n];
+        if (c >= 'a' && c <= 'z')
+            c = (char)(c - 'a' + 'A');
+        if (c >= 'A' && c <= 'Z')
+        {
+            const unsigned char* rows = kBootFont[c - 'A'];
+            for (unsigned row = 0; row < 7; ++row)
+                for (unsigned col = 0; col < 5; ++col)
+                    if ((rows[row] & (1u << (4u - col))) != 0)
+                        VitaBootRect(x + col * scale, y + row * scale, scale, scale, color);
+        }
+        x += 6 * scale;
+    }
+}
+
+static void VitaBootDraw(unsigned percent, const char* status)
+{
+    if (!g_vitaBootUi.active || g_vitaBootUi.pixels == NULL)
+        return;
+    if (percent > 100) percent = 100;
+
+    VitaBootRect(0, 0, VitaBootWidth, VitaBootHeight, 0xFF101010u);
+    VitaBootRect(150, 190, 660, 164, 0xFF202020u);
+
+    const unsigned statusScale = 3;
+    const unsigned statusWidth = VitaBootTextLength(status) * 6u * statusScale;
+    const unsigned statusX = statusWidth < VitaBootWidth ? (VitaBootWidth - statusWidth) / 2u : 20u;
+    VitaBootText(status, statusX, 225, statusScale, 0xFFFFFFFFu);
+
+    VitaBootText("PLEASE WAIT", 363, 270, 2, 0xFFB0B0B0u);
+
+    constexpr unsigned barX = 240;
+    constexpr unsigned barY = 316;
+    constexpr unsigned barW = 480;
+    constexpr unsigned barH = 12;
+    VitaBootRect(barX, barY, barW, barH, 0xFF505050u);
+    VitaBootRect(barX + 2, barY + 2, ((barW - 4) * percent) / 100u, barH - 4, 0xFFE0E0E0u);
+}
+
+static bool VitaBootQueueFrame()
+{
+    if (!g_vitaBootUi.active || g_vitaBootUi.pixels == NULL)
+        return false;
+    SceDisplayFrameBuf fb = {};
+    fb.size = sizeof(fb);
+    fb.base = g_vitaBootUi.pixels;
+    fb.pitch = VitaBootPitch;
+    fb.pixelformat = SCE_DISPLAY_PIXELFORMAT_A8B8G8R8;
+    fb.width = VitaBootWidth;
+    fb.height = VitaBootHeight;
+    // CPU-backed Vita framebuffers are queued for the next scanout. Using the
+    // immediate mode here is unreliable before GXM owns the display queue and
+    // can leave the launch framebuffer visible for the entire prewarm.
+    return sceDisplaySetFrameBuf(&fb, SCE_DISPLAY_SETBUF_NEXTFRAME) >= 0;
+}
+
+static bool VitaBootPresent()
+{
+    if (!VitaBootQueueFrame())
+        return false;
+    (void)sceDisplayWaitVblankStart();
+    return true;
+}
+
+static bool VitaBootBegin()
+{
+    if (g_vitaBootUi.active)
+        return true;
+    const SceSize framebufferBytes = (SceSize)(VitaBootPitch * VitaBootHeight * sizeof(unsigned int));
+    const SceSize bytes = (framebufferBytes + 0x3FFFFu) & ~0x3FFFFu;
+    g_vitaBootUi.memblock = sceKernelAllocMemBlock(
+        "strikersBootUi", SCE_KERNEL_MEMBLOCK_TYPE_USER_CDRAM_RW, bytes, NULL);
+    if (g_vitaBootUi.memblock < 0)
+        return false;
+    void* base = NULL;
+    if (sceKernelGetMemBlockBase(g_vitaBootUi.memblock, &base) < 0 || base == NULL)
+    {
+        sceKernelFreeMemBlock(g_vitaBootUi.memblock);
+        g_vitaBootUi.memblock = -1;
+        return false;
+    }
+    g_vitaBootUi.pixels = static_cast<unsigned int*>(base);
+    g_vitaBootUi.active = true;
+    VitaBootDraw(5, "PREPARING RENDERER");
+    if (!VitaBootPresent())
+    {
+        sceKernelFreeMemBlock(g_vitaBootUi.memblock);
+        g_vitaBootUi.memblock = -1;
+        g_vitaBootUi.pixels = NULL;
+        g_vitaBootUi.active = false;
+        return false;
+    }
+    return true;
+}
+
+static void VitaBootProgress(const char* phase, size_t current, size_t total, void*)
+{
+    if (!g_vitaBootUi.active && !VitaBootBegin())
+        return;
+    unsigned percent = 15;
+    const char* status = "PREPARING RENDERER";
+    if (phase != NULL && strcmp(phase, "program_cache") == 0)
+    {
+        status = "LOADING SHADER CACHE";
+        percent = current >= total ? 40u : 20u;
+    }
+    else if (phase != NULL && strcmp(phase, "pipeline_prewarm") == 0)
+    {
+        status = "PREPARING SHADERS";
+        const size_t safeTotal = total != 0 ? total : 1;
+        const size_t clamped = current < safeTotal ? current : safeTotal;
+        percent = 40u + (unsigned)((clamped * 55u) / safeTotal);
+    }
+    static const char* s_lastStatus = NULL;
+    static unsigned s_lastPercent = 0;
+    if (status == s_lastStatus && percent < 100u && percent < s_lastPercent + 5u)
+        return;
+    s_lastStatus = status;
+    s_lastPercent = percent;
+    VitaBootDraw(percent, status);
+    // sceGxmInitialize may reconfigure display ownership. Reassert the boot
+    // framebuffer at each visible progress step without blocking on a VBlank.
+    (void)VitaBootQueueFrame();
+}
+
+static void VitaBootReady()
+{
+    VitaBootDraw(100, "STARTING GAME");
+    (void)VitaBootQueueFrame();
+}
+
+static void VitaBootRelease()
+{
+    if (g_vitaBootUi.pixels != NULL)
+    {
+        SceDisplayFrameBuf current = {};
+        current.size = sizeof(current);
+        if (sceDisplayGetFrameBuf(&current, SCE_DISPLAY_SETBUF_IMMEDIATE) >= 0
+            && current.base == g_vitaBootUi.pixels)
+        {
+            (void)sceDisplaySetFrameBuf(NULL, SCE_DISPLAY_SETBUF_IMMEDIATE);
+        }
+    }
+    if (g_vitaBootUi.memblock >= 0)
+        sceKernelFreeMemBlock(g_vitaBootUi.memblock);
+    g_vitaBootUi.memblock = -1;
+    g_vitaBootUi.pixels = NULL;
+    g_vitaBootUi.active = false;
+}
+}
+
 // One opt-in diagnostic snapshot, after the selected completed 3D frame. The
 // display queue wait and disk write are intentionally not part of normal play.
 static void VitaMaybeCaptureFrame()
@@ -642,7 +867,6 @@ extern "C" void PortUpdateSyntheticInput(unsigned long frame);
 extern "C" void PortInvokePadSamplingCallback(void);
 
 static unsigned long s_portFrame = 0;
-static unsigned long long s_lastEndFrameUs = 0;
 
 #if defined(PORT_VITA)
 enum VitaShaderProfile
@@ -1036,10 +1260,9 @@ int main(int argc, char* argv[])
                 fclose(probe);
             const int setRc = setenv("STRIKERS_CONFIG_PROBE", "1", 1);
             const char* probeValue = getenv("STRIKERS_CONFIG_PROBE");
-            const char* bench = getenv("STRIKERS_BENCHMARK");
-            OSReport("[port] config path=%s applied=%d fopen=%d setenv_rc=%d probe=%s benchmark=%s\n",
+            OSReport("[port] config path=%s applied=%d fopen=%d setenv_rc=%d probe=%s\n",
                      PortConfigPath() != NULL ? PortConfigPath() : "(none)", applied, probeOpen, setRc,
-                     probeValue != NULL ? probeValue : "(null)", bench != NULL ? bench : "(null)");
+                     probeValue != NULL ? probeValue : "(null)");
         }
 #endif
     }
@@ -1162,19 +1385,40 @@ int main(int argc, char* argv[])
         cfg.stream_index_bytes = 512 * 1024;
         cfg.stream_slots = 3;
         // Keep GX/GXM ownership and command ordering on the proven synchronous
-        // CPU0 path. Renderer *preparation* is allowed to use both persistent
-        // helpers: CPU2 normally, plus CPU1 at a lower priority than MusyX so
-        // audio can pre-empt it immediately. GXM API submission stays serial.
-        cfg.cpu_worker_threads = 2;
+        // CPU0 path. CPU3 starts as a probe-only helper: the worker may be
+        // created and its physical core verified, but renderer/game jobs remain
+        // capped to CPU0+CPU2+CPU1 until the quota-aware scheduler is enabled.
+        enum VitaCore3Mode { VITA_CORE3_OFF, VITA_CORE3_AUTO, VITA_CORE3_ON };
+        VitaCore3Mode core3Mode = VITA_CORE3_AUTO;
+        const char* core3 = getenv("STRIKERS_VITA_CORE3");
+        if (core3 != NULL)
+        {
+            if (strcmp(core3, "0") == 0 || strcmp(core3, "off") == 0)
+                core3Mode = VITA_CORE3_OFF;
+            else if (strcmp(core3, "1") == 0 || strcmp(core3, "on") == 0)
+                core3Mode = VITA_CORE3_ON;
+            else if (strcmp(core3, "auto") == 0)
+                core3Mode = VITA_CORE3_AUTO;
+        }
+        cfg.cpu_worker_threads = core3Mode == VITA_CORE3_OFF ? 2u : 3u;
         cfg.cpu_renderer_execution_lanes = 3;
+        cfg.cpu_game_execution_lanes = 3;
         // Common ~200-vertex Strikers packets now split over CPU0+CPU2+CPU1
-        // (audio remains higher priority). Tiny UI work still stays serial.
+        // (audio remains higher priority). CPU3 stays asleep after its startup
+        // probe in this first implementation stage. Tiny UI work stays serial.
         cfg.cpu_parallel_min_vertices = 64;
         const char* workerCount = getenv("STRIKERS_AURORA_CPU_WORKERS");
-        if (workerCount != NULL && workerCount[0] >= '0' && workerCount[0] <= '2' && workerCount[1] == '\0')
+        if (workerCount != NULL && workerCount[0] >= '0' && workerCount[0] <= '3' && workerCount[1] == '\0')
         {
             cfg.cpu_worker_threads = (unsigned int)(workerCount[0] - '0');
+            if (core3Mode == VITA_CORE3_OFF && cfg.cpu_worker_threads > 2)
+                cfg.cpu_worker_threads = 2;
         }
+        OSReport("[vita] cpu helpers requested=%u renderer_lanes=%u game_lanes=%u core3_mode=%s\n",
+                 (unsigned int)cfg.cpu_worker_threads,
+                 (unsigned int)cfg.cpu_renderer_execution_lanes,
+                 (unsigned int)cfg.cpu_game_execution_lanes,
+                 core3Mode == VITA_CORE3_OFF ? "off" : (core3Mode == VITA_CORE3_ON ? "on" : "auto"));
         const char* parallelMin = getenv("STRIKERS_AURORA_PARALLEL_MIN");
         if (parallelMin != NULL)
         {
@@ -1278,12 +1522,6 @@ int main(int argc, char* argv[])
                 cfg.static_geometry_min_vertices = (unsigned int)value;
         }
         s_vitaShaderProfile = PortVitaReadShaderProfile();
-        PortBenchSetLabel("shader", PortVitaShaderProfileName(s_vitaShaderProfile));
-#if defined(STRIKERS_VITA_GX_THREAD)
-        PortBenchSetLabel("gx_thread", "ON");
-#else
-        PortBenchSetLabel("gx_thread", "OFF");
-#endif
         // Reuse the persistent GXP cache introduced by the upstream preload
         // path, while keeping CONTROL as a true no-preload baseline.
         cfg.gxm_preload_program_cache = s_vitaShaderProfile != VITA_SHADER_CONTROL;
@@ -1294,6 +1532,8 @@ int main(int argc, char* argv[])
         // stage loading and training runs must retain the ability to discover
         // and persist new variants.
         cfg.gxm_seal_shader_cache_after_prewarm = false;
+        cfg.startup_progress = VitaBootProgress;
+        cfg.startup_progress_user = NULL;
         // The native shader now reproduces GX channel lighting and COLOR0/COLOR1
         // texgen semantics. Keep an environment escape hatch for immediate A/B
         // validation against the graphics-proven CPU vertex path.
@@ -1385,13 +1625,21 @@ int main(int argc, char* argv[])
                  (unsigned int)cfg.cpu_parallel_min_vertices,
                  fullAuroraDiagnostics ? 1u : 0u,
                  verboseVita3d ? 1u : 0u);
+        // Create the temporary scanout before Aurora reserves its CDRAM pool.
+        // WARM/SEALED profiles perform synchronous program-cache preload and
+        // pipeline prewarm inside initialize(), so users otherwise see an
+        // apparently frozen black screen during that work.
+        if (s_vitaShaderProfile != VITA_SHADER_CONTROL && !VitaBootBegin())
+            OSReport("[vita] warning: prewarm loading UI allocation failed\n");
         if (!aurora::vita::initialize(cfg))
         {
             OSReport("[vita] Aurora backend init failed: %u %s\n",
                      (unsigned int)aurora::vita::last_init_failure(),
                      aurora::vita::last_init_failure_detail());
+            VitaBootRelease();
             return 1;
         }
+        VitaBootReady();
         // Boot starts inside a loading window. TransitionTask closes it after
         // the first front-end state is fully materialized.
         aurora::vita::set_runtime_shader_compilation_enabled(true);
@@ -1560,7 +1808,6 @@ int main(int argc, char* argv[])
     {
         // PORT: the deferred limiter sleep goes before the event pump so the frame reads input after it.
         PortLimiterFlush();
-        PortBenchInputPumped();
         PortPumpAuroraEvents();
         PortDebugFrame();
 #if defined(PORT_VITA)
@@ -1590,7 +1837,6 @@ int main(int argc, char* argv[])
             }
             if (s_latePump)
             {
-                PortBenchInputPumped();
                 SDL_PumpEvents();
             }
         }
@@ -1610,14 +1856,16 @@ int main(int argc, char* argv[])
         // PORT: the audio clock. MusyX runs only inside this call; see include/port/audio.h.
         PortAudioUpdate();
 #if defined(PORT_VITA)
+        aurora::vita::end_frame();
+        if (g_vitaBootUi.active)
         {
-            const unsigned long long endFrameStart = sceKernelGetProcessTimeWide();
-            aurora::vita::end_frame();
-            s_lastEndFrameUs = sceKernelGetProcessTimeWide() - endFrameStart;
+            // The first Aurora present has now replaced the temporary CPU
+            // framebuffer. Finish that one queue entry before releasing CDRAM.
+            sceGxmDisplayQueueFinish();
+            VitaBootRelease();
         }
         {
             const aurora::vita::PerformanceSnapshot perf = aurora::vita::performance_snapshot();
-            PortBenchSetEndFrameUs(s_lastEndFrameUs, perf.displayQueueLastUs);
             PortProfilerRendererSample sample = {};
             sample.rendererCpuFrameUs = perf.rendererCpuFrameUs;
             sample.displayQueueLastUs = perf.displayQueueLastUs;
@@ -1633,19 +1881,6 @@ int main(int argc, char* argv[])
             sample.gpuBackpressureLikely = perf.gpuBackpressureLikely ? 1u : 0u;
             sample.nativeTimingsSampled = perf.nativeTimingsSampled ? 1u : 0u;
             PortProfilerRecordRendererSample(&sample);
-            [&](const auto& p) {
-                if constexpr (requires { p.gxProcessTotalUs; })
-                {
-                    static unsigned long long s_lastGx = 0;
-                    PortBenchSetGxUs(p.gxProcessTotalUs - s_lastGx);
-                    s_lastGx = p.gxProcessTotalUs;
-                }
-                if constexpr (requires { p.diagSceneGpuUs; })
-                {
-                    const unsigned int g[4] = {p.diagSceneGpuUs[0], p.diagSceneGpuUs[1], p.diagSceneGpuUs[2], p.diagSceneGpuUs[3]};
-                    PortBenchSetSceneGpuUs(g);
-                }
-            }(perf);
         }
         VitaMaybeCaptureFrame();
 #else
@@ -1657,15 +1892,6 @@ int main(int argc, char* argv[])
             PortVitaSampleRendererStats();
 #endif
         PortBenchFrameEnd();
-        if (PortBenchRunSeconds() > 0.0 && PortBenchElapsed() >= PortBenchRunSeconds())
-        {
-#if defined(PORT_VITA)
-            PortVitaSampleRendererStats();
-#endif
-            PortBenchReport();
-            s_portExitReason = "benchmark complete";
-            break;
-        }
     }
     if (s_portExitReason == NULL && PortQuitRequested())
         s_portExitReason = "PortQuitRequested";
@@ -1675,10 +1901,10 @@ int main(int argc, char* argv[])
     PortAudioStop();
     PortProfilerStop();
     aurora::vita::shutdown();
+    VitaBootRelease();
     sceKernelExitProcess(0);
 #else
     PortDiscordShutdown();
-    PortBenchReport();
     aurora_shutdown();
 #endif
     return 0;

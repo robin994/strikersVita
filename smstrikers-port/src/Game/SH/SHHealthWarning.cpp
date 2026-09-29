@@ -1,6 +1,4 @@
 #include "Game/SH/SHHealthWarning.h"
-#include "port/benchmark.h"
-
 #include "Game/Audio/AudioLoader.h"
 #include "Game/FE/FEAudio.h"
 #include "Game/FE/feFinder.h"

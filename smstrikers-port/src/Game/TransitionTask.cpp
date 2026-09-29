@@ -380,8 +380,8 @@ void TransitionTask::StateTransition(unsigned int from, unsigned int to)
     const bool shaderLoadingWindow = to == 4 || to == 2 || to == 0x80000;
     if (shaderLoadingWindow)
     {
-        // Exclude transition/loading work from the gameplay benchmark before
-        // reopening vitaShaRK for any variants that genuinely belong to load.
+        // Leave gameplay shader-cache mode before reopening vitaShaRK for any
+        // variants that genuinely belong to this loading transition.
         if (g_pGame != NULL)
             PortVitaShaderCacheLeaveGameplay();
         PortVitaShaderCacheBeginLoading();

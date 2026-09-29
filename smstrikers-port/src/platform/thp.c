@@ -5,7 +5,6 @@
 #include <string.h>
 
 #include "dolphin/types.h"
-#include "port/benchmark.h"
 #include "port/determinism.h"
 #include "port/host.h"
 

@@ -16,48 +16,17 @@ extern "C" {
 
 void PortBenchInit(void);
 
-int PortBenchEnabled(void);
-
-// Drive the AI-vs-AI demo rather than sit on the title; STRIKERS_BENCHMARK=fe measures the front
-// end without it.
-int PortBenchWantsDemo(void);
-
-double PortBenchRunSeconds(void);
-
-double PortBenchElapsed(void);
-
-// From cGame's update while a match is live. Frames before the first call are counted but not
-// recorded, keeping loading spikes out of the tail, and the run clock restarts here.
-void PortBenchMatchActive(void);
-
 void PortBenchFrameBegin(void);
 void PortBenchAfterTasks(void);
 void PortBenchFrameEnd(void);
 
 void PortBenchAddSleep(unsigned long long ns);
 
-// Aurora GX command-processing time for this frame (microseconds; part of busy).
-void PortBenchSetGxUs(unsigned long long us);
-// aurora end_frame wall time and the part blocked queueing the present (GPU backpressure).
-// GPU time per scene (diagnostic gxm_disable bit 0x100).
-void PortBenchSetSceneGpuUs(const unsigned int us[4]);
-void PortBenchSetEndFrameUs(unsigned long long endFrameUs, unsigned long long displayQueueUs);
-
 // Time blocked in aurora_begin_frame on the swapchain acquire; counted in the frame total, not busy.
 void PortBenchAddAcquire(unsigned long long ns);
 
 // The deferred limiter sleep before the frame begins; it counts toward the frame total and the sleep time.
 void PortBenchAddPreFrameSleep(unsigned long long ns);
-
-// Input age runs from here, just before the frame's last event pump, to the end of the frame.
-void PortBenchInputPumped(void);
-
-void PortBenchReport(void);
-
-// The demo path picks its stadium at random, so two runs may measure different content; the build
-// type is labelled for the same reason.
-
-void PortBenchSetLabel(const char* key, const char* value);
 
 // A rolling window rather than the whole run, because a run-length mean stops moving after a
 // minute.
@@ -81,8 +50,7 @@ void PortBenchGetLive(PortBenchLive* out);
 size_t PortBenchGetHistory(float* busyMs, float* frameMs, size_t cap);
 
 // Renderer-side counters are sampled by the Vita host loop and kept in memory.
-// This deliberately does not log or write files from gameplay; PortBenchReport
-// may include the latest snapshot when a benchmark report is explicitly emitted.
+// This deliberately does not log or write files from gameplay.
 typedef struct PortBenchRendererStats
 {
     int valid;
