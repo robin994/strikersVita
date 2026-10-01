@@ -21,6 +21,18 @@ add_test(NAME tool_extract_disc
          COMMAND python3 "${CMAKE_CURRENT_SOURCE_DIR}/../tools/test_extract_disc.py")
 
 if(UNIX)
+    find_package(Threads REQUIRED)
+    add_executable(skin_matrix_packets_test
+        skin_matrix_packets_test.cpp
+        ../src/Dolphin/mtx/mtx.c
+        ../src/Dolphin/mtx/vec.c)
+    set_target_properties(skin_matrix_packets_test PROPERTIES CXX_STANDARD 17 CXX_STANDARD_REQUIRED ON)
+    target_compile_options(skin_matrix_packets_test PRIVATE $<$<COMPILE_LANGUAGE:CXX>:-Wno-register>)
+    target_link_libraries(skin_matrix_packets_test PRIVATE port_flags Threads::Threads m)
+    add_test(NAME skin_matrix_packets COMMAND skin_matrix_packets_test)
+    add_executable(profile_output_test profile_output_test.cpp)
+    target_include_directories(profile_output_test PRIVATE ../include)
+    add_test(NAME profile_output COMMAND profile_output_test)
     add_executable(switch_dvd_test switch_dvd_test.c)
     target_include_directories(switch_dvd_test PRIVATE ../include)
     add_test(NAME switch_dvd COMMAND switch_dvd_test)

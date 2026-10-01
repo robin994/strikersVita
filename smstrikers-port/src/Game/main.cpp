@@ -1385,9 +1385,9 @@ int main(int argc, char* argv[])
         cfg.stream_index_bytes = 512 * 1024;
         cfg.stream_slots = 3;
         // Keep GX/GXM ownership and command ordering on the proven synchronous
-        // CPU0 path. CPU3 starts as a probe-only helper: the worker may be
-        // created and its physical core verified, but renderer/game jobs remain
-        // capped to CPU0+CPU2+CPU1 until the quota-aware scheduler is enabled.
+        // CPU0 path. CPU3 may only execute independent preparation chunks via
+        // Aurora's quota-aware dynamic scheduler; OFF retains the exact 3-core
+        // topology used by the validated post-goal stability baseline.
         enum VitaCore3Mode { VITA_CORE3_OFF, VITA_CORE3_AUTO, VITA_CORE3_ON };
         VitaCore3Mode core3Mode = VITA_CORE3_AUTO;
         const char* core3 = getenv("STRIKERS_VITA_CORE3");
@@ -1401,11 +1401,13 @@ int main(int argc, char* argv[])
                 core3Mode = VITA_CORE3_AUTO;
         }
         cfg.cpu_worker_threads = core3Mode == VITA_CORE3_OFF ? 2u : 3u;
+        cfg.cpu_core3_budget_enabled = core3Mode != VITA_CORE3_OFF;
+        // P3 is deliberately vertex-only: ordinary renderer helpers (texture
+        // decode/swizzle) and public game jobs retain the validated three-lane
+        // topology. Vertex decode/transform/pack opts into lane 3 internally
+        // when this budget is enabled.
         cfg.cpu_renderer_execution_lanes = 3;
         cfg.cpu_game_execution_lanes = 3;
-        // Common ~200-vertex Strikers packets now split over CPU0+CPU2+CPU1
-        // (audio remains higher priority). CPU3 stays asleep after its startup
-        // probe in this first implementation stage. Tiny UI work stays serial.
         cfg.cpu_parallel_min_vertices = 64;
         const char* workerCount = getenv("STRIKERS_AURORA_CPU_WORKERS");
         if (workerCount != NULL && workerCount[0] >= '0' && workerCount[0] <= '3' && workerCount[1] == '\0')
@@ -1414,11 +1416,41 @@ int main(int argc, char* argv[])
             if (core3Mode == VITA_CORE3_OFF && cfg.cpu_worker_threads > 2)
                 cfg.cpu_worker_threads = 2;
         }
-        OSReport("[vita] cpu helpers requested=%u renderer_lanes=%u game_lanes=%u core3_mode=%s\n",
+        const auto readCore3Unsigned = [](const char* name, unsigned int fallback,
+                                          unsigned int minValue, unsigned int maxValue) {
+            const char* text = getenv(name);
+            if (text == NULL || text[0] == '\0')
+                return fallback;
+            char* end = NULL;
+            const unsigned long value = strtoul(text, &end, 10);
+            if (end == text || *end != '\0' || value < minValue || value > maxValue)
+                return fallback;
+            return (unsigned int)value;
+        };
+        cfg.cpu_core3_max_total_percent = readCore3Unsigned(
+            "STRIKERS_VITA_CORE3_MAX_TOTAL_PCT", 70, 1, 100);
+        cfg.cpu_core3_guard_percent = readCore3Unsigned(
+            "STRIKERS_VITA_CORE3_GUARD_PCT", 5, 0, cfg.cpu_core3_max_total_percent);
+        cfg.cpu_core3_window_ms = readCore3Unsigned(
+            "STRIKERS_VITA_CORE3_WINDOW_MS", 100, 10, 1000);
+        cfg.cpu_core3_long_window_ms = 1000;
+        if (cfg.cpu_core3_long_window_ms < cfg.cpu_core3_window_ms)
+            cfg.cpu_core3_long_window_ms = cfg.cpu_core3_window_ms;
+        cfg.cpu_core3_chunk_target_us = readCore3Unsigned(
+            "STRIKERS_VITA_CORE3_CHUNK_TARGET_US", 250, 50, 2000);
+        cfg.cpu_core3_sample_period_us = readCore3Unsigned(
+            "STRIKERS_VITA_CORE3_SAMPLE_US", 10000, 1000, 50000);
+        OSReport("[vita] cpu helpers requested=%u renderer_lanes=%u game_lanes=%u core3_mode=%s budget=%u max_total=%u guard=%u window_ms=%u chunk_us=%u sample_us=%u\n",
                  (unsigned int)cfg.cpu_worker_threads,
                  (unsigned int)cfg.cpu_renderer_execution_lanes,
                  (unsigned int)cfg.cpu_game_execution_lanes,
-                 core3Mode == VITA_CORE3_OFF ? "off" : (core3Mode == VITA_CORE3_ON ? "on" : "auto"));
+                 core3Mode == VITA_CORE3_OFF ? "off" : (core3Mode == VITA_CORE3_ON ? "on" : "auto"),
+                 cfg.cpu_core3_budget_enabled ? 1u : 0u,
+                 (unsigned int)cfg.cpu_core3_max_total_percent,
+                 (unsigned int)cfg.cpu_core3_guard_percent,
+                 (unsigned int)cfg.cpu_core3_window_ms,
+                 (unsigned int)cfg.cpu_core3_chunk_target_us,
+                 (unsigned int)cfg.cpu_core3_sample_period_us);
         const char* parallelMin = getenv("STRIKERS_AURORA_PARALLEL_MIN");
         if (parallelMin != NULL)
         {
@@ -1503,6 +1535,43 @@ int main(int argc, char* argv[])
                     config.display_list_shadow = enableDlShadow;
             }(cfg);
             (void)enableDlShadow;
+        }
+        {
+            // Producer BP material cache stays opt-in until device A/B passes.
+            const char* bpCache = getenv("STRIKERS_GXM_BP_CACHE");
+            const bool enableBpCache = bpCache != NULL && bpCache[0] == '1';
+            [&](auto& config) {
+                if constexpr (requires { config.bp_write_cache; })
+                    config.bp_write_cache = enableBpCache;
+            }(cfg);
+            OSReport("[vita] gxm_bp_cache=%u\n", enableBpCache ? 1u : 0u);
+        }
+        {
+            const char* prepareCache = getenv("STRIKERS_GXM_FRAGMENT_PREPARE_CACHE");
+            const bool enablePrepareCache = prepareCache != NULL && prepareCache[0] == '1';
+            [&](auto& config) {
+                if constexpr (requires { config.gxm_fragment_prepare_cache; })
+                    config.gxm_fragment_prepare_cache = enablePrepareCache;
+            }(cfg);
+            OSReport("[vita] gxm_fragment_prepare_cache=%u\n", enablePrepareCache ? 1u : 0u);
+        }
+        {
+            const char* uniformPool = getenv("STRIKERS_GXM_FIXED_UNIFORM_POOL");
+            const bool enableUniformPool = uniformPool != NULL && uniformPool[0] == '1';
+            [&](auto& config) {
+                if constexpr (requires { config.gxm_fixed_uniform_pool; })
+                    config.gxm_fixed_uniform_pool = enableUniformPool;
+            }(cfg);
+            OSReport("[vita] gxm_fixed_uniform_pool=%u\n", enableUniformPool ? 1u : 0u);
+        }
+        {
+            const char* geometryPreflight = getenv("STRIKERS_GXM_GEOMETRY_PREFLIGHT");
+            const bool enableGeometryPreflight = geometryPreflight != NULL && geometryPreflight[0] == '1';
+            [&](auto& config) {
+                if constexpr (requires { config.gxm_geometry_preflight; })
+                    config.gxm_geometry_preflight = enableGeometryPreflight;
+            }(cfg);
+            OSReport("[vita] gxm_geometry_preflight=%u\n", enableGeometryPreflight ? 1u : 0u);
         }
         {
             // Bisection mask for the Aurora gxm-optimization changes (strikers.ini gxm_disable).

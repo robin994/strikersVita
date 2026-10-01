@@ -34,6 +34,12 @@ extern "C" int port_region_owns(const void*);  // src/platform/memalloc.cpp
 #include "types.h"
 #include "dolphin/gx/GXVert.h"
 #include <string.h>
+#if defined(PORT_VITA)
+#include "port/host.h"
+#include "port/skin_matrix_packets.hpp"
+#include "NL/gl/glRenderList.h"
+#include <vita_cpu_workers.hpp>
+#endif
 
 // PORT: linkable, so the debug menu can drive it. Only the keyword changed.
 bool g_bAllowLighting = true;
@@ -135,6 +141,256 @@ struct GLSkinUserData
     int reg;
     float mat[12];
 };
+
+#if defined(PORT_VITA)
+namespace
+{
+static_assert(sizeof(GLSkinUserData) == sizeof(port::SkinMatrixSource), "Skin payload size changed");
+static_assert(offsetof(GLSkinUserData, mat) == offsetof(port::SkinMatrixSource, mat), "Skin payload layout changed");
+
+port::SkinMatrixPackets s_SkinPackets;
+int s_SkinPacketView = -1;
+
+struct SkinPacketStats
+{
+    unsigned long long batches = 0;
+    unsigned long long prepared = 0;
+    unsigned long long capturedMatrices = 0;
+    unsigned long long usedMatrices = 0;
+    unsigned long long fallbacks = 0;
+    unsigned long long overflows = 0;
+    unsigned long long captureNs = 0;
+    unsigned long long prepareNs = 0;
+    unsigned long long laneItems[3]{};
+};
+SkinPacketStats s_SkinPacketStats[2];
+
+bool SkinPacketsEnabled()
+{
+    static const bool enabled = []() {
+        const char* value = getenv("STRIKERS_VITA_SKIN_PACKETS");
+        return value != nullptr && value[0] == '1';
+    }();
+    return enabled;
+}
+
+int SkinPacketViewIndex(eGLView view)
+{
+    return view == GLV_Characters ? 0 : view == GLV_Shadowed ? 1 : -1;
+}
+
+bool DispatchSkinMatrices(size_t count, port::SkinMatrixPackets::RangeTask task, void* context) noexcept
+{
+    // One synchronous batch per view. Lane 3 is reserved for budgeted vertex jobs.
+    return aurora::vita::gfx::cpu_parallel_for_min_lanes(count, 64, 3, task, context);
+}
+
+void CaptureSkinPacket(eGLView, unsigned long flags, const glModelPacket* packet)
+{
+    // Match the render list's original userdata reloads; the prepass never calls GX.
+    if (packet == nullptr || !(flags & 0x100) || s_SkinPackets.blocked() ||
+        packet->state.matrix != glGetIdentityMatrix() || packet->userData == 0)
+        return;
+    const uintptr_t* table = reinterpret_cast<const uintptr_t*>(packet->userData);
+    if (table[GLUD_Skin] == 0 || table[GLUD_Viewport] != 0 || table[GLUD_CoPlanar] != 0)
+        return;
+    const void* data = glUserGetData(reinterpret_cast<const void*>(table[GLUD_Skin]));
+    const u32 count = *static_cast<const u32*>(data);
+    if (count != 0)
+        s_SkinPackets.capture(reinterpret_cast<uintptr_t>(packet), static_cast<const u8*>(data) + 4, count);
+}
+} // namespace
+
+void glx_PrepareSkinPackets(eGLView view, GLRenderList* list)
+{
+    s_SkinPacketView = -1;
+    const int index = SkinPacketViewIndex(view);
+    if (!SkinPacketsEnabled() || index < 0 || !g_bFastSkinPath || !g_bMtxSkinMath)
+        return;
+    s_SkinPacketView = index;
+    SkinPacketStats& stats = s_SkinPacketStats[index];
+    const unsigned long long captureStart = port_monotonic_ns();
+    nlMatrix4 viewMatrix;
+    Mtx gxView;
+    glViewGetViewMatrix(view, viewMatrix);
+    glxCopyMatrix(gxView, viewMatrix);
+    s_SkinPackets.begin(gxView, view == GLV_Characters ? glx_InvXposeChar != 0 : glx_InvXpose != 0);
+    list->Iterate(view, CaptureSkinPacket);
+    const unsigned long long prepareStart = port_monotonic_ns();
+    const bool prepared = s_SkinPackets.prepare(DispatchSkinMatrices);
+    stats.captureNs += prepareStart - captureStart;
+    stats.prepareNs += port_monotonic_ns() - prepareStart;
+    ++stats.batches;
+    stats.prepared += prepared ? 1 : 0;
+    stats.overflows += s_SkinPackets.blocked() ? 1 : 0;
+    stats.capturedMatrices += s_SkinPackets.matrices();
+    for (unsigned int lane = 0; lane < 3; ++lane)
+        stats.laneItems[lane] += s_SkinPackets.laneItems(lane);
+}
+
+void glx_FinishSkinPackets()
+{
+    // All jobs joined before drawing; no borrowed frame data outlives this view.
+    if (s_SkinPacketView >= 0)
+        s_SkinPackets.clear();
+    s_SkinPacketView = -1;
+}
+
+void glx_ReportSkinPackets(FILE* out)
+{
+    for (unsigned int index = 0; index < 2; ++index)
+    {
+        const SkinPacketStats& stats = s_SkinPacketStats[index];
+        fprintf(out, "[skin-packets] view=%s enabled=%u batches_delta=%llu prepared_delta=%llu "
+                     "matrices_delta=%llu used_matrices_delta=%llu fallbacks_delta=%llu overflows_delta=%llu "
+                     "capture_us_delta=%llu prepare_us_delta=%llu l0_items_delta=%llu "
+                     "l1_items_delta=%llu l2_items_delta=%llu\n",
+                index == 0 ? "Characters" : "Shadowed", SkinPacketsEnabled() ? 1u : 0u,
+                stats.batches, stats.prepared, stats.capturedMatrices, stats.usedMatrices,
+                stats.fallbacks, stats.overflows, stats.captureNs / 1000, stats.prepareNs / 1000,
+                stats.laneItems[0], stats.laneItems[1], stats.laneItems[2]);
+        s_SkinPacketStats[index] = {};
+    }
+}
+#endif
+
+namespace
+{
+enum class PacketProfileStage : unsigned int
+{
+    Other, View, Program, TexConfig, UserData, Texture, Raster, Matrix, Streams, Draw, Count
+};
+
+#if defined(PORT_VITA)
+struct PacketProfileStats
+{
+    unsigned long long frames = 0;
+    unsigned long long callbacks = 0;
+    unsigned long long callbackNs = 0;
+    unsigned long long timerReads = 0;
+    unsigned long long stageNs[(unsigned int)PacketProfileStage::Count]{};
+    unsigned long long stageCalls[(unsigned int)PacketProfileStage::Count]{};
+};
+PacketProfileStats s_PacketProfileStats[2];
+unsigned long s_PacketProfileLastFrame[2] = { ~0ul, ~0ul };
+
+unsigned int PacketProfilePeriod()
+{
+    static const unsigned int period = []() -> unsigned int {
+        const char* value = getenv("STRIKERS_VITA_PACKET_PROFILE_PERIOD");
+        if (value == nullptr || *value == '\0')
+            return 0;
+        char* end = nullptr;
+        const unsigned long parsed = strtoul(value, &end, 10);
+        return end != value && *end == '\0' && parsed >= 1 && parsed <= 600
+            ? (unsigned int)parsed : 0;
+    }();
+    return period;
+}
+
+int PacketProfileViewIndex(eGLView view)
+{
+    return view == GLV_Characters ? 0 : view == GLV_Shadowed ? 1 : -1;
+}
+#endif
+
+// These scopes measure ordered GX API work, including any synchronous FIFO,
+// GXM submission or wait it triggers. They do not isolate pure math or GPU time.
+class PortPacketProfileScope
+{
+public:
+    explicit PortPacketProfileScope(eGLView view)
+    {
+#if defined(PORT_VITA)
+        if (!glx_PacketProfileSampledView(view))
+            return;
+        const int index = PacketProfileViewIndex(view);
+        stats = &s_PacketProfileStats[index];
+        const unsigned long frame = glGetCurrentFrame();
+        if (s_PacketProfileLastFrame[index] != frame)
+        {
+            ++stats->frames;
+            s_PacketProfileLastFrame[index] = frame;
+        }
+        ++stats->callbacks;
+        started = previous = port_monotonic_ns();
+        ++stats->timerReads;
+#else
+        (void)view;
+#endif
+    }
+
+    void phase(PacketProfileStage next)
+    {
+#if defined(PORT_VITA)
+        if (stats == nullptr || next == stage)
+            return;
+        const unsigned long long now = port_monotonic_ns();
+        ++stats->timerReads;
+        stats->stageNs[(unsigned int)stage] += now - previous;
+        previous = now;
+        stage = next;
+        ++stats->stageCalls[(unsigned int)next];
+#else
+        (void)next;
+#endif
+    }
+
+    ~PortPacketProfileScope()
+    {
+#if defined(PORT_VITA)
+        if (stats == nullptr)
+            return;
+        const unsigned long long now = port_monotonic_ns();
+        ++stats->timerReads;
+        stats->stageNs[(unsigned int)stage] += now - previous;
+        stats->callbackNs += now - started;
+#endif
+    }
+
+    PortPacketProfileScope(const PortPacketProfileScope&) = delete;
+    PortPacketProfileScope& operator=(const PortPacketProfileScope&) = delete;
+
+private:
+#if defined(PORT_VITA)
+    PacketProfileStats* stats = nullptr;
+    PacketProfileStage stage = PacketProfileStage::Other;
+    unsigned long long started = 0, previous = 0;
+#endif
+};
+} // namespace
+
+#if defined(PORT_VITA)
+bool glx_PacketProfileSampledView(eGLView view)
+{
+    const unsigned int period = PacketProfilePeriod();
+    // Offset the sampled frame from the report boundary. With period=0 there
+    // are no packet timing reads; all existing draw/state operations still run.
+    return period != 0 && PacketProfileViewIndex(view) >= 0 &&
+        glGetCurrentFrame() % period == period / 2;
+}
+
+void glx_ReportPacketProfile(FILE* out)
+{
+    static const char* const names[] = {
+        "other", "view", "program", "texconfig", "userdata", "texture", "raster", "matrix", "streams", "draw"
+    };
+    static_assert(sizeof(names) / sizeof(names[0]) == (unsigned int)PacketProfileStage::Count);
+    for (unsigned int index = 0; index < 2; ++index)
+    {
+        const PacketProfileStats& stats = s_PacketProfileStats[index];
+        fprintf(out, "[packet-profile] view=%s period=%u sampled_frames=%llu callbacks=%llu "
+                     "callback_us=%llu timer_reads=%llu",
+                index == 0 ? "Characters" : "Shadowed", PacketProfilePeriod(), stats.frames,
+                stats.callbacks, stats.callbackNs / 1000, stats.timerReads);
+        for (unsigned int stage = 0; stage < (unsigned int)PacketProfileStage::Count; ++stage)
+            fprintf(out, " %s_us=%llu %s_calls=%llu", names[stage], stats.stageNs[stage] / 1000,
+                    names[stage], stats.stageCalls[stage]);
+        fputc('\n', out);
+        s_PacketProfileStats[index] = {};
+    }
+}
+#endif
 
 struct LightData
 {
@@ -1865,6 +2121,25 @@ static void glud_Skin(void* pData, const glModelPacket* pPacket)
 
     if (g_bFastSkinPath && g_bMtxSkinMath && !glx_IsCoPlanarView && pPacket->state.matrix == glGetIdentityMatrix())
     {
+#if defined(PORT_VITA)
+        if (s_SkinPacketView >= 0 && s_SkinPacketView == SkinPacketViewIndex(prev_view))
+        {
+            const port::SkinMatrixResult* prepared = s_SkinPackets.find(
+                reinterpret_cast<uintptr_t>(pPacket), pSkin, numMatrices, gx_mview, bInvXpose != 0);
+            if (prepared != nullptr)
+            {
+                for (i = 0; i < numMatrices; ++i)
+                {
+                    const u32 matrixSlot = static_cast<u32>(pSkin[i].reg + 99);
+                    GXLoadPosMtxImm(prepared[i].position, matrixSlot);
+                    GXLoadNrmMtxImm(bInvXpose ? prepared[i].normal : prepared[i].position, matrixSlot);
+                }
+                s_SkinPacketStats[s_SkinPacketView].usedMatrices += numMatrices;
+                return;
+            }
+            ++s_SkinPacketStats[s_SkinPacketView].fallbacks;
+        }
+#endif
         for (i = 0; i < numMatrices; i++, pSkin++)
         {
             PSMTXConcat(gx_mview, *(const Mtx*)pSkin->mat, mSkinConcat);
@@ -2731,6 +3006,7 @@ static inline void glx_SwitchMatrix(const glModelPacket* p)
  */
 void glx_SendFrame_cb(eGLView view, unsigned long flags, const glModelPacket* p)
 {
+    PortPacketProfileScope packetProfile(view);
     if (p != NULL)
     {
         if (glx_DirtyFlags != 0)
@@ -2747,43 +3023,59 @@ void glx_SendFrame_cb(eGLView view, unsigned long flags, const glModelPacket* p)
         {
             if (flags & 1)
             {
+                packetProfile.phase(PacketProfileStage::View);
                 glx_SwitchViews(view);
+                packetProfile.phase(PacketProfileStage::Other);
             }
 
             if (flags & 2)
             {
+                packetProfile.phase(PacketProfileStage::Program);
                 glx_SwitchProgram(p);
+                packetProfile.phase(PacketProfileStage::Other);
             }
 
             if (flags & 0x80)
             {
+                packetProfile.phase(PacketProfileStage::TexConfig);
                 flags |= glx_SwitchTexConfig(p);
+                packetProfile.phase(PacketProfileStage::Other);
             }
         }
 
         if (flags & 0x100)
         {
+            packetProfile.phase(PacketProfileStage::UserData);
             glx_SwitchUserData(p);
+            packetProfile.phase(PacketProfileStage::Other);
         }
 
         if (flags & 0x14)
         {
+            packetProfile.phase(PacketProfileStage::Texture);
             glx_SwitchTexture(p);
+            packetProfile.phase(PacketProfileStage::Other);
         }
 
         if (flags & 0x08)
         {
+            packetProfile.phase(PacketProfileStage::Raster);
             glx_SwitchRaster(p);
+            packetProfile.phase(PacketProfileStage::Other);
         }
 
         if (flags & 0x20)
         {
+            packetProfile.phase(PacketProfileStage::Matrix);
             glx_SwitchMatrix(p);
+            packetProfile.phase(PacketProfileStage::Other);
         }
 
         if (flags & 0x40)
         {
+            packetProfile.phase(PacketProfileStage::Streams);
             glx_SwitchStreams(p);
+            packetProfile.phase(PacketProfileStage::Other);
         }
     }
 
@@ -2997,6 +3289,7 @@ void glx_SendFrame_cb(eGLView view, unsigned long flags, const glModelPacket* p)
 
     if (flags & 0x800)
     {
+        packetProfile.phase(PacketProfileStage::Draw);
         glx_DrawPacket(p);
     }
 }

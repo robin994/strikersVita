@@ -4,6 +4,9 @@
 #include "NL/gl/glMatrix.h"
 #include "NL/gl/glRenderList.h"
 #include "NL/nlMemory.h"
+#if defined(PORT_VITA)
+#include "NL/glx/glxSend.h"
+#endif
 #include <string.h>
 
 bool gl_ViewEnable[34] = { true, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false };
@@ -257,7 +260,17 @@ void gl_ViewIterate(eGLView view, glViewPacketCallback cb)
         views[view]->preViewCallback(view, 1);
     }
 
+#if defined(PORT_VITA)
+    // Only the GX sender consumes prepared results. Other view visitors keep
+    // their original behavior, and game pre/post callbacks still run once.
+    if (cb == glx_SendFrame_cb)
+        glx_PrepareSkinPackets(view, views[view]->renderList);
+#endif
     views[view]->renderList->Iterate(view, cb);
+#if defined(PORT_VITA)
+    if (cb == glx_SendFrame_cb)
+        glx_FinishSkinPackets();
+#endif
 
     if (views[view]->postViewCallback != NULL)
     {
