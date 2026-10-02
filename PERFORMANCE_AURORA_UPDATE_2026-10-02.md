@@ -137,8 +137,10 @@ Shadowed draw callbacks average 11.637 ms with 114.72 calls/frame, versus
 callback time (74.0% and 73.1%). Vertex worker wall time is broadly unchanged
 (3.025 ms/frame versus 2.933 ms/frame in the previous selected sample).
 
-This is a preliminary improvement relative to a historical sample. The
-stadium, teams, camera and exact phase were not logged for a matched A/B, and
+This is a preliminary reduction in the view-submission timers relative to a
+historical sample; it does not establish lower total render cost or higher FPS.
+The deferred submission correction below supersedes the initial interpretation.
+The stadium, teams, camera and exact phase were not logged for a matched A/B, and
 the code revision and two coupled experimental controls changed together.
 The cache filter excludes cold geometry and many spikes. No improvement can
 yet be attributed specifically to batching or state sharing, and light
@@ -152,3 +154,60 @@ nested measurements or infer actual FPS from these window averages.
 
 The immutable capture, analysis, full selected-window list and comparison are
 in `ab-artifacts/aurora-update-20261002/gameplay-20261002-082242/`.
+
+## Correction: deferred submission explains the low FPS
+
+After the user reported little perceived FPS improvement, the enclosing
+`End Frame` task and `swap_post` were checked on the same samples:
+
+| Median of window means | Previous reference | Initial new sample | Extended new sample |
+| --- | ---: | ---: | ---: |
+| `send_views` | 38.078 ms | 31.406 ms | 31.957 ms |
+| `swap_post` | 0.019 ms | 6.709 ms | 6.712 ms |
+| `End Frame` task | 38.768 ms | 38.131 ms | 38.731 ms |
+| Game Fixed Update | 11.752 ms | 11.634 ms | 11.956 ms |
+
+The initial 6.672 ms reduction inside `send_views` is almost entirely offset by
+6.690 ms added to `swap_post`. The enclosing `End Frame` task barely changes;
+in the extended sample its median is essentially the same as the historical
+reference. These medians must not be added as if they were a single frame.
+`End Frame` already includes view submission and the post phase.
+
+The code explains a real change in where work is measured:
+
+- With local batching enabled, the `AURORA_VITA_GXM_DIRECT_DRAW_SUBMIT` path
+  calls `queueStreamed()` instead of immediately calling `renderer_->draw()`.
+- `DrawSink::flush()` eventually executes the retained command stream.
+- `glxSwapPost()` calls `GXCopyDisp()` in both swap modes. The native
+  `vita_copy_disp_task()` flushes the DrawSink before processing the display
+  copy, so pending draw execution is charged to `swap_post`.
+
+Consequently, smaller Characters/Shadowed or `send_views` timers can reflect
+deferred GXM submission rather than removed work. The post phase also includes
+copy/synchronization bookkeeping; these logs do not separately time every
+component or establish GPU execution time. No substantial throughput gain or
+average FPS improvement has been demonstrated by the earlier table.
+
+The extended read-only capture at 08:40:21 verified the same SELF and INI hashes.
+It contains 102 complete windows, 57 active gameplay windows / 6,840 frames,
+and 32 selected cache-stable windows / 3,840 frames under the previous filter.
+Later complete windows are menu work and are excluded from the gameplay set.
+Some selected windows also contain multi-second stalls; their cause is not
+established and the full records are retained. There is no per-frame wall-time
+CSV for this binary: the old benchmark recorder is compiled out. The overlay
+uses the live complete-frame timer, but those rolling samples are not in the
+task log. An exact average FPS or p95/p99 cannot be recovered from these phase
+averages alone.
+
+The next isolated comparison should keep the same SELF and `gxm_disable=0x8`,
+changing only `gxm_local_draw_batching` from 1 to 0. This retains shared state
+and native uniform reuse while restoring direct streamed submission. The
+prepared profile is `smstrikers-port/configs/vita/gxm-shared-state-only.ini`.
+No rebuild is needed. Compare complete-frame pacing and `End Frame`, with
+`send_views` and `swap_post` as attribution details, in the same match conditions.
+The previous `0x18` / batching OFF preset remains the full fallback, but changes
+two experimental policies and therefore does not isolate batching.
+
+Evidence is in `ab-artifacts/aurora-update-20261002/fps-audit-20261002-084014/`,
+especially `frame-phase-audit.json`. This audit changes no device settings and
+requires no additional Vita build.
