@@ -100,3 +100,55 @@ vita2d entry points or libraries. The VPK SELF matches the standalone SELF.
 Both repositories pass `git diff --check`. Full hashes and build options are
 in the ignored artifact manifest; commit/push and device read-back records
 are kept there separately from visual correctness and FPS evidence.
+
+## First hardware result
+
+The installed SELF is
+`f294e41140a336a4be3fcee4df6031cbe6a9e14d02fb4612fc65dea0e0b53922`,
+built from Strikers code commit `19e7fd2e` and Aurora `7b3ee782`.
+FTP read-back verified the exact binary and INI contents. The startup and
+gameplay log confirms mask `0x8`, runtime features `0xf5` (local batching ON,
+streamed fixed vertex GPU OFF) and packet sampler period 16. The user confirmed
+stable characters and shadows during a match, with no reported flashing,
+missing geometry or crash.
+
+The 2026-10-02 08:22:42 capture contains 50 complete 120-frame report windows,
+including 40 active gameplay windows / 4,800 frames. Applying the same prior
+filter (both views active and sampled, fixed game update >=2 ms, geometry
+misses plus fallbacks <=50 per window) selects 21 windows / 2,520 frames.
+
+| CPU elapsed measurement | Previous SELF `260f917a` | Updated SELF `f294e411` | Observed difference |
+| --- | ---: | ---: | ---: |
+| Characters | 14.193 ms | 9.318 ms | -34.3% |
+| Shadowed | 16.356 ms | 15.318 ms | -6.3% |
+| `send_views` | 38.078 ms | 31.406 ms | -17.5% |
+
+These are medians of 120-frame window means after the stated cache filter,
+not per-frame percentiles. The entire active sample is retained as well:
+Characters median 9.508 ms, Shadowed 15.505 ms, `send_views` 32.269 ms.
+The selected geometry hit rate is 99.9876%. CPU3 total-use samples range
+10.69-35.14% in the selected windows and 10.69-48.30% over all active windows;
+this is observed utilization, not proof of a hard cap.
+
+Within 157 sampled frames, Characters draw callbacks average 6.853 ms with
+110.45 calls/frame, versus the earlier 11.903 ms with 114.13 calls/frame.
+Shadowed draw callbacks average 11.637 ms with 114.72 calls/frame, versus
+12.955 ms with 111.28 calls/frame. Draw submission still dominates sampled
+callback time (74.0% and 73.1%). Vertex worker wall time is broadly unchanged
+(3.025 ms/frame versus 2.933 ms/frame in the previous selected sample).
+
+This is a preliminary improvement relative to a historical sample. The
+stadium, teams, camera and exact phase were not logged for a matched A/B, and
+the code revision and two coupled experimental controls changed together.
+The cache filter excludes cold geometry and many spikes. No improvement can
+yet be attributed specifically to batching or state sharing, and light
+telemetry does not establish how many draws actually merged.
+
+Stable 60 FPS is not reached or established: `send_views` alone still exceeds
+the 16.67 ms whole-frame budget. The next causal comparison is the same new
+SELF with `gxm_disable=0x18` and `gxm_local_draw_batching=0` in the same match
+conditions, followed by restoring the experimental profile. Do not sum
+nested measurements or infer actual FPS from these window averages.
+
+The immutable capture, analysis, full selected-window list and comparison are
+in `ab-artifacts/aurora-update-20261002/gameplay-20261002-082242/`.
