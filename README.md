@@ -7,7 +7,7 @@
 
 `strikersVita` is an unofficial native port of **Super Mario Strikers / Mario Smash Football** for PlayStation Vita.
 
-The project builds on the existing native Strikers port and the community decompilation work led by [Yannick Suter](https://github.com/yannicksuter). The Vita renderer is based on our fork of [Aurora](https://github.com/encounter/aurora), [aurora-vita](https://github.com/robin994/aurora-vita), with a dedicated vitaGL/vitashark backend.
+The project builds on the existing native Strikers port and the community decompilation work led by [Yannick Suter](https://github.com/yannicksuter). The Vita renderer is based on our fork of [Aurora](https://github.com/encounter/aurora), [aurora-vita](https://github.com/robin994/aurora-vita), using the native GXM backend.
 
 No game assets are included. You must provide game data from your own legally obtained copy of Super Mario Strikers.
 

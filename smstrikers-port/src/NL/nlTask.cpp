@@ -252,6 +252,23 @@ void TaskProfileReport()
         s_lastFixedPoolReuses = perf.fixedUniformPoolReuses;
         s_lastFixedPoolFallbacks = perf.fixedUniformPoolFallbacks;
 
+        // These are counts for one completed renderer frame, not 120-frame
+        // totals. Reading the published snapshot never drains the GX worker.
+        const aurora::vita::PerformanceSnapshot completed = aurora::vita::completed_performance_snapshot();
+        if (completed.completedFrame)
+        {
+            std::fprintf(out,
+                         "[native-state-profile] completed_frame=%llu gxm_disable=0x%x "
+                         "pipeline_setters=%u pipeline_setters_skipped=%u uniform_upload_calls=%u "
+                         "uniform_upload_bytes=%llu\n",
+                         static_cast<unsigned long long>(completed.frameIndex),
+                         static_cast<unsigned int>(aurora::vita::gfx::gxm_disable_mask()),
+                         completed.nativePipelineSetters,
+                         completed.nativePipelineSettersSkipped,
+                         completed.nativeUniformUploadCalls,
+                         static_cast<unsigned long long>(completed.nativeUniformUploadBytes));
+        }
+
         s_lastChunks = perf.core3Chunks;
         s_lastDenied = perf.core3Denied;
         s_lastTelemetryFailures = perf.core3TelemetryFailures;

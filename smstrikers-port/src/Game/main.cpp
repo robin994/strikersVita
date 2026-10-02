@@ -1574,6 +1574,13 @@ int main(int argc, char* argv[])
             OSReport("[vita] gxm_geometry_preflight=%u\n", enableGeometryPreflight ? 1u : 0u);
         }
         {
+            // Aurora's adjacent-draw merge stays opt-in for device comparisons.
+            const char* localBatching = getenv("STRIKERS_GXM_LOCAL_DRAW_BATCHING");
+            const bool enableLocalBatching = localBatching != NULL && localBatching[0] == '1';
+            cfg.gxm_local_draw_batching = enableLocalBatching;
+            OSReport("[vita] gxm_local_draw_batching=%u\n", enableLocalBatching ? 1u : 0u);
+        }
+        {
             // Bisection mask for the Aurora gxm-optimization changes (strikers.ini gxm_disable).
             const char* disable = getenv("STRIKERS_GXM_DISABLE");
             const unsigned long mask = disable != NULL ? strtoul(disable, NULL, 0) : 0ul;
