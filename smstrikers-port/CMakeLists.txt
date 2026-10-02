@@ -349,6 +349,10 @@ if(STRIKERS_AURORA AND STRIKERS_VITA)
         ${STRIKERS_VITA_GXM_DIRECT_DRAW_SUBMIT} CACHE BOOL "" FORCE)
     if(STRIKERS_VITA_NO_LOGS)
         set(AURORA_VITA_RUNTIME_LOGGING OFF CACHE BOOL "" FORCE)
+    else()
+        # An earlier no-log build may have left this cached OFF. Runtime INI
+        # control requires the logging entry points to be present in the SELF.
+        set(AURORA_VITA_RUNTIME_LOGGING ON CACHE BOOL "" FORCE)
     endif()
     set(AURORA_VITA_NATIVE_CMPR ${STRIKERS_VITA_NATIVE_CMPR} CACHE BOOL "" FORCE)
     set(AURORA_VITA_NATIVE_GX_TEXTURES ${STRIKERS_VITA_NATIVE_GX_TEXTURES} CACHE BOOL "" FORCE)

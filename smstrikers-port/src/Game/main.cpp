@@ -390,6 +390,8 @@ static void VitaBootRelease()
 // display queue wait and disk write are intentionally not part of normal play.
 static void VitaMaybeCaptureFrame()
 {
+    if (!PortDiagnosticsEnabled())
+        return;
     static bool initialized = false;
     static unsigned long target = 0;
     static unsigned long heavyFrames = 0;
@@ -934,6 +936,8 @@ static const char* PortVitaShaderProfileName(VitaShaderProfile profile)
 
 static void PortVitaSampleRendererStats()
 {
+    if (!PortDiagnosticsEnabled())
+        return;
     const aurora::vita::PerformanceSnapshot perf = aurora::vita::performance_snapshot();
     static uint64_t s_lastNativePipelineUs = 0;
     static uint64_t s_lastNativeTextureUs = 0;
@@ -1231,12 +1235,15 @@ static void PortPumpAuroraEvents()
 int main(int argc, char* argv[])
 {
 #if defined(PORT_VITA)
+    // The master INI gate must be resolved before any runtime file is opened.
+    (void)PortConfigLoad();
 #if !defined(STRIKERS_VITA_NO_LOGS)
     // Keep the Vita diagnostics on the memory card. stderr is deliberately
     // unbuffered so the last useful line survives a crash or forced exit.
     char vitaLogDir[64];
     (void)port_executable_dir(vitaLogDir, sizeof vitaLogDir);
-    if (freopen("ux0:data/strikersVita/runtime.log", "w", stderr) != NULL)
+    if (PortDiagnosticsEnabled() && getenv("STRIKERS_LOG") == NULL
+        && freopen("ux0:data/strikersVita/runtime.log", "w", stderr) != NULL)
     {
         setvbuf(stderr, NULL, _IONBF, 0);
         fprintf(stderr, "[vita] runtime log started\n");
@@ -1253,6 +1260,7 @@ int main(int argc, char* argv[])
 #if defined(PORT_VITA)
         // strikers.ini has no other visible effect on Vita; report exactly what
         // the loader saw so a silent setenv/fopen failure cannot hide.
+        if (PortDiagnosticsEnabled())
         {
             FILE* probe = fopen("ux0:data/strikersVita/strikers.ini", "rb");
             const int probeOpen = probe != NULL;
@@ -1323,6 +1331,15 @@ int main(int argc, char* argv[])
         cfg.render_width = 640;
         cfg.render_height = 480;
 #endif
+        const char* distinctCores = getenv("STRIKERS_AURORA_DISTINCT_CPU_CORES");
+        if (distinctCores != NULL)
+            cfg.cpu_distinct_core_dispatch = distinctCores[0] == '1';
+        const char* immediateView = getenv("STRIKERS_GXM_IMMEDIATE_DRAW_VIEW");
+        if (immediateView != NULL)
+            cfg.gxm_immediate_draw_view = immediateView[0] == '1';
+        OSReport("[vita] native candidate distinct_cores=%u immediate_draw_view=%u\n",
+                 cfg.cpu_distinct_core_dispatch ? 1u : 0u,
+                 cfg.gxm_immediate_draw_view ? 1u : 0u);
         cfg.vgl_legacy_pool_size = 0;
         // Do not use vglInitExtended's threshold mode here: with zero CDRAM
         // and PHYCONT thresholds it turns almost every currently-free page into
@@ -1483,6 +1500,7 @@ int main(int argc, char* argv[])
         const bool fullAuroraDiagnostics = auroraDiagnostics != NULL
             && auroraDiagnostics[0] != '\0' && auroraDiagnostics[0] != '0';
         cfg.diagnostics = fullAuroraDiagnostics;
+        cfg.diagnostics_enabled = PortDiagnosticsEnabled() != 0;
         const char* splitVertexPhases = getenv("STRIKERS_PROFILE_VERTEX_PHASES");
         cfg.profile_split_vertex_phases = splitVertexPhases != NULL && splitVertexPhases[0] == '1';
         const char* textureDiagnostics = getenv("STRIKERS_VITA_TEXTURE_DIAGNOSTICS");
@@ -1688,10 +1706,20 @@ int main(int argc, char* argv[])
         cfg.coverage_log_path = NULL;
         cfg.trace_log_path = NULL;
 #else
-        cfg.telemetry_log_path = "ux0:data/strikersVita/aurora_telemetry.log";
+        cfg.telemetry_log_path = fullAuroraDiagnostics ? "ux0:data/strikersVita/aurora_telemetry.log" : NULL;
         cfg.coverage_log_path = fullAuroraDiagnostics ? "ux0:data/strikersVita/aurora_coverage.log" : NULL;
         cfg.trace_log_path = fullAuroraDiagnostics ? "ux0:data/strikersVita/aurora_trace.log" : NULL;
 #endif
+        if (!PortDiagnosticsEnabled())
+        {
+            cfg.log_level = aurora::vita::RuntimeLogLevel::Silent;
+            cfg.diagnostics = false;
+            cfg.profile_split_vertex_phases = false;
+            cfg.texture_decode_diagnostics = false;
+            cfg.telemetry_log_path = NULL;
+            cfg.coverage_log_path = NULL;
+            cfg.trace_log_path = NULL;
+        }
         const char* vita3dDiagnostics = getenv("STRIKERS_VITA_3D_DIAGNOSTICS");
         const bool verboseVita3d = vita3dDiagnostics != NULL
             && vita3dDiagnostics[0] != '\0' && vita3dDiagnostics[0] != '0';
@@ -1926,7 +1954,8 @@ int main(int argc, char* argv[])
         PortProfilerTasksBegin();
         nlTaskManager::RunAllTasks();
         PortProfilerTasksEnd();
-        UpdateProfile();
+        if (PortDiagnosticsEnabled())
+            UpdateProfile();
         PortBenchAfterTasks();
 
         // PORT: the audio clock. MusyX runs only inside this call; see include/port/audio.h.
@@ -1940,6 +1969,7 @@ int main(int argc, char* argv[])
             sceGxmDisplayQueueFinish();
             VitaBootRelease();
         }
+        if (PortDiagnosticsEnabled())
         {
             const aurora::vita::PerformanceSnapshot perf = aurora::vita::performance_snapshot();
             PortProfilerRendererSample sample = {};
@@ -1964,7 +1994,7 @@ int main(int argc, char* argv[])
 #endif
         s_portFrame++;
 #if defined(PORT_VITA)
-        if ((s_portFrame % 60u) == 0u)
+        if (PortDiagnosticsEnabled() && (s_portFrame % 60u) == 0u)
             PortVitaSampleRendererStats();
 #endif
         PortBenchFrameEnd();

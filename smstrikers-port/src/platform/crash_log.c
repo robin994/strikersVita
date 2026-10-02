@@ -5,6 +5,7 @@
 #include <time.h>
 
 #include "port/host.h"
+#include "port/config.h"
 #include "strikers_version.h"
 
 #if defined(_WIN32)
@@ -73,6 +74,9 @@ static void crash_log_open(void)
 int PortCrashLog(const char* fmt, ...)
 {
     va_list args;
+
+    if (!PortDiagnosticsEnabled())
+        return 0;
 
     if (!s_opened)
         crash_log_open();

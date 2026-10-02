@@ -1,4 +1,5 @@
 #include "Game/Debug/FrameCounter.h"
+#include "port/config.h"
 #include "Game/Debug/TimeRegions.h"
 #include "Game/GL/gluMeshWriter.h"
 #include "../Sys/tweak.h"
@@ -73,6 +74,8 @@ void FrameCounter::ResetFrameTimers()
 
 unsigned int FrameCounter::FinishCurrTimer()
 {
+    if (!PortDiagnosticsEnabled())
+        return 0;
     unsigned int currTick = nlGetTicker();
     if (m_CurrTimerNum != -1)
     {
@@ -86,6 +89,8 @@ unsigned int FrameCounter::FinishCurrTimer()
  */
 void FrameCounter::StartTimer(int timerNum)
 {
+    if (!PortDiagnosticsEnabled())
+        return;
     u32 currentTick = nlGetTicker();
 
     if (m_CurrTimerNum != -1)
@@ -102,6 +107,8 @@ void FrameCounter::StartTimer(int timerNum)
  */
 void FrameCounter::FinishTiming()
 {
+    if (!PortDiagnosticsEnabled())
+        return;
     u32 currentTick = nlGetTicker();
     if (m_CurrTimerNum != -1)
     {
@@ -165,6 +172,8 @@ void FrameCounter::FinishTiming()
 
 void FrameCounter::DisplayFrameRate()
 {
+    if (!PortDiagnosticsEnabled())
+        return;
     char str[64];
     float totalTime = m_LastFrame[0] + m_LastFrame[1];
 
@@ -178,6 +187,8 @@ void FrameCounter::DisplayFrameRate()
 
 void FrameCounter::DisplaySlowFrameRatio()
 {
+    if (!PortDiagnosticsEnabled())
+        return;
     char slowFrames[64];
     char fastFrames[64];
 
@@ -223,6 +234,8 @@ void FrameCounter::DisplaySlowFrameRatio()
  */
 void FrameCounter::WriteFrameRateStatsToFile(const char* fileName)
 {
+    if (!PortDiagnosticsEnabled())
+        return;
     char buf[128];
     void* file = nlOpenFileDebug("FrameRateStats.txt", false, true);
     nlWriteLineDebug(file, fileName, false);
@@ -250,6 +263,8 @@ void FrameCounter::WriteFrameRateStatsToFile(const char* fileName)
 
 void FrameCounter::DisplayContinuousFrameRate()
 {
+    if (!PortDiagnosticsEnabled())
+        return;
     float avgTime[2] = { 0.0f, 0.0f };
     float totalTime;
 
@@ -270,6 +285,8 @@ void FrameCounter::DisplayContinuousFrameRate()
 
 void FrameCounter::DisplayFrameTicker()
 {
+    if (!PortDiagnosticsEnabled())
+        return;
     GLMeshWriter m0;
     GLMeshWriter m1;
     const eGLStream streams[2] = { GLStream_Position, GLStream_Colour };
@@ -496,6 +513,8 @@ static void DrawBrow(const nlVector3& leftEyeCentre, const nlVector3& rightEyeCe
  */
 void FrameCounter::DisplayFrameSmiler()
 {
+    if (!PortDiagnosticsEnabled())
+        return;
     float happiness = 0.0f;
     unsigned int i;
     for (i = 0; i < (unsigned int)siHappinessLookback; i++)

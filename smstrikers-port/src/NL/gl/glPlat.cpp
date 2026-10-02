@@ -28,6 +28,7 @@
 #include "dolphin/vm/VM.h"
 #include "Game/Sys/debug.h"
 #include "port/host.h"
+#include "port/config.h"
 #include "port/vita_profiler.h"
 #include <cstdlib>
 #include <cstring>
@@ -174,6 +175,8 @@ static const char* const s_portRenderViewNames[GLV_Num] = {
 
 static bool PortRenderViewProfileEnabled()
 {
+    if (!PortDiagnosticsEnabled())
+        return false;
     static int enabled = -1;
     if (enabled < 0)
     {
@@ -489,11 +492,11 @@ static inline void glx_SendFrame(bool bSend)
     u32 bytesFree;
 
     nLines = 0;
-    if (glx_Perf != false)
+    if (PortDiagnosticsEnabled() && glx_Perf != false)
     {
         nLines = 1;
     }
-    if (glx_Virt != false)
+    if (PortDiagnosticsEnabled() && glx_Virt != false)
     {
         nLines += 1;
     }
@@ -615,6 +618,8 @@ void glplatSendFrame()
 // the GXReadGPMetric pairs on glx_SendViews' frame.
 static inline void glx_StartMetrics()
 {
+    if (!PortDiagnosticsEnabled())
+        return;
     if (glx_PerfSync)
     {
         GXDrawDone();
@@ -625,6 +630,8 @@ static inline void glx_StartMetrics()
 
 static inline void glx_StopMetrics()
 {
+    if (!PortDiagnosticsEnabled())
+        return;
     u32 val0;
     u32 val1;
 

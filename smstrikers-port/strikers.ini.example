@@ -157,6 +157,16 @@
 # discord = 1
 
 [debug]
+# Master diagnostic switch, read at startup. Restart the game after changing it.
+# 1 permits the individually selected logs/probes/profilers (default).
+# 0 disables diagnostic logs, dumps, task/view/FIFO and native GXM profiling.
+# Renderer fast paths, clocks and required CPU3 quota accounting are unchanged.
+# diagnostics = 1
+
+# Vita: keep the same minimal FPS counter in both diagnostic profiles (default 1).
+# Set 0 with diagnostics=0 to remove its timing/display too; then measure externally.
+# fps_overlay = 1
+
 # The debug overlay and menu. `menu` opens the menu straight away, `1` draws only the compact
 # heads-up form.
 # overlay = menu
@@ -173,3 +183,8 @@
 
 # Pin the RNG seed, so a run is reproducible.
 # seed = 3
+
+# Vita native candidate (build defaults, override with 0 to compare after restart).
+# aurora_distinct_cpu_cores = 1
+# gxm_immediate_draw_view = 1
+# gxm_local_draw_batching = 0  # Direct streamed submission is required to exercise the view.

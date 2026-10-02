@@ -3,6 +3,7 @@
 #include "NL/nlTicker.h"
 #include "NL/nlDLRing.h"
 #include "port/host.h"
+#include "port/config.h"
 #include "port/vita_profiler.h"
 #include "port/framerate.h" // PORT: PortTaskClockFrame
 
@@ -61,6 +62,8 @@ unsigned int s_TaskProfileWindow = 120;
 
 bool TaskProfileEnabled()
 {
+    if (!PortDiagnosticsEnabled())
+        return false;
     if (s_TaskProfileEnabled < 0)
     {
         const char* value = std::getenv("STRIKERS_TASK_PROFILE");

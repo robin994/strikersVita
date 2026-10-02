@@ -11,6 +11,7 @@
 #include "dolphin/types.h"
 #include "port/host.h"
 #include "port/benchmark.h"
+#include "port/config.h"
 #include "port/determinism.h"
 #include "port/framerate.h"
 #include "port/morphwatch.h"
@@ -116,11 +117,14 @@ static u64 frame_period_ns(void)
 
         // Once per derivation and never per frame; this is how a headless run reads back what a
         // switch did.
-        if (s_period != 0)
-            fprintf(stderr, "[limiter] %.2f Hz (%s)\n",
-                    1000000000.0 / (double)s_period, why);
-        else
-            fprintf(stderr, "[limiter] uncapped (%s)\n", why);
+        if (PortDiagnosticsEnabled())
+        {
+            if (s_period != 0)
+                fprintf(stderr, "[limiter] %.2f Hz (%s)\n",
+                        1000000000.0 / (double)s_period, why);
+            else
+                fprintf(stderr, "[limiter] uncapped (%s)\n", why);
+        }
     }
     return s_period;
 }
@@ -290,7 +294,8 @@ void PortLimiterFlush(void)
         const u64 before = now_ns();
         if (deadline > before)
             wait_until(deadline);
-        PortBenchAddPreFrameSleep(now_ns() - before);
+        if (PortDiagnosticsEnabled() || PortFpsOverlayEnabled())
+            PortBenchAddPreFrameSleep(now_ns() - before);
     }
 }
 
@@ -311,7 +316,8 @@ void VIWaitForRetrace(void)
             s_deferredDeadline = 0;
             if (pending > before)
                 wait_until(pending);
-            PortBenchAddSleep(now_ns() - before);
+            if (PortDiagnosticsEnabled())
+                PortBenchAddSleep(now_ns() - before);
         }
         u64 t = now_ns();
         if (next_deadline == 0)
@@ -336,7 +342,8 @@ void VIWaitForRetrace(void)
                 // Report what the wait *actually* cost, not what was asked for.
                 u64 before = now_ns();
                 wait_until(next_deadline);
-                PortBenchAddSleep(now_ns() - before);
+                if (PortDiagnosticsEnabled())
+                    PortBenchAddSleep(now_ns() - before);
             }
         }
     }
@@ -400,6 +407,8 @@ static unsigned int ticks_from_ns(u64 ns)
 
 static void pace_report(int trusted, const char* why)
 {
+    if (!PortDiagnosticsEnabled())
+        return;
     if (trusted)
         fprintf(stderr, "[limiter] task steps: whole display periods (%.2f Hz)\n", s_paceHz);
     else

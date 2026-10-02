@@ -3,6 +3,7 @@
 #if defined(PORT_VITA)
 
 #include "port/benchmark.h"
+#include "port/config.h"
 #include "Game/Sys/tweak.h"
 #include "Game/SH/SHPause.h"
 #include "NL/gl/glFont.h"
@@ -311,23 +312,11 @@ void draw_line(int y, bool selected, const char* label, const char* value)
 
 void draw_perf_box()
 {
-    PortBenchLive live{};
-    PortBenchGetLive(&live);
-    PortBenchRendererStats rs{};
-    PortBenchGetRendererStats(&rs);
-
-    DrawTextRectangle(GLV_Debug, 50.0f, 0.0f, 79.0f, 7.0f, 0.0f, kPanel, true);
+    // The same small indicator in both diagnostic profiles. Do not request
+    // renderer snapshots or sort the frame history just to display FPS.
+    DrawTextRectangle(GLV_Debug, 50.0f, 0.0f, 68.0f, 1.0f, 0.0f, kPanel, true);
     glFontBegin(false);
-    glFontPrintf(GLV_Debug, 51, 0, kGreen, "RENDER %5.1f FPS", live.fps);
-    glFontPrintf(GLV_Debug, 51, 1, kWhite, "FRAME %6.1f ms", live.frameMs);
-    glFontPrintf(GLV_Debug, 51, 2, kWhite, "BUSY  %6.1f ms", live.busyMs);
-    if (rs.valid)
-    {
-        glFontPrintf(GLV_Debug, 51, 3, kWhite, "XFORM %6.1f ms", rs.vertexTransformUs / 1000.0);
-        glFontPrintf(GLV_Debug, 51, 4, kWhite, "DECODE%6.1f ms", rs.vertexDecodeUs / 1000.0);
-        glFontPrintf(GLV_Debug, 51, 5, kWhite, "SUBMIT%6.1f ms", rs.submitUs / 1000.0);
-        glFontPrintf(GLV_Debug, 51, 6, kWhite, "DRAWS %6llu", rs.draws);
-    }
+    glFontPrintf(GLV_Debug, 51, 0, kGreen, "FPS %5.1f", PortBenchGetFps());
     glFontEnd();
 }
 
@@ -428,6 +417,8 @@ extern "C" void PortOverlayInit(void) { capture_defaults(); }
 extern "C" int PortOverlayEnabled(void) { return 0; }
 extern "C" void PortOverlayDraw(void)
 {
+    if (PortFpsOverlayEnabled())
+        draw_perf_box();
     if (!s_nativeMenuRequest)
         return;
     s_nativeMenuRequest = false;

@@ -9,6 +9,7 @@
 
 #include "dolphin/types.h"
 #include "port/host.h"
+#include "port/config.h"
 #include "port/region.h"
 
 #if defined(STRIKERS_VITA) && defined(PORT_USE_AURORA)
@@ -56,7 +57,8 @@ void OSReport(const char* msg, ...);   // defined below
 
 static void port_note_exit(void)
 {
-    fprintf(stderr, "[port] process exiting normally (not a crash)\n");
+    if (PortDiagnosticsEnabled())
+        fprintf(stderr, "[port] process exiting normally (not a crash)\n");
 }
 
 static u8* s_arena_lo;
@@ -305,7 +307,7 @@ u8 __OSReport_Warning_disable = 0;
 
 void OSReport(const char* msg, ...)
 {
-    if (__OSReport_disable)
+    if (__OSReport_disable || !PortDiagnosticsEnabled())
         return;
     va_list ap;
     va_start(ap, msg);

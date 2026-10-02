@@ -30,6 +30,51 @@ static int s_loaded;
 // whoever asks second still gets the honest count rather than a 0 that reads as "there was no
 // file".
 static int s_applied;
+static int s_diagnostics = 1;
+static int s_fpsOverlay = 1;
+
+int PortDiagnosticsEnabled(void) { return s_diagnostics; }
+int PortFpsOverlayEnabled(void) { return s_fpsOverlay; }
+
+static void configure_diagnostics(void)
+{
+    const char* value = getenv("STRIKERS_DIAGNOSTICS");
+    s_diagnostics = value == NULL || strcmp(value, "0") != 0;
+    const char* fps = getenv("STRIKERS_FPS_OVERLAY");
+    s_fpsOverlay = fps == NULL || strcmp(fps, "0") != 0;
+    if (s_diagnostics)
+        return;
+
+    // Several older probes test presence, so setting them to "0" would still
+    // run their dumps/timers. Remove only diagnostic selectors from this
+    // process; the INI remains intact for the next diagnostics=1 launch.
+    static const char* const selectors[] = {
+        "STRIKERS_TASK_PROFILE", "STRIKERS_TASK_PROFILE_FRAMES", "STRIKERS_TASK_PROFILE_BUFFERED",
+        "STRIKERS_VITA_PACKET_PROFILE_PERIOD", "STRIKERS_VITA_PROFILE", "STRIKERS_VITA_PROFILE_PATH",
+        "STRIKERS_AURORA_DIAGNOSTICS", "STRIKERS_PROFILE_VERTEX_PHASES",
+        "STRIKERS_VITA_TEXTURE_DIAGNOSTICS", "STRIKERS_VITA_3D_DIAGNOSTICS",
+        "STRIKERS_PROBE_SKIN", "STRIKERS_PROBE_TEX", "STRIKERS_PROBE_PAD",
+        "STRIKERS_PROBE_ARRAY", "STRIKERS_PROBE_DRAW", "STRIKERS_PROBE_OBJ",
+        "STRIKERS_PROBE_DVD", "STRIKERS_PROBE_TEXDUMP", "STRIKERS_PROBE_AI",
+        "STRIKERS_PROBE_CHARDRAW", "STRIKERS_PROBE_WIDEN", "STRIKERS_PROBE_PAIRS", "STRIKERS_PROBE_GK",
+        "STRIKERS_LOG", "STRIKERS_LOG_AUDIO", "STRIKERS_LOG_SCENES", "STRIKERS_LOG_MATCH",
+        "STRIKERS_LOG_FOG", "STRIKERS_LOG_FRUSTUM", "STRIKERS_LOG_NIS", "STRIKERS_LOG_BUNDLES",
+        "STRIKERS_LOG_EVENTS", "STRIKERS_AUDIO_DUMP", "STRIKERS_TEXTURE_DUMP",
+        "STRIKERS_DUMP_FEN", "STRIKERS_DUMP_ICON", "STRIKERS_CAPTURE", "STRIKERS_CAPTURE_FRAME",
+        "STRIKERS_VIDEO_CAPTURE", "STRIKERS_CONFIG_PROBE", "STRIKERS_WATCH_MORPH_TRAP",
+        "STRIKERS_VITA_SNAPSHOT_3D_FRAME", "STRIKERS_VITA_SNAPSHOT_PATH",
+        "STRIKERS_WATCH_MORPH", "STRIKERS_WATCH_MORPH_PROT",
+        "STRIKERS_WATCH_MORPH_PROT_FROM", "STRIKERS_WATCH_MORPH_PROT_TO",
+    };
+    for (size_t i = 0; i < sizeof selectors / sizeof selectors[0]; ++i)
+    {
+#ifdef _WIN32
+        (void)_putenv_s(selectors[i], "");
+#else
+        (void)unsetenv(selectors[i]);
+#endif
+    }
+}
 
 const char* PortConfigPath(void) { return s_path[0] != '\0' ? s_path : NULL; }
 
@@ -190,6 +235,8 @@ int PortSwitchLogToFile(const char* path);
 
 static void open_log(void)
 {
+    if (!PortDiagnosticsEnabled())
+        return;
     const char* v = getenv("STRIKERS_LOG");
     char path[1024];
 
@@ -262,6 +309,7 @@ int PortConfigLoad(void)
         return s_applied;
 
     s_applied = load_config();
+    configure_diagnostics();
     // After the file, not before: `log` is a key like any other, and a player asked to turn logging
     // on will put it in strikers.ini rather than set an environment variable.
     open_log();

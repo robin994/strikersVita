@@ -2,6 +2,7 @@
 
 #include "port/benchmark.h"
 #include "port/host.h"
+#include "port/config.h"
 
 #include <string.h>
 
@@ -14,14 +15,15 @@ static unsigned long long s_acquireThisFrame;   // blocked in aurora_begin_frame
 static unsigned long long s_preSleepThisFrame;  // limiter sleep deferred to the top of the frame
 static int s_matchActive;
 
-// Always-on frame timing for the overlay. The old environment-controlled benchmark mode was
-// removed; ordinary play is now the only runtime mode.
+// Minimal frame timing remains available for the FPS overlay when diagnostics
+// are OFF. Both OFF suppress optional timing collection entirely.
 #define LIVE_WINDOW 256
 
 static unsigned int s_liveBusyUs[LIVE_WINDOW];
 static unsigned int s_liveFrameUs[LIVE_WINDOW];
 static size_t s_liveNext;
 static size_t s_liveFilled;
+static unsigned long long s_liveFrameSumUs;
 static unsigned int s_lastBusyUs, s_lastPresentUs, s_lastFrameUs, s_lastSleepUs;
 static unsigned long s_matchFrameCounter;
 static unsigned int s_worstUs;
@@ -202,6 +204,8 @@ void PortBenchInit(void)
 
 void PortBenchFrameBegin(void)
 {
+    if (!PortDiagnosticsEnabled() && !PortFpsOverlayEnabled())
+        return;
     s_t0 = port_monotonic_ns();
     s_sleepThisFrame = 0;
     s_acquireThisFrame = 0;
@@ -219,7 +223,12 @@ void PortBenchAddAcquire(unsigned long long ns)
 
 void PortBenchAfterTasks(void)
 {
-    s_tTasks = port_monotonic_ns();
+    s_tTasks = PortDiagnosticsEnabled() ? port_monotonic_ns() : s_t0;
+}
+
+double PortBenchGetFps(void)
+{
+    return s_liveFrameSumUs ? (double)s_liveFilled * 1e6 / (double)s_liveFrameSumUs : 0.0;
 }
 
 void PortBenchAddSleep(unsigned long long ns)
@@ -250,7 +259,6 @@ size_t PortBenchGetHistory(float* busyMs, float* frameMs, size_t cap)
 void PortBenchGetLive(PortBenchLive* out)
 {
     size_t n, i;
-    double sumFrame = 0.0;
 
     if (out == NULL)
         return;
@@ -269,10 +277,9 @@ void PortBenchGetLive(PortBenchLive* out)
     if (n == 0)
         return;
 
-    for (i = 0; i < n; i++)
-        sumFrame += (double)s_liveFrameUs[i];
-    if (sumFrame > 0.0)
-        out->fps = (double)n / (sumFrame / 1e6);
+    out->fps = PortBenchGetFps();
+    if (!PortDiagnosticsEnabled())
+        return;
 
     // p95 of the window, by partial selection into the scratch the report already owns. n is 256,
     // so an insertion pass is cheaper than qsort and does not allocate, this runs every frame the
@@ -294,6 +301,8 @@ void PortBenchGetLive(PortBenchLive* out)
 
 void PortBenchFrameEnd(void)
 {
+    if (!PortDiagnosticsEnabled() && !PortFpsOverlayEnabled())
+        return;
     const unsigned long long end = port_monotonic_ns();
     const unsigned long long tasks = s_tTasks - s_t0;
     const unsigned long long present = end - s_tTasks;
@@ -304,13 +313,15 @@ void PortBenchFrameEnd(void)
     // The frame limiter sleeps inside the tasks phase, so tasks time is not all work.
     unsigned long long busy = (tasks > s_sleepThisFrame) ? tasks - s_sleepThisFrame : 0;
 
-    // The overlay's view is always collected during ordinary play.
+    // Maintain the FPS window without sorting or renderer snapshots.
     s_lastBusyUs = (unsigned int)(busy / 1000ull);
     s_lastPresentUs = (unsigned int)(present / 1000ull);
     s_lastFrameUs = (unsigned int)(frame / 1000ull);
     s_lastSleepUs = (unsigned int)((s_sleepThisFrame + preSleep) / 1000ull);
     s_liveBusyUs[s_liveNext] = s_lastBusyUs;
+    s_liveFrameSumUs -= s_liveFrameUs[s_liveNext];
     s_liveFrameUs[s_liveNext] = s_lastFrameUs;
+    s_liveFrameSumUs += s_lastFrameUs;
     s_liveNext = (s_liveNext + 1) % LIVE_WINDOW;
     if (s_liveFilled < LIVE_WINDOW)
         s_liveFilled++;

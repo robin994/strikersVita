@@ -46,6 +46,8 @@ typedef struct PortBenchLive
 } PortBenchLive;
 
 void PortBenchGetLive(PortBenchLive* out);
+// Rolling full-frame rate without percentiles, sorting, renderer snapshots or I/O.
+double PortBenchGetFps(void);
 
 size_t PortBenchGetHistory(float* busyMs, float* frameMs, size_t cap);
 

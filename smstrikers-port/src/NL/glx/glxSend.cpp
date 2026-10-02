@@ -1,4 +1,5 @@
 #include "NL/glx/glxSend.h"
+#include "port/config.h"
 #include "port/texfilter.h"
 #include "port/aspect.h"
 #include "port/probeobj.h"
@@ -276,6 +277,8 @@ unsigned long s_PacketProfileLastFrame[2] = { ~0ul, ~0ul };
 
 unsigned int PacketProfilePeriod()
 {
+    if (!PortDiagnosticsEnabled())
+        return 0;
     static const unsigned int period = []() -> unsigned int {
         const char* value = getenv("STRIKERS_VITA_PACKET_PROFILE_PERIOD");
         if (value == nullptr || *value == '\0')

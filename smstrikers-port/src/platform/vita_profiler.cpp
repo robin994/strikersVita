@@ -1,4 +1,5 @@
 #include "port/vita_profiler.h"
+#include "port/config.h"
 
 #if defined(PORT_VITA) && defined(STRIKERS_VITA_PROFILER)
 
@@ -269,6 +270,8 @@ void cleanup()
 
 extern "C" int PortProfilerStart(void)
 {
+    if (!PortDiagnosticsEnabled())
+        return 0;
 #if !defined(STRIKERS_VITA_PROFILE_AUTOSTART)
     if (!envEnabled("STRIKERS_VITA_PROFILE"))
         return 0;

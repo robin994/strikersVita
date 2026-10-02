@@ -21,6 +21,13 @@ add_test(NAME tool_extract_disc
          COMMAND python3 "${CMAKE_CURRENT_SOURCE_DIR}/../tools/test_extract_disc.py")
 
 if(UNIX)
+    add_executable(diagnostics_config_test diagnostics_config_test.c ../src/platform/config.c)
+    target_include_directories(diagnostics_config_test PRIVATE ../include)
+    add_test(NAME diagnostics_config COMMAND diagnostics_config_test)
+    add_executable(benchmark_fps_test benchmark_fps_test.c ../src/platform/benchmark.c)
+    target_include_directories(benchmark_fps_test PRIVATE ../include)
+    target_link_libraries(benchmark_fps_test PRIVATE m)
+    add_test(NAME benchmark_fps COMMAND benchmark_fps_test)
     find_package(Threads REQUIRED)
     add_executable(skin_matrix_packets_test
         skin_matrix_packets_test.cpp
