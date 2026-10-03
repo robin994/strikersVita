@@ -18,6 +18,16 @@ unsigned long long port_monotonic_ns(void)
     return (unsigned long long)sceKernelGetProcessTimeWide() * 1000ull;
 }
 
+static void vita_delay_us_checked(long long requested_us)
+{
+    if (requested_us <= 0)
+        return;
+    unsigned long long us = (unsigned long long)requested_us;
+    if (us > 0xFFFFFFFFull)
+        us = 0xFFFFFFFFull;
+    (void)sceKernelDelayThread((unsigned int)us);
+}
+
 void port_sleep_ns(unsigned long long ns)
 {
     if (ns == 0)
@@ -26,9 +36,7 @@ void port_sleep_ns(unsigned long long ns)
     unsigned long long us = ns / 1000ull;
     if ((ns % 1000ull) != 0)
         ++us;
-    if (us > 0xFFFFFFFFull)
-        us = 0xFFFFFFFFull;
-    sceKernelDelayThread((unsigned int)us);
+    vita_delay_us_checked((long long)(us > 0x7FFFFFFFFFFFFFFFull ? 0x7FFFFFFFFFFFFFFFull : us));
 }
 
 void port_yield(void)

@@ -2,6 +2,7 @@
 // https://github.com/TwilitRealm/dusklight).
 
 #include "port/audio.h"
+#include "port/host.h"
 #include "port/vita_profiler.h"
 
 #if defined(PORT_USE_AURORA)
@@ -197,7 +198,7 @@ void* audioWorkerMain(void*) {
         // The stream is kept ~30 ms ahead in 5 ms MusyX chunks. A 2 ms poll
         // remains comfortably below one audio tick while halving scheduler
         // wakeups on the helper core shared with Aurora.
-        sceKernelDelayThread(2000);
+        port_sleep_ns(2000ull * 1000ull);
     }
     return nullptr;
 }

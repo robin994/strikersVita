@@ -4,7 +4,8 @@ import sys
 
 
 ROOT = Path(__file__).resolve().parents[1]
-SOURCE_ROOTS = (ROOT / "src", ROOT / "extern" / "aurora-vita")
+AURORA = ROOT / "extern" / "aurora-vita"
+SOURCE_ROOTS = (ROOT / "src", AURORA / "lib", AURORA / "platforms")
 SOURCE_SUFFIXES = {".c", ".cc", ".cpp", ".cxx", ".h", ".hpp"}
 
 
@@ -13,7 +14,11 @@ def fail(message: str) -> None:
     raise SystemExit(1)
 
 
-zero_delay = re.compile(r"sceKernelDelayThread\s*\(\s*0(?:[uUlL]*)\s*\)")
+delay_call = re.compile(r"sceKernelDelayThread\s*\(")
+allowed_delay_files = {
+    ROOT / "src" / "platform" / "host.c",
+    AURORA / "platforms" / "vita" / "vita_thread_utils.hpp",
+}
 
 for root in SOURCE_ROOTS:
     for path in root.rglob("*"):
@@ -22,13 +27,21 @@ for root in SOURCE_ROOTS:
         if any(part.startswith("build-") or part in {"_deps", ".git"} for part in path.relative_to(root).parts):
             continue
         text = path.read_text(encoding="utf-8", errors="ignore")
-        match = zero_delay.search(text)
-        if match:
-            rel = path.relative_to(ROOT)
-            line = text.count("\n", 0, match.start()) + 1
-            fail(f"zero-delay Vita syscall in {rel}:{line}")
+        for match in delay_call.finditer(text):
+            if path not in allowed_delay_files:
+                rel = path.relative_to(ROOT)
+                line = text.count("\n", 0, match.start()) + 1
+                fail(f"direct Vita delay syscall outside checked wrapper in {rel}:{line}")
 
 host = (ROOT / "src" / "platform" / "host.c").read_text(encoding="utf-8")
+checked_start = host.index("static void vita_delay_us_checked(long long requested_us)")
+checked_end = host.index("void port_sleep_ns(unsigned long long ns)", checked_start)
+checked_body = host[checked_start:checked_end]
+if "if (requested_us <= 0)" not in checked_body:
+    fail("Vita checked delay wrapper must reject every non-positive request")
+if checked_body.count("sceKernelDelayThread") != 1:
+    fail("Vita checked delay wrapper must be the only Strikers delay syscall site")
+
 sleep_start = host.index("void port_sleep_ns(unsigned long long ns)")
 sleep_end = host.index("void port_yield(void)", sleep_start)
 sleep_body = host[sleep_start:sleep_end]
@@ -42,5 +55,11 @@ if "sceKernelDelayThread" in yield_body:
     fail("Vita port_yield must not use sceKernelDelayThread")
 if 'volatile("yield"' not in yield_body:
     fail("Vita port_yield must use the ARM yield hint")
+
+aurora_thread = (AURORA / "platforms" / "vita" / "vita_thread_utils.hpp").read_text(encoding="utf-8")
+if "if (requestedUs <= 0)" not in aurora_thread:
+    fail("Aurora checked delay wrapper must reject every non-positive request")
+if aurora_thread.count("sceKernelDelayThread") != 1:
+    fail("Aurora checked delay wrapper must be the only Aurora delay syscall site")
 
 print("vita delay contract: OK")

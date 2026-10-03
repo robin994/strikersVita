@@ -1,5 +1,6 @@
 #include "port/vita_profiler.h"
 #include "port/config.h"
+#include "port/host.h"
 
 #if defined(PORT_VITA) && defined(STRIKERS_VITA_PROFILER)
 
@@ -158,7 +159,7 @@ void* writerMain(void*)
             return nullptr;
         }
         if (written == 0)
-            sceKernelDelayThread(5000);
+            port_sleep_ns(5000ull * 1000ull);
     }
 
     drainUntilEmpty();
