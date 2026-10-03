@@ -23,6 +23,49 @@
 
 #define PORT_CONFIG_NAME "strikers.ini"
 #define PORT_CONFIG_PREFIX "STRIKERS_"
+#if defined(PORT_VITA)
+#define PORT_VITA_DEFAULTS_BEGIN "# --- STRIKERS VALIDATED DEFAULTS BEGIN ---"
+#define PORT_VITA_DEFAULTS_END "# --- STRIKERS VALIDATED DEFAULTS END ---"
+#define PORT_VITA_DEFAULTS_REVISION "2026-10-03-async-gx-stable"
+
+typedef struct VitaDefaultConfigEntry
+{
+    const char* key;
+    const char* value;
+} VitaDefaultConfigEntry;
+
+// Single source of truth for hardware-validated Vita defaults. When a setting
+// is validated on hardware, update it here; the managed strikers.ini block is
+// regenerated from this table on every launch.
+static const VitaDefaultConfigEntry s_vita_defaults[] = {
+    { "benchmark", "1" },
+    { "benchmark_seconds", "60" },
+    { "bench_record", "ux0:data/strikersVita/bench-nolog-gxthread2-1.csv" },
+    { "cpu_mhz", "500" },
+    { "gpu_mhz", "222" },
+    { "gxm_shader_profile", "WARM" },
+    { "gxm_streamed_vertex_gpu", "0" },
+    { "gxm_disable", "0x8" },
+    { "task_profile", "1" },
+    { "gxm_dl_shadow", "0" },
+    { "vita_core3", "auto" },
+    { "vita_core3_max_total_pct", "70" },
+    { "vita_core3_guard_pct", "5" },
+    { "vita_core3_window_ms", "100" },
+    { "vita_core3_chunk_target_us", "250" },
+    { "vita_core3_sample_us", "10000" },
+    { "gxm_bp_cache", "0" },
+    { "gxm_fragment_prepare_cache", "1" },
+    { "gxm_fixed_uniform_pool", "1" },
+    { "gxm_geometry_preflight", "1" },
+    { "task_profile_buffered", "1" },
+    { "vita_skin_packets", "0" },
+    { "vita_packet_profile_period", "16" },
+    { "gxm_local_draw_batching", "0" },
+    { "diagnostics", "0" },
+    { "fps_overlay", "0" },
+};
+#endif
 
 static char s_path[1024];
 static int s_loaded;
@@ -86,6 +129,106 @@ static int exists(const char* path)
     fclose(f);
     return 1;
 }
+
+#if defined(PORT_VITA)
+static int line_is_marker(const char* line, const char* marker)
+{
+    const size_t n = strlen(marker);
+    while (*line == ' ' || *line == '\t')
+        line++;
+    if (strncmp(line, marker, n) != 0)
+        return 0;
+    line += n;
+    return *line == '\0' || *line == '\r' || *line == '\n';
+}
+
+static int write_vita_default_block(FILE* f)
+{
+    if (fprintf(f, "%s\n", PORT_VITA_DEFAULTS_BEGIN) < 0 ||
+        fprintf(f, "# profile_revision = %s\n", PORT_VITA_DEFAULTS_REVISION) < 0 ||
+        fprintf(f, "# Managed automatically. Put custom overrides outside this block.\n") < 0)
+        return -1;
+    for (size_t i = 0; i < sizeof s_vita_defaults / sizeof s_vita_defaults[0]; ++i)
+    {
+        if (fprintf(f, "%s = %s\n", s_vita_defaults[i].key, s_vita_defaults[i].value) < 0)
+            return -1;
+    }
+    return fprintf(f, "%s\n", PORT_VITA_DEFAULTS_END) < 0 ? -1 : 0;
+}
+
+static int refresh_vita_default_config(const char* path)
+{
+    char temp[1100];
+    char line[1024];
+    FILE* in = fopen(path, "rb");
+    FILE* out;
+    int managed = 0;
+    int copied = 0;
+
+    if (snprintf(temp, sizeof temp, "%s.tmp", path) >= (int)sizeof temp)
+        return -1;
+    remove(temp);
+    out = fopen(temp, "wb");
+    if (out == NULL)
+    {
+        if (in != NULL)
+            fclose(in);
+        return -1;
+    }
+
+    // Preserve every user-owned line and drop the old managed block. Lines
+    // after a previous block are moved before the regenerated defaults, so
+    // they remain effective overrides with the loader's first-value-wins rule.
+    if (in != NULL)
+    {
+        while (fgets(line, (int)sizeof line, in) != NULL)
+        {
+            if (line_is_marker(line, PORT_VITA_DEFAULTS_BEGIN))
+            {
+                managed = 1;
+                continue;
+            }
+            if (managed)
+            {
+                if (line_is_marker(line, PORT_VITA_DEFAULTS_END))
+                    managed = 0;
+                continue;
+            }
+            if (fputs(line, out) == EOF)
+            {
+                fclose(in);
+                fclose(out);
+                remove(temp);
+                return -1;
+            }
+            copied = 1;
+        }
+        fclose(in);
+    }
+
+    if (copied && fputc('\n', out) == EOF)
+    {
+        fclose(out);
+        remove(temp);
+        return -1;
+    }
+    {
+        const int writeFailed = write_vita_default_block(out) != 0;
+        const int closeFailed = fclose(out) != 0;
+        if (writeFailed || closeFailed)
+        {
+            remove(temp);
+            return -1;
+        }
+    }
+    if (rename(temp, path) != 0)
+    {
+        remove(temp);
+        return -1;
+    }
+    return 0;
+}
+#endif
 
 // Trim ASCII whitespace in place, returning the new start.
 static char* trim(char* s)
@@ -345,8 +488,15 @@ static int load_config(void)
     if (haveDir)
     {
         snprintf(s_path, sizeof s_path, "%s/%s", dir, PORT_CONFIG_NAME);
+#if defined(PORT_VITA)
+        if (refresh_vita_default_config(s_path) == 0)
+            return load_file(s_path);
+        fprintf(stderr, "[port] could not refresh default Vita config at %s\n", s_path);
+        return -1;
+#else
         if (exists(s_path))
             return load_file(s_path);
+#endif
     }
 
     snprintf(s_path, sizeof s_path, "%s", PORT_CONFIG_NAME);
