@@ -521,6 +521,7 @@ static void ResourceAllocRelease(int level)
  * Offset/Address/Size: 0x440 | 0x801B6D68 | size: 0xB4
  */
 #if defined(STRIKERS_VITA)
+extern "C" void aurora_vita_prepare_memory_write(const void* address, size_t bytes) noexcept;
 extern "C" void aurora_vita_notify_memory_write(const void* address, size_t bytes) noexcept;
 static void* glplatResourceAllocRaw(unsigned long size, eGLMemory memType);
 /* Resource and frame arenas are reused (marker release, double-buffered
@@ -530,7 +531,10 @@ void* glplatResourceAlloc(unsigned long size, eGLMemory memType)
 {
     void* block = glplatResourceAllocRaw(size, memType);
     if (block != NULL && size != 0)
+    {
+        aurora_vita_prepare_memory_write(block, size);
         aurora_vita_notify_memory_write(block, size);
+    }
     return block;
 }
 static void* glplatResourceAllocRaw(unsigned long size, eGLMemory memType)
@@ -702,9 +706,15 @@ void glplatFrameAllocNextFrame()
 #if defined(STRIKERS_VITA)
     // Everything the new frame half held is rewritten this frame.
     if (n_frame[newFrame][0] != 0)
+    {
+        aurora_vita_prepare_memory_write((const void*)p_frame[newFrame][0], n_frame[newFrame][0]);
         aurora_vita_notify_memory_write((const void*)p_frame[newFrame][0], n_frame[newFrame][0]);
+    }
     if (n_frame[newFrame][1] != 0)
+    {
+        aurora_vita_prepare_memory_write((const void*)p_frame[newFrame][1], n_frame[newFrame][1]);
         aurora_vita_notify_memory_write((const void*)p_frame[newFrame][1], n_frame[newFrame][1]);
+    }
 #endif
     n_frame[newFrame][0] = 0;
     n_frame[newFrame][1] = 0;

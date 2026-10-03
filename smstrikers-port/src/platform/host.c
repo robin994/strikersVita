@@ -20,7 +20,12 @@ unsigned long long port_monotonic_ns(void)
 
 void port_sleep_ns(unsigned long long ns)
 {
-    unsigned long long us = (ns + 999ull) / 1000ull;
+    if (ns == 0)
+        return;
+
+    unsigned long long us = ns / 1000ull;
+    if ((ns % 1000ull) != 0)
+        ++us;
     if (us > 0xFFFFFFFFull)
         us = 0xFFFFFFFFull;
     sceKernelDelayThread((unsigned int)us);
@@ -28,7 +33,10 @@ void port_sleep_ns(unsigned long long ns)
 
 void port_yield(void)
 {
-    sceKernelDelayThread(0);
+    // The frame limiter uses this only for its final short spin. Vita rejects
+    // a zero-duration delay syscall, so use the ARM yield hint instead of issuing an
+    // invalid syscall thousands of times per second.
+    __asm__ volatile("yield" ::: "memory");
 }
 
 void* port_aligned_alloc(size_t alignment, size_t size)

@@ -52,4 +52,6 @@ if(UNIX)
     add_test(NAME vita_pad COMMAND vita_pad_test)
     add_test(NAME tool_switch_rebuild
              COMMAND python3 "${CMAKE_CURRENT_SOURCE_DIR}/../tools/test_switch_rebuild.py")
+    add_test(NAME tool_vita_delay_contract
+             COMMAND python3 "${CMAKE_CURRENT_SOURCE_DIR}/vita_delay_contract_test.py")
 endif()

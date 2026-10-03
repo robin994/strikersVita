@@ -13,9 +13,12 @@
 #include "port/region.h"
 
 #if defined(STRIKERS_VITA) && defined(PORT_USE_AURORA)
+extern void aurora_vita_prepare_memory_write(const void* address, size_t bytes);
 extern void aurora_vita_notify_memory_write(const void* address, size_t bytes);
+#define PORT_AURORA_MEMORY_PREPARE(addr, bytes) aurora_vita_prepare_memory_write((addr), (bytes))
 #define PORT_AURORA_MEMORY_WRITE(addr, bytes) aurora_vita_notify_memory_write((addr), (bytes))
 #else
+#define PORT_AURORA_MEMORY_PREPARE(addr, bytes) ((void)0)
 #define PORT_AURORA_MEMORY_WRITE(addr, bytes) ((void)0)
 #endif
 
@@ -123,7 +126,7 @@ void DCStoreRangeNoSync(void* addr, u32 nBytes) { PORT_AURORA_MEMORY_WRITE(addr,
 /* GameCube code invalidates a range because something other than the CPU
  * (DVD/ARAM DMA) replaced it: treat it as a write for Aurora's caches. */
 void DCInvalidateRange(void* addr, u32 nBytes) { PORT_AURORA_MEMORY_WRITE(addr, nBytes); }
-void DCZeroRange(void* addr, u32 nBytes) { memset(addr, 0, nBytes); PORT_AURORA_MEMORY_WRITE(addr, nBytes); }
+void DCZeroRange(void* addr, u32 nBytes) { PORT_AURORA_MEMORY_PREPARE(addr, nBytes); memset(addr, 0, nBytes); PORT_AURORA_MEMORY_WRITE(addr, nBytes); }
 void LCEnable(void) {}
 void LCDisable(void) {}
 void PPCSync(void) { __sync_synchronize(); }

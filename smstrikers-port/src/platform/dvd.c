@@ -643,6 +643,7 @@ BOOL DVDOpen(const char* fileName, DVDFileInfo* fileInfo)
 
 static s32 dvd_read_raw(const DvdEntry* e, void* addr, s32 length, s32 offset);
 #if defined(PORT_VITA)
+extern void aurora_vita_prepare_memory_write(const void* address, size_t bytes);
 extern void aurora_vita_notify_memory_write(const void* address, size_t bytes);
 #endif
 /* Disc reads replace guest memory behind the CPU. Publish them like a
@@ -650,6 +651,10 @@ extern void aurora_vita_notify_memory_write(const void* address, size_t bytes);
  * never keep serving the previous contents of a reused buffer. */
 static s32 dvd_read(const DvdEntry* e, void* addr, s32 length, s32 offset)
 {
+#if defined(PORT_VITA)
+    if (addr != NULL && length > 0)
+        aurora_vita_prepare_memory_write(addr, (size_t)length);
+#endif
     const s32 got = dvd_read_raw(e, addr, length, offset);
 #if defined(PORT_VITA)
     if (got > 0)
