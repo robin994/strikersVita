@@ -10,6 +10,7 @@
 #include "dolphin/types.h"
 #include "port/config.h"
 #include "port/disc.h"
+#include "port/asset_archive.h"
 #include "port/fatal.h"
 #include "port/host.h"
 #include "port/disc_reader.h"
@@ -75,7 +76,7 @@ typedef struct
 {
     char* path;   // path as the game spells it, lowercased, '/'-separated
     char* host;   // full host path, or NULL when the bytes are in an image
-    u32 offset;   // byte offset into the image; unused for a host file
+    u32 offset;   // image byte offset or PSARC entry index; unused for a host file
     u32 length;
 } DvdEntry;
 
@@ -85,6 +86,7 @@ static int s_cap;
 static char s_root[1024];
 // Non-NULL when the data is a disc image rather than a directory.
 static PortDisc* s_disc;
+static PortAssetArchive* s_archive;
 
 static int is_fen_mapping_probe(const char* path)
 {
@@ -121,6 +123,10 @@ static u32 fen_mapping_fingerprint(const DvdEntry* entry)
             }
             got = (long)fread(buffer, 1, want, f);
             fclose(f);
+        }
+        else if (s_archive != NULL)
+        {
+            got = port_asset_archive_read(s_archive, entry->offset, buffer, want, pos);
         }
         else
         {
@@ -169,7 +175,7 @@ static void log_fen_mapping_probes(void)
         OSReport("[dvd-fen] map path=%s idx=%d off=%#x len=%u fnv=%08x source=%s\n",
                  e->path, found, (unsigned)e->offset, (unsigned)e->length,
                  (unsigned)fen_mapping_fingerprint(e),
-                 e->host != NULL ? "host" : "image");
+                 e->host != NULL ? "host" : s_archive != NULL ? "PSARC" : "image");
     }
 }
 
@@ -326,6 +332,41 @@ static void open_image(const char* path)
         image_fatal(path, "That image contains no files at all.");
 }
 
+// The archive keeps the extracted layout: files/... plus sys/boot.bin.
+// Entry indices stay internal; DVDOpen and callbacks retain their SDK contract.
+static void open_archive(const char* path)
+{
+    char err[2048];
+    s_archive = port_asset_archive_open(path, err, sizeof err);
+    if (s_archive == NULL) image_fatal(path, err);
+    int boot = port_asset_archive_find(s_archive, "sys/boot.bin");
+    if (boot < 0 || port_asset_archive_read(s_archive, (unsigned)boot, s_disk_id,
+                                          sizeof s_disk_id, 0) != sizeof s_disk_id)
+        image_fatal(path, "The asset archive has no readable sys/boot.bin disc identity.");
+    s_disk_id_read = 1;
+    snprintf(s_root, sizeof s_root, "%s", path);
+    for (unsigned i = 0; i < port_asset_archive_count(s_archive); ++i)
+    {
+        const char* name = port_asset_archive_path(s_archive, i);
+        if (strncmp(name, "files/", 6) != 0) continue;
+        uint64_t size = port_asset_archive_size(s_archive, i);
+        if (size > UINT32_MAX) image_fatal(path, "An archive file exceeds the DVD 32-bit size limit.");
+        add_entry(name + 6, NULL, i, (u32)size);
+    }
+    if (s_count == 0) image_fatal(path, "The asset archive contains no files/ game data.");
+}
+
+static void open_data_file(const char* path)
+{
+    unsigned char magic[4];
+    FILE* f = fopen(path, "rb");
+    int archive = f && fread(magic, 1, sizeof magic, f) == sizeof magic &&
+                  memcmp(magic, "PSAR", 4) == 0;
+    if (f) fclose(f);
+    if (archive) open_archive(path);
+    else open_image(path);
+}
+
 // A path names an image if it is a file rather than a directory.
 static int is_regular_file(const char* path)
 {
@@ -355,7 +396,7 @@ static void pick_image(void* user, const char* name)
 #define DVD_SENTINEL "common.ini"
 
 // The paths tried, in the order tried, so the message can name them.
-#define DVD_MAX_TRIED 6
+#define DVD_MAX_TRIED 9
 
 void DVDInit(void)
 {
@@ -370,6 +411,15 @@ void DVDInit(void)
     // too late; this runs *before* main.
     PortConfigLoad();
 
+    // Explicit opt-in takes precedence over the Vita's canonical sms.iso.
+    const char* archive = getenv("STRIKERS_ASSET_ARCHIVE");
+    if (archive != NULL && *archive != '\0')
+    {
+        snprintf(tried[nTried], sizeof tried[0], "%s", archive);
+        triedWhy[nTried++] = "asset_archive in strikers.ini";
+        open_archive(archive);
+    }
+
 #if defined(PORT_VITA)
     // Vita release layout: prefer the user's own GameCube image at the fixed
     // application-data path.  Keeping one canonical filename avoids scanning
@@ -379,7 +429,7 @@ void DVDInit(void)
         static const char vitaIso[] = "ux0:data/strikersVita/sms.iso";
         snprintf(tried[nTried], sizeof tried[0], "%s", vitaIso);
         triedWhy[nTried++] = "the Vita sms.iso game disc";
-        if (is_regular_file(vitaIso))
+        if (s_count == 0 && is_regular_file(vitaIso))
             open_image(vitaIso);
     }
 
@@ -410,7 +460,7 @@ void DVDInit(void)
         snprintf(tried[nTried], sizeof tried[0], "%s", s_root);
         triedWhy[nTried++] = why;
         if (is_regular_file(s_root))
-            open_image(s_root);   // never returns if it is not a usable image
+            open_data_file(s_root);   // never returns if it is not usable data
         else
             scan(s_root, "");
     }
@@ -463,7 +513,9 @@ void DVDInit(void)
         scan(s_root, "");
     }
 
-    if (s_disc != NULL)
+    if (s_archive != NULL)
+        fprintf(stderr, "[port] DVD: %d files in %s (PSARC 1.4)\n", s_count, s_root);
+    else if (s_disc != NULL)
         fprintf(stderr, "[port] DVD: %d files in %s (%s image)\n", s_count,
                 s_root, port_disc_format(s_disc));
     else
@@ -769,9 +821,14 @@ s32 DVDReadAsyncPrio(DVDFileInfo* fileInfo, void* addr, s32 length, s32 offset,
 
     if (is_fen_mapping_probe(e->path))
     {
-        OSReport("[dvd-fen] read path=%s idx=%u file_off=%d len=%d iso_off=%#llx\n",
-                 e->path, (unsigned)fileInfo->startAddr, (int)offset, (int)length,
-                 (unsigned long long)e->offset + (offset >= 0 ? (unsigned)offset : 0));
+        if (s_archive != NULL)
+            OSReport("[dvd-fen] read path=%s idx=%u file_off=%d len=%d archive_idx=%u\n",
+                     e->path, (unsigned)fileInfo->startAddr, (int)offset, (int)length,
+                     (unsigned)e->offset);
+        else
+            OSReport("[dvd-fen] read path=%s idx=%u file_off=%d len=%d iso_off=%#llx\n",
+                     e->path, (unsigned)fileInfo->startAddr, (int)offset, (int)length,
+                     (unsigned long long)e->offset + (offset >= 0 ? (unsigned)offset : 0));
     }
 
     // The SDK contract is boolean: TRUE means the command was accepted and its
@@ -887,7 +944,11 @@ static s32 dvd_read_raw(const DvdEntry* e, void* addr, s32 length, s32 offset)
     const u32 requested = (u32)length;
     const u32 expected = requested < remaining ? requested : remaining;
     s32 got = -1;
-    if (s_disc != NULL)
+    if (s_archive != NULL)
+    {
+        got = (s32)port_asset_archive_read(s_archive, e->offset, addr, expected, at);
+    }
+    else if (s_disc != NULL)
     {
         // Do not cross into the following file in an image. The GameCube code
         // may round its final transfer to 32 bytes, so only the bytes remaining

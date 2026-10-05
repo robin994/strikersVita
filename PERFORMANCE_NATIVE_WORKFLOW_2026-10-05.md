@@ -9,8 +9,22 @@ match its preserved ELF. GPU_INFO contains a BIF memory fault on page
 `0x72e14000`, inside a 16 KiB `aurora-gxm` allocation. No CPU thread has an
 exception stop reason. The GX thread was allocating a geometry buffer, but an
 asynchronous GPU fault cannot be attributed to that CPU call alone.
-**The root cause remains unresolved. Performance comparison is suspended.**
+The vertex-program refresh path has since been corrected: it retained stale CPU
+and GPU draw recipes when XF channel/texgen state changed without a base-pipeline
+generation change. A new transition test fails before the patch and passes after
+it. The new SELF `be6d1a0e…` completed the play-frame-60 screenshot and a validated
+1,200-frame live-play capture on Vita without a new dump. A second long run without
+screenshot also completed 1,200 live-play frames: three sessions, 2,580 samples.
+The original dump still cannot be causally tied to an individual draw;
+the matched candidate/reference performance comparison remains pending.
 See [GPU crash analysis](GPU_CRASH_ANALYSIS_2026-10-05.md) for evidence and limits.
+
+The subsequent asset-pipeline build adds a verified stored PSARC backend and a
+reusable host preparation tool, retaining that renderer fix. Its distinct SELF,
+archive identity, source checks and hardware evidence are recorded in
+[Asset pipeline status](ASSET_PIPELINE_STATUS_2026-10-05.md). Archive storage
+savings must not be treated as a gameplay FPS improvement or as completion of
+the pending native texture/geometry compiler.
 
 
 The bounded source changes below pass local validation; device acceptance is
@@ -22,15 +36,17 @@ captures exposed that renderer scene state includes the stadium introduction;
 they are excluded from gameplay performance claims. A corrected collector uses
 GS_GAMEPLAY/GS_OVERTIME and a monotonic live-play counter. The corrected candidate
 was installed and byte-verified, then produced the reported GPU crash. No
-live-play CSV or play-frame snapshot was generated for that run. No final FPS,
-speedup or fullspeed result is established yet. LOD was not changed. The user
+live-play CSV or play-frame snapshot was generated for that original run. The
+post-fix snapshot run measured 23.923 frame/s in its sampled live-play interval;
+the second run without screenshot measured 24.932 frame/s.
+No matched speedup or fullspeed result is established yet. LOD was not changed. The user
 requested a source snapshot push with these device-validation caveats retained.
 
 The request follows `PERFORMANCE_CPU_TRACE_2026-10-05.md`; those CPU changes remain
 in this candidate. All results distinguish host checks, installed bytes, actual
 executed graphics build and current live-play comparison.
 
-## Source and artifact identity
+## Original crash-producing source and artifact identity
 
 - Root base at build time: `369c539dd7a5fc27f82e0a52c8b3df49773c8a40`, with the source changes in this delivery.
 - Embedded Aurora base at build time: `910c4b89977652a8e3770c1f5e256fc87758db5a`, with the source changes in this delivery.
@@ -49,8 +65,11 @@ limitations and comparison configuration. The original INI was restored once
 after the first interruption, then temporarily overridden for the current test.
 After downloading the crash evidence, the original INI was restored and its
 readback matched `7cb8317f…` (`config-restored-after-gpu-crash/`). The crash-producing
-candidate binary remains installed; the original binary and INI remain backed
-up locally and on FTP. Build artifacts, dumps, logs and retail assets are local
+candidate binary was replaced by the post-fix build `1.3.0-gpu-fix-20261005`,
+SELF `be6d1a0ebe17889181ff1de623c63e1864a81a9df3227be46d83f209ba9d643f`.
+Its exact symbols, source patch and hardware sessions are under
+`ab-artifacts/gpu-fix-20261005/`; see the GPU report for identities and test limits.
+The original binary and INI remain backed up locally and on FTP. Build artifacts, dumps, logs and retail assets are local
 ignored files and are not part of the source push.
 
 ## Adapting the Monster Hunter workflow

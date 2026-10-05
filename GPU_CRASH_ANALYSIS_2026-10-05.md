@@ -1,8 +1,14 @@
 # Strikers Vita: dump GPU del 5 ottobre 2026
 
-Il dump conferma un **fault di memoria GPU in Strikers**. Il problema non è
-ancora corretto: la lettura dei registri identifica la pagina coinvolta, ma non
-il draw o il buffer logico che ha causato l'accesso. Il confronto FPS resta sospeso.
+Il dump conferma un **fault di memoria GPU in Strikers**. L'analisi dei sorgenti
+ha individuato e corretto un'invalidazione incompleta delle recipe dei vertici.
+Il test di regressione fallisce prima della patch e passa dopo; la nuova build
+ha completato su Vita il percorso con screenshot al play-frame 60 e 1.200 frame
+di gioco campionati senza un nuovo dump. Anche il secondo test lungo, senza
+screenshot, ha completato 1.200 frame: **tre sessioni, 2.580 campioni live-play**.
+Il dump identifica la pagina coinvolta, ma non il draw responsabile: il legame
+causale tra il fault originale e il difetto corretto resta un'ipotesi.
+Il confronto delle prestazioni tra candidato e riferimento resta da completare.
 
 ## Identità verificata
 
@@ -72,21 +78,110 @@ dei buffer GPU né l'identità del draw responsabile. Il log memoria recuperato
 è cumulativo e privo di identità di sessione: non viene usato per attribuire
 esaurimento memoria al run del crash.
 
-## Stato della console e prossima diagnosi
+## Conservazione del dump originale
 
 Il dump, i registri estratti, l'eboot, l'INI del crash e i simboli sono conservati
 localmente in `ab-artifacts/native-workflow-20261005/gpu-crash-1791191504/`.
 Questa directory è ignorata da Git; il push pubblica il report e i sorgenti,
 senza dump, binari, log o dati retail.
 
-L'INI originale è stato ripristinato e letto nuovamente via FTP: SHA256
+Al termine della prima analisi l'INI originale era stato ripristinato e letto via FTP: SHA256
 `7cb8317f6e1f77347d6cf3ba8bb3afb69eb251bffbc92678e6b00481109f8b50`.
-Il candidato che ha prodotto il crash rimane installato; il binario precedente
-è conservato localmente e nei backup FTP. Nessuna nuova partita è stata avviata
-dopo l'analisi per dichiarare il problema risolto.
+Il candidato originale e il binario precedente restano conservati localmente
+e nei backup FTP. La nuova build descritta sotto sostituisce il candidato del crash.
 
-La prossima verifica deve associare allocazione, mapping, vita GPU e draw al
-fault: prima un run controllato con i percorsi di riferimento, poi abilitazioni
-separate e registrazione degli indirizzi dei buffer. Eventuali check degli
-indici devono coprire anche Release. Un risultato senza crash in un singolo
-run non basta a identificare la causa o a dimostrare le prestazioni.
+## Difetto riprodotto e patch
+
+I registri XF dei canali colore e dei texgen possono aggiornare
+`vertexProgramStateGeneration` senza cambiare `pipelineStateGeneration`.
+Il ramo di aggiornamento parziale di `DrawSink::submit` rinfrescava il programma
+dei vertici ma conservava `cpuRecipe_` e `gpuRecipe_`. Le informazioni derivate
+su attributi, stride e semantiche da decodificare potevano quindi descrivere
+il programma precedente.
+
+La regressione alterna otto volte il materiale del canale 0 tra registro e
+colore del vertice, mantenendo invariata la generazione della pipeline base.
+Il programma richiede alternativamente uno stride di 16 e 20 byte. Prima della
+patch: **30.891 check, 8 errori**, con layout e dimensione della geometria non
+coerenti con i requisiti del programma. Dopo la patch: **30.891 check, 0 errori**.
+
+La correzione ricostruisce la recipe CPU e invalida quella GPU quando cambia
+la generazione del programma dei vertici. Il ramo esistente ricalcola quindi
+layout e recipe GPU dopo avere applicato i flag di espansione della primitiva.
+Le ottimizzazioni materiali, texture, uniform, cache geometrica e GX asincrono
+restano attive. Il reset dello stato GXM per BeginScene è conservato.
+
+Non si deduce da questa regressione un accesso oltre il buffer nel draw del
+dump: i controlli di creazione delle pipeline possono respingere alcuni layout
+obsoleti. La patch corregge un difetto verificato; il dump originale non contiene
+gli indici, i buffer o l'identità del draw necessari per una prova causale completa.
+
+## Nuova build e verifiche
+
+| Elemento | Identità |
+| --- | --- |
+| Versione | `1.3.0-gpu-fix-20261005` |
+| Base sorgente principale | `fcbc550ca7a4c3931c31078e53ddff301750360e` |
+| Base Aurora | `39fb53e916f00036a20ddd734de960d6b40554fd`, più patch locale conservata |
+| SELF installato e letto via FTP | `be6d1a0ebe17889181ff1de623c63e1864a81a9df3227be46d83f209ba9d643f` |
+| ELF conservato | `c366c03e27937d1321c9322c59437cafa9051dd873931ba0d9cc18bec96b616d` |
+| Map conservata | `961ff94e12571d752e9acf77ee35246c2a37cd10809aaa60b5ef20893a10b687` |
+| VELF conservato | `33352b8cc59f8da236231421b900337edea482e9cf5f28323e7f4c2523547a90` |
+| VPK | `b8310600014f59bc9ebcbd7b06e19f84258769ef5a91653b609a660b03679f80` |
+
+Artefatti e manifest: `ab-artifacts/gpu-fix-20261005/fix-1/`. Il manifest
+conserva patch, hash dei sorgenti, opzioni, SELF e simboli. L'installazione usa
+upload temporaneo, confronto dei byte, rinomina e verifica della rilettura.
+
+- Suite Aurora: **16/16 pass**.
+- Regressione frontend sotto ASan/UBSan: **30.891 check, 0 errori**.
+- Audit ELF/map: **12.686 simboli eseguibili**, GXM nativo, nessun GL/vgl/vita2d.
+- Build Release completa e VPK generato; GX asincrono ON, geometria statica 8 MiB.
+
+| Sessione hardware | SELF | Impostazioni | Cattura verificata |
+| --- | --- | --- | --- |
+| `gpu-reference-all-1` | `0563a5c5…` | mask `0x70008`, diagnostica ON, nessuno screenshot | 180 frame live-play, 0–179; log raggiunge present 8192, nessun nuovo dump osservato |
+| `gpu-fix-diag-1` | `be6d1a0e…` | mask `0x8`, diagnostica ON, nessuno screenshot | 180 frame live-play, 0–179; campo, giocatori e HUD osservati via USB |
+| `gpu-fix-snapshot-1` | `be6d1a0e…` | mask `0x8`, diagnostica OFF, screenshot play-frame 60, skip iniziale 600 | screenshot salvato e 1.200 frame live-play consecutivi, 600–1799; nessun nuovo dump osservato |
+| `gpu-fix-quiet-1` | `be6d1a0e…` | mask `0x8`, diagnostica OFF, nessuno screenshot, frameskip esplicitamente OFF | 1.200 frame live-play consecutivi, 0–1199; nessun nuovo dump osservato |
+
+Tutti i run usano seed `0x53545249`, `fixed_dt=16.666666667`, overlay OFF,
+CPU effettiva 444 MHz e GPU 222 MHz. Il secondo run lungo senza screenshot
+(`gpu-fix-quiet-1`) è completo. I replay e
+l'introduzione non consumano campioni live-play. I CSV sono scritti una volta
+sola al completamento: un file ancora assente non prova da solo un blocco GPU.
+
+Il run con screenshot misura 23,923 frame/s nel tratto campionato, mediana
+40,431 ms e p95 45,751 ms. Il run senza screenshot misura 24,932 frame/s,
+mediana 39,852 ms e p95 44,733 ms. Non è un confronto A/B della patch e non dimostra
+un raddoppio o fullspeed. Un test senza crash non prova l'assenza di ogni fault:
+in caso di recidiva servono il nuovo dump e i simboli esatti di questa build,
+insieme a diagnostica Release degli indici e dell'identità dei buffer.
+
+Durante il controllo di riferimento FTP ha rifiutato i trasferimenti con
+`550 Could not allocate memory`. Dopo riavvio e ritorno della console online,
+i dati sono stati recuperati e il candidato installato. Questo errore del
+servizio FTP non è stato classificato come un nuovo crash GPU del gioco.
+
+## Impostazioni consegnate
+
+Il nuovo SELF rimane installato. Dopo i test è stato chiuso il gioco e
+ripristinato il contenuto dell'INI originale, aggiungendo soltanto due controlli
+commentati e modificabili prima del blocco gestito:
+
+```ini
+vita_test_match = 0
+vita_frameskip = 0
+```
+
+`vita_test_match=1` avvia la partita automatica CPU contro CPU; `0` conserva
+il frontend normale. `vita_frameskip=1` abilita il catch-up già presente nel
+gioco; `0` lo disattiva. Entrambi richiedono riavvio dell'applicazione. Il
+frameskip è escluso da un `fixed_dt` diverso da zero; per il gioco normale
+lasciare il timestep non impostato oppure usare `fixed_dt=0`.
+La demo originale del menu dopo inattività non è modificata, come richiesto.
+L'INI finale e gli hash riletti sono in `ab-artifacts/gpu-fix-20261005/final-device/`.
+La rilettura finale conferma il SELF `be6d1a0e…` e l'INI SHA256
+`14473a76e92bfc2f8af49be028b2c091d2cd889a6dae0146ba011c9d5051d93a`.
+L'elenco finale dei dump in `ux0:/data/` è vuoto; il dump originale resta nella
+copia locale preservata. Il gioco è stato chiuso al termine dei test.

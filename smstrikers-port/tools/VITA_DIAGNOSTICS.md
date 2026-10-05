@@ -47,3 +47,26 @@ use the frame FPS counter or an external capture for this comparison.
 run both profiles. A manual `STRIKERS_VITA_NO_LOGS=ON` build still prevents logging
 support from being restored by the INI. This switch requires a fresh build;
 existing SELF files do not implement it.
+
+## Automatic test match and frameskip
+
+Both controls already use startup flags in `ux0:data/strikersVita/strikers.ini`.
+Restart the game after changing them. Put overrides before the managed defaults
+block; the configuration uses the first value of a key.
+
+```ini
+vita_test_match = 0
+vita_frameskip = 0
+fixed_dt = 0
+```
+
+`vita_test_match=1` starts the automatic CPU-versus-CPU friendly used in hardware
+tests. `0` keeps the normal frontend. It leaves the original title-screen attract
+demo behavior intact. AI, physics, audio, replay and rendering remain active in
+the test match.
+
+`vita_frameskip=1` enables the existing adaptive gameplay catch-up path. It uses
+wall time for simulation and can discard up to three rendered frames; `0` disables
+it. A nonzero `fixed_dt` disables this path so deterministic benchmarks retain a
+fixed simulation step. Keep frameskip OFF for renderer performance comparisons;
+skipping frames does not establish faster rendering.

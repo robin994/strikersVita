@@ -98,10 +98,13 @@ def main():
             e = fst.find(b"\0", start) if start < len(fst) else -1
             if e < 0:
                 sys.exit(f"{iso}: FST entry {i} names a string outside the table")
-            n = fst[start:e].decode("shift_jis", "replace")
+            try:
+                n = fst[start:e].decode("shift_jis")
+            except UnicodeDecodeError:
+                sys.exit(f"{iso}: FST entry {i} has an invalid Shift-JIS name")
             # One path component and nothing else: the FST decides where the bytes go, and a
             # name of "../x" is a write outside <out>.
-            if n in ("", ".", "..") or "/" in n or "\\" in n:
+            if n in ("", ".", "..") or "/" in n or "\\" in n or ":" in n or any(ord(c) < 32 for c in n):
                 sys.exit(f"{iso}: FST entry {i} is not a plain file name: {n!r}")
             return n
 
@@ -130,6 +133,16 @@ def main():
             span(f"FST entry {i}", off, size)
             plan.append(("file", os.path.join(parent, name(i)), off, size))
             i += 1
+
+        # The port resolves names without case and macOS/Windows can collapse
+        # distinct FST names. Reject these before writing, rather than silently
+        # replacing an asset and verifying only the surviving host file.
+        destinations = set()
+        for _, path, _, _ in plan:
+            key = path.casefold()
+            if key in destinations:
+                sys.exit(f"{iso}: FST paths collide without case: {path}")
+            destinations.add(key)
 
         sysdir = os.path.join(out, "sys")
         make_dir(iso, sysdir)

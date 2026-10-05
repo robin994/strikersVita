@@ -86,6 +86,7 @@ def main():
     p.add_argument("--self", type=Path)
     p.add_argument("--label", default="candidate")
     p.add_argument("--mask", default="0x8")
+    p.add_argument("--asset-archive", help="optional ux0:data/strikersVita/*.psarc for this run")
     p.add_argument("--frames", type=int, default=1200)
     p.add_argument("--skip", type=int, default=600)
     p.add_argument("--visual", action="store_true")
@@ -129,7 +130,8 @@ def main():
         metadata["kill"] = command(args.host, "kill SMSVITA01")
         overrides = {"gxm_disable": args.mask, "gxm_shader_profile": "WARM",
                      "diagnostics": "1" if args.diagnostics else "0", "fps_overlay": "0",
-                     "vita_test_match": "1", "seed": "0x53545249", "fixed_dt": "16.666666667",
+                     "vita_test_match": "1", "vita_frameskip": "0",
+                     "seed": "0x53545249", "fixed_dt": "16.666666667",
                      "frame_capture": DATA.replace(":/", ":") + "/" + args.label + ".csv",
                      "frame_capture_frames": str(args.frames), "frame_capture_match_only": "1",
                      "frame_capture_play_only": "1", "frame_capture_skip": str(args.skip),
@@ -137,6 +139,8 @@ def main():
                      "vita_snapshot_play_frame": str(args.snapshot_frame) if args.visual and args.play_snapshot else "0"}
         if args.diagnostics:
             overrides["log"] = DATA.replace(":/", ":") + "/" + args.label + ".log"
+        if args.asset_archive is not None:
+            overrides["asset_archive"] = args.asset_archive
         original = (args.baseline / "strikers.ini").read_bytes()
         metadata["config"] = overrides
         metadata["ini"] = promote(ftp, DATA, "strikers.ini", ini(original, overrides), args.out)

@@ -1,0 +1,155 @@
+# Reusable asset preparation and Strikers PSARC support
+
+Implemented 2026-10-05. Source analysis and attribution:
+[asset_pipeline/UPSTREAM.md](asset_pipeline/UPSTREAM.md).
+
+The pipeline extracts the disc's live filesystem, removes duplicate payloads,
+packages a single PSARC and checks every archived file against its source using
+SHA-256. It keeps original paths, game identity, byte order, movies, sound and
+texture/model payloads. No disc padding is copied. Stored blocks avoid adding
+decompression work to the Vita CPU. The generated archive contains local game
+data and must stay outside Git and VPK packages.
+The host tool requires Python 3.10 or newer and no third-party Python packages.
+PSARC is the preferred Vita asset package for normal gameplay. The ISO remains
+the host-side source for rebuilding and validating the archive.
+
+## Prepare Strikers
+
+Run from the repository root, using the user's own plain ISO/GCM:
+
+```sh
+python3 smstrikers-port/tools/vita_prepare_assets.py \
+  --profile strikers --iso sms.iso \
+  --output ab-artifacts/asset-pipeline-20261005/sms.psarc
+```
+
+Supported Strikers identities: G4QE01, G4QP01, G4QJ01. Compressed disc inputs
+must first be converted to a plain ISO/GCM. Existing outputs are refused unless
+`--replace` is supplied. The source ISO is never overwritten. Work happens in a
+private temporary directory; a failed conversion does not replace a previous
+archive. A JSON report beside the archive records source identity, archive
+identity, inventory, deduplication and per-file size/SHA-256. Only the temporary
+directory created by that invocation is removed.
+
+The archive needs a build that includes `src/platform/asset_archive.c` and the
+DVD adapter. Older Strikers builds cannot mount it. Copy `sms.psarc` to
+`ux0:data/strikersVita/sms.psarc` and add this outside the managed INI block,
+before any other occurrence of the key:
+
+```ini
+asset_archive = ux0:data/strikersVita/sms.psarc
+```
+
+Restart the game. This explicit key takes precedence over the Vita's default
+`sms.iso`. Startup reports `(PSARC 1.4)` and the original region identity. With
+an ISO/folder fallback installed, removing the key selects that backend. The
+source ISO and saves need no changes. An explicitly selected invalid archive fails with an error;
+it does not silently switch data sources. Desktop `data=/path/to/sms.psarc`
+also recognizes the PSAR header.
+
+### Storage and normal gameplay
+
+For the verified G4QP01 disc, `sms.psarc` occupies 623,698,090 bytes instead of
+the ISO's 1,459,978,240 bytes: 836,280,150 bytes less, a 57.28% reduction. This
+comes from removing disc padding and sharing identical payloads; original game
+files remain byte-identical. The current packer stores blocks without runtime
+decompression.
+
+Use the archive selector above for normal gameplay. It does not require the
+automatic test match or frameskip; those remain independent INI controls:
+
+```ini
+asset_archive = ux0:data/strikersVita/sms.psarc
+vita_test_match = 0
+vita_frameskip = 0
+```
+
+Keeping both `sms.iso` and `sms.psarc` on the memory card consumes space for both.
+After archive verification and hardware validation, an ISO-only fallback copy
+can be kept on the host instead. The conversion tool never deletes either the
+source ISO or an installed copy. The measured archive size reduction is not an
+FPS claim; the hardware comparison is recorded in
+[ASSET_PIPELINE_STATUS_2026-10-05.md](../../ASSET_PIPELINE_STATUS_2026-10-05.md).
+
+The PSARC contains `files/...` and `sys/...`; DVD indexing exposes only paths
+under `files/`. Region and save-card identity come from `sys/boot.bin`. DVD
+reads clamp to each logical file, and retain callbacks, error states, alignment
+handling and Aurora memory invalidation. A stored file uses one positional read
+for each DVD request, independent of the archive's 64 KiB block boundaries.
+The Vita uses `sceIoPread`; host streams are locked for seek/read operations.
+
+## Reuse in other ports
+
+For another plain GameCube disc, preserving its entire extracted layout:
+
+```sh
+python3 smstrikers-port/tools/vita_prepare_assets.py \
+  --profile gamecube --iso /path/to/own-disc.iso \
+  --output /path/to/own-disc.psarc
+```
+
+For existing asset directories from any engine:
+
+```sh
+python3 smstrikers-port/tools/vita_prepare_assets.py \
+  --profile generic --root /path/to/files --root /path/to/sys \
+  --output /path/to/game-data.psarc
+```
+
+Each root's basename becomes its archive prefix. Root names must be unique
+without case. Output must be outside all input trees. Symlinks, unsafe paths and
+names that collide without case are rejected. Extraction also checks for FST
+name collisions before writing, preventing silent file replacement on macOS or
+Windows. Use `--no-dedup` for a reference archive with separate payloads.
+
+`asset_pipeline/psarc.py` is the game-independent container layer. It can be
+copied with its CC0 license/provenance files. `asset_pipeline/adapters.py` owns
+game discovery and validation; the current GameCube adapter invokes the existing
+`extract-disc.py`, which must accompany it. A new engine's adapter should emit
+validated roots and game-specific metadata, leaving the container code alone.
+
+The C reader and `include/port/asset_archive.h` can be reused without Strikers,
+GX or FIOS. Another port must connect its own file APIs to this reader; producing
+a PSARC alone does not make an existing port load it. The reader accepts PSARC
+1.4, zlib-tagged 64 KiB blocks, relative manifests and flag 0 or 1. Stored
+archives need no zlib library. Compressed blocks need `STRIKERS_ZLIB` and zlib.
+Limits: 65,536 TOC entries including the manifest, 32 MiB TOC and 8 MiB path
+manifest. Case-insensitive runtime lookup folds ASCII. Other PSARC codecs,
+encryption, absolute-path manifests and flags are rejected. Entry path digests
+are validated by the host verifier; runtime indexing uses the validated path
+manifest and does not use MD5 lookup.
+
+## What transfers from RE4
+
+Implemented here: ISO extraction, removal of padding, identical-content
+deduplication, PSARC packing, complete source round-trip validation, retained
+disc identity, selectable runtime archive reads, reusable container/reader and
+separate game adapters.
+
+RE4's native-room compiler consumes SMD/BIN/TPL and emits VRM/VRT files used by
+its own renderer. Strikers consumes GLG packets, GLT bundles and its own
+animation/material structures. Those conversions cannot be applied to Strikers
+by replacing a filename or byte-swapping every file. A Strikers native compiler
+must preserve animated/deformed meshes, TEV semantics, palette/mip behavior and
+resource retirement, and provide a matching Aurora consumer. This change does
+not implement that renderer path. All original assets remain available, and
+the adapter interface provides the preparation stage for a future compiler.
+
+Storage savings and fewer host filesystem opens are useful, but no gameplay FPS
+gain follows from packaging alone. Native texture/geometry compilation is a
+separate source of possible runtime gains. Do not use archive size as an FPS
+claim.
+
+## Validation
+
+`tool_vita_assets` exercises stored and independently built compressed archives,
+deduplication/hardlinks, deterministic output, full source comparison, source
+mutation, case collisions, symlinks, malformed/truncated tables, corrupt streams,
+the Strikers ISO adapter, and the actual C reader/DVD callbacks. The host
+contract suite includes this test. `asset_archive_probe` can additionally read
+an archive against a complete extracted tree, comparing every payload and
+checking partial reads at the file end. The same checks were run with ASan/UBSan.
+
+Real-disc conversion results and bounded hardware validation are recorded in
+`ASSET_PIPELINE_STATUS_2026-10-05.md` at the repository root. Generated artifacts
+and retail payloads remain in ignored `ab-artifacts/asset-pipeline-20261005/`.

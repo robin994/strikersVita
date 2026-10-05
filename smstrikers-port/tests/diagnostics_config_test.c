@@ -41,11 +41,14 @@ static void run_case(const char* directory, int mode)
         unsetenv("STRIKERS_GXM_DISABLE");
         unsetenv("STRIKERS_VITA_CORE3_MAX_TOTAL_PCT");
         unsetenv("STRIKERS_GXM_FIXED_UNIFORM_POOL");
+        unsetenv("STRIKERS_VITA_TEST_MATCH");
+        unsetenv("STRIKERS_VITA_FRAMESKIP");
         FILE* file = fopen(ini, "w");
         CHECK(file != NULL);
         if (mode != 0)
             fprintf(file, "diagnostics = %d\n", mode == 1 || mode == 3 ? 1 : 0);
         fprintf(file, "fps_overlay = %d\n", mode == 4 ? 0 : 1);
+        fprintf(file, "vita_test_match = %d\nvita_frameskip = %d\n", mode & 1, mode & 1);
         fprintf(file, "task_profile = 1\nprobe_skin = 1\nlog_audio = 1\n"
                       "vita_packet_profile_period = 16\naurora_diagnostics = 1\n"
                       "gxm_disable = 0x418\ngxm_fixed_uniform_pool = 1\n"
@@ -64,6 +67,9 @@ static void run_case(const char* directory, int mode)
         CHECK(strcmp(PortConfigPath(), ini) == 0);
         CHECK(PortDiagnosticsEnabled() == enabled);
         CHECK(PortFpsOverlayEnabled() == (mode != 4));
+        // Gameplay selectors remain selectable with diagnostics both ON/OFF.
+        CHECK(strcmp(getenv("STRIKERS_VITA_TEST_MATCH"), mode & 1 ? "1" : "0") == 0);
+        CHECK(strcmp(getenv("STRIKERS_VITA_FRAMESKIP"), mode & 1 ? "1" : "0") == 0);
         CHECK(strcmp(getenv("STRIKERS_GXM_DISABLE"), "0x418") == 0);
         CHECK(strcmp(getenv("STRIKERS_GXM_FIXED_UNIFORM_POOL"), "1") == 0);
         CHECK(strcmp(getenv("STRIKERS_AURORA_DISTINCT_CPU_CORES"), "1") == 0);

@@ -866,7 +866,8 @@ elseif(STRIKERS_FFMPEG)
     endif()
 endif()
 
-# zlib, for .gcz disc images (src/platform/disc.c).
+# zlib, for .gcz disc images and compressed PSARC blocks. The asset preparation
+# tool writes stored PSARC blocks, which need no decompressor at runtime.
 if(NOT TARGET ZLIB::ZLIB)
     find_package(ZLIB QUIET)
 endif()
