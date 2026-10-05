@@ -2,6 +2,7 @@
 
 #include "port/audio.h"
 #include "port/host.h"
+#include "port/audio_sample_view.hpp"
 
 #if defined(PORT_USE_AURORA)
 
@@ -246,23 +247,17 @@ bool isStream(u8 t) { return t == 4 || t == 5 || t == 6; }
 // One sample from a voice, by index. ADPCM decoding is sequential, so walking forward a block at a
 // time is not an optimisation but a correctness requirement: skipping a block loses the yn1/yn2 the
 // next one is built on.
-s32 sampleAt(VoiceMix& vm, const SAMPLE_INFO& smp, u32 index) {
-    const u8* data = sampleBytes(smp);
+s32 sampleAt(VoiceMix& vm, const port::AudioSampleView& sample, u32 index) {
+    const u8* data = sample.data;
     if (data == nullptr)
         return 0;
 
     // Never read past what was allocated for this sample.
-    if (!isStream(smp.compType) && smp.length != 0 && index >= smp.length)
-        index = smp.length - 1;
+    index = sample.bounded_index(index);
 
-    if (isPcm16(smp.compType)) {
-        // Big-endian on disc, like everything else the console read directly.
-        const u8* p = data + (size_t)index * 2;
-        return (s16)((p[0] << 8) | p[1]);
-    }
-    if (smp.compType == kFmtPcm8)
-        return (s32)(s8)data[index] << 8;
-    const SNDADPCMinfo* info = (const SNDADPCMinfo*)smp.extraData;
+    if (sample.pcm16() || sample.format == kFmtPcm8)
+        return sample.read_pcm(index);
+    const SNDADPCMinfo* info = static_cast<const SNDADPCMinfo*>(sample.extra);
     if (info == nullptr)
         return 0;
     const u32 block = index / kAdpcmSamplesPerBlock;
@@ -275,6 +270,11 @@ s32 sampleAt(VoiceMix& vm, const SAMPLE_INFO& smp, u32 index) {
             decodeBlock(vm, data, info, b);
     }
     return vm.decoded[index % kAdpcmSamplesPerBlock];
+}
+
+s32 sampleAt(VoiceMix& vm, const SAMPLE_INFO& smp, u32 index) {
+    return sampleAt(vm, port::AudioSampleView(sampleBytes(smp),
+        reinterpret_cast<const void*>(smp.extraData), smp.length, smp.compType), index);
 }
 
 // Reset a voice's decoder to the start of the sample.
@@ -506,7 +506,9 @@ extern "C" void PortAudioMixRender(s16* dest) {
                     }
                 }
             }
-            if (!vm.active || sampleBytes(smp) == nullptr)
+            const port::AudioSampleView samples(sampleBytes(smp),
+                reinterpret_cast<const void*>(smp.extraData), smp.length, smp.compType);
+            if (!vm.active || samples.data == nullptr)
                 continue;
 
             const bool loops = smp.loopLength != 0;
@@ -605,7 +607,7 @@ extern "C" void PortAudioMixRender(s16* dest) {
                         vm.h[0] = vm.h[1];
                         vm.h[1] = vm.h[2];
                         vm.h[2] = vm.h[3];
-                        vm.h[3] = sampleAt(vm, smp, vm.pos + 2 < endSample
+                        vm.h[3] = sampleAt(vm, samples, vm.pos + 2 < endSample
                                                         ? vm.pos + 2
                                                         : (loops ? smp.loop : vm.pos));
                     }

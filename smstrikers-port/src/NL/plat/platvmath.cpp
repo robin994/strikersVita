@@ -19,14 +19,8 @@ void nlMatrix4::SetIdentity()
  */
 void nlMultMatrices(nlMatrix4& out, const nlMatrix4& a, const nlMatrix4& b)
 {
-    nlMatrix4 temp;
-
-    if ((out.e2 == a.e2) || (out.e2 == b.e2))
-    {
-        PSMTX44Concat(a.e2, b.e2, temp.e2);
-        out = temp;
-        return;
-    }
+    // PSMTX44Concat already protects either input aliasing the output. A
+    // second scratch matrix here prevents a tail call on the ARM hot path.
     PSMTX44Concat(a.e2, b.e2, out.e2);
 }
 

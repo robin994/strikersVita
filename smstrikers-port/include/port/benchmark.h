@@ -19,6 +19,9 @@ void PortBenchInit(void);
 void PortBenchFrameBegin(void);
 void PortBenchAfterTasks(void);
 void PortBenchFrameEnd(void);
+// Game state, separate from renderer loading/scene boundaries. Only live play
+// and overtime qualify; intros, replays and post-goal scenes do not.
+void PortBenchSetPlayActive(int active);
 
 void PortBenchAddSleep(unsigned long long ns);
 
@@ -43,6 +46,8 @@ typedef struct PortBenchLive
     unsigned long worstFrame;
     unsigned long frames;      // recorded frames (match only)
     int matchActive;
+    int playActive;
+    unsigned long playFrames;   // monotonic across renderer scene transitions
 } PortBenchLive;
 
 void PortBenchGetLive(PortBenchLive* out);

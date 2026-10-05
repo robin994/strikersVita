@@ -390,10 +390,10 @@ static void VitaBootRelease()
 // display queue wait and disk write are intentionally not part of normal play.
 static void VitaMaybeCaptureFrame()
 {
-    if (!PortDiagnosticsEnabled())
-        return;
     static bool initialized = false;
     static unsigned long target = 0;
+    static unsigned long matchTarget = 0;
+    static unsigned long playTarget = 0;
     static unsigned long heavyFrames = 0;
     if (!initialized)
     {
@@ -401,17 +401,35 @@ static void VitaMaybeCaptureFrame()
         const char* value = getenv("STRIKERS_VITA_SNAPSHOT_3D_FRAME");
         if (value != NULL)
             target = strtoul(value, NULL, 10);
+        const char* matchValue=getenv("STRIKERS_VITA_SNAPSHOT_MATCH_FRAME");
+        if(matchValue!=NULL)matchTarget=strtoul(matchValue,NULL,10);
+        const char* playValue=getenv("STRIKERS_VITA_SNAPSHOT_PLAY_FRAME");
+        if(playValue!=NULL)playTarget=strtoul(playValue,NULL,10);
     }
-    if (target == 0)
+    if (target == 0 && matchTarget == 0 && playTarget == 0)
         return;
+    unsigned long shotLabel=target;
+    const bool playShot=playTarget!=0;
+    if(playTarget || matchTarget) {
+        PortBenchLive live;PortBenchGetLive(&live);
+        if(playTarget) {
+            if(!live.playActive||live.playFrames<playTarget)return;
+            shotLabel=playTarget;
+        } else {
+            if(!live.matchActive||live.frames<matchTarget)return;
+            shotLabel=matchTarget;
+        }
+    } else if(!PortDiagnosticsEnabled())return;
 #if defined(STRIKERS_VITA_GX_THREAD)
     // Async-GX builds need an explicit fence before reading renderer state.
     aurora::vita::wait_for_render_idle();
 #endif
-    if (aurora::vita::telemetry().frame().counters.triangles < 10000)
-        return;
-    if (++heavyFrames != target)
-        return;
+    if(!matchTarget && !playTarget) {
+        if (aurora::vita::telemetry().frame().counters.triangles < 10000)return;
+        if (++heavyFrames != target)return;
+    }
+    // After the single shot, remove every subsequent fence/readback from play.
+    target=0;matchTarget=0;playTarget=0;
     sceGxmDisplayQueueFinish();
     SceDisplayFrameBuf fb = {};
     fb.size = sizeof(fb);
@@ -426,7 +444,7 @@ static void VitaMaybeCaptureFrame()
     if (row == NULL)
         return;
     char path[128];
-    snprintf(path, sizeof(path), "ux0:data/strikersVita/debug_frame_3d_%lu.ppm", target);
+    snprintf(path, sizeof(path), "ux0:data/strikersVita/debug_frame_%s_%lu.ppm", playShot?"play":"3d",shotLabel);
     FILE* output = fopen(path, "wb");
     bool ok = output != NULL;
     if (output != NULL)
@@ -536,6 +554,17 @@ static void Initialize()
     Config::Global().LoadFromFile("platform.ini");
     Config::Global().LoadFromFile("locale.ini");
     Config::Global().LoadFromFile("user.ini");
+
+#if defined(PORT_VITA)
+    // Opt-in device comparison through the game's existing skipfe/friendly
+    // path. All AI, physics, replay, audio and rendering tasks remain active.
+    // The config/seed identify a reproducible match without changing disc data.
+    const char* deviceTestMatch=getenv("STRIKERS_VITA_TEST_MATCH");
+    if(deviceTestMatch && strcmp(deviceTestMatch,"1")==0) {
+        Config::Global().Set("skipfe",true);
+        Config::Global().Set("dont_set_sides_when_skipfe",true);
+    }
+#endif
 
     {
         static const char* const kTeamVars[4][2] = {
@@ -1289,10 +1318,21 @@ int main(int argc, char* argv[])
                  scePowerGetArmClockFrequency(), scePowerGetBusClockFrequency(),
                  scePowerGetGpuClockFrequency(), scePowerGetGpuXbarClockFrequency());
         const char* cpuMHz = getenv("STRIKERS_CPU_MHZ");
-        if (cpuMHz != NULL && strcmp(cpuMHz, "444") == 0)
+        if (cpuMHz != NULL)
         {
-            const int result = scePowerSetArmClockFrequency(444);
-            OSReport("[vita] requested cpu=444 MHz rc=%d actual=%d\n", result, scePowerGetArmClockFrequency());
+            char* end=NULL;const long requested=strtol(cpuMHz,&end,10);
+            if(end && *cpuMHz && !*end && (requested==111||requested==166||requested==222||
+                requested==333||requested==444||requested==500)) {
+                const int result=scePowerSetArmClockFrequency((int)requested);
+                OSReport("[vita] requested cpu=%ld MHz rc=%d actual=%d\n",requested,result,scePowerGetArmClockFrequency());
+                // Stock kernels can reject 500; the previous implementation
+                // silently left the default 500 INI at 333. Keep a usable
+                // documented fallback and report the real hardware value.
+                if(requested==500 && (result<0||scePowerGetArmClockFrequency()!=500)) {
+                    const int fallback=scePowerSetArmClockFrequency(444);
+                    OSReport("[vita] cpu fallback=444 MHz rc=%d actual=%d\n",fallback,scePowerGetArmClockFrequency());
+                }
+            } else OSReport("[vita] invalid cpu_mhz=%s; actual=%d\n",cpuMHz,scePowerGetArmClockFrequency());
         }
         const char* gpuMHz = getenv("STRIKERS_GPU_MHZ");
         if (gpuMHz != NULL && strcmp(gpuMHz, "222") == 0)
@@ -1954,6 +1994,7 @@ int main(int argc, char* argv[])
         PortProfilerTasksBegin();
         nlTaskManager::RunAllTasks();
         PortProfilerTasksEnd();
+        PortBenchSetPlayActive(g_pGame != NULL && g_pGame->IsGameplayOrOvertime());
         if (PortDiagnosticsEnabled())
             UpdateProfile();
         PortBenchAfterTasks();

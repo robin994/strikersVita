@@ -3,6 +3,7 @@
 
 #include "NL/nlMath.h"
 #include "NL/nlMemory.h"
+#include <type_traits>
 
 class DefaultAllocator
 {
@@ -67,10 +68,7 @@ public:
         mData = Allocator::template New<T>(other.mSize, name);
         mSize = other.mSize;
         mCapacity = other.mSize;
-        for (int i = 0; i < mSize; i++)
-        {
-            mData[i] = other.mData[i];
-        }
+        CopyElements(mData, other.mData, mSize);
     }
     Vector(int count, const char* name)
     {
@@ -85,12 +83,11 @@ public:
     ~Vector();
     Vector& operator=(const Vector& other)
     {
+        if (this == &other)
+            return *this;
         if (mSize >= other.mSize)
         {
-            for (int i = 0; i < other.mSize; i++)
-            {
-                mData[i] = other.mData[i];
-            }
+            CopyElements(mData, other.mData, other.mSize);
             mSize = other.mSize;
         }
         else
@@ -161,6 +158,26 @@ public:
     /* 0x0 */ T* mData;
     /* 0x4 */ int mSize;
     /* 0x8 */ int mCapacity;
+
+private:
+    // Pose snapshots contain matrices and plain accumulator records. Classes
+    // with meaningful assignment operators retain their element-wise copy.
+    static void CopyElements(T* dst, const T* src, int count)
+    {
+        CopyElements(dst, src, count,
+            std::integral_constant<bool, std::is_trivially_copyable<T>::value &&
+                                         std::is_trivially_copy_assignable<T>::value>());
+    }
+    static void CopyElements(T* dst, const T* src, int count, std::true_type)
+    {
+        if (count > 0)
+            memcpy(dst, src, static_cast<size_t>(count) * sizeof(T));
+    }
+    static void CopyElements(T* dst, const T* src, int count, std::false_type)
+    {
+        for (int i = 0; i < count; ++i)
+            dst[i] = src[i];
+    }
 }; // total size: 0xC
 
 template <typename T, typename Allocator>

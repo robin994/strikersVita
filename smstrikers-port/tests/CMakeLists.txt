@@ -19,8 +19,21 @@ add_test(NAME tool_genstubs
          COMMAND python3 "${CMAKE_CURRENT_SOURCE_DIR}/../tools/test_genstubs.py")
 add_test(NAME tool_extract_disc
          COMMAND python3 "${CMAKE_CURRENT_SOURCE_DIR}/../tools/test_extract_disc.py")
+add_test(NAME tool_vita_cpu_trace
+         COMMAND python3 "${CMAKE_CURRENT_SOURCE_DIR}/../tools/test_analyze_vita_cpu_trace.py")
+add_test(NAME tool_vita_frames
+         COMMAND python3 "${CMAKE_CURRENT_SOURCE_DIR}/../tools/test_analyze_vita_frames.py")
 
 if(UNIX)
+    add_executable(cpu_trace_hotpaths_test
+        cpu_trace_hotpaths_test.cpp
+        ../src/NL/plat/platvmath.cpp
+        ../src/Dolphin/mtx/mtx44.c
+        ../src/Dolphin/mtx/vec.c)
+    set_target_properties(cpu_trace_hotpaths_test PROPERTIES CXX_STANDARD 17 CXX_STANDARD_REQUIRED ON)
+    target_compile_options(cpu_trace_hotpaths_test PRIVATE $<$<COMPILE_LANGUAGE:CXX>:-Wno-register>)
+    target_link_libraries(cpu_trace_hotpaths_test PRIVATE port_flags m)
+    add_test(NAME cpu_trace_hotpaths COMMAND cpu_trace_hotpaths_test)
     add_executable(diagnostics_config_test diagnostics_config_test.c ../src/platform/config.c)
     target_include_directories(diagnostics_config_test PRIVATE ../include)
     add_test(NAME diagnostics_config COMMAND diagnostics_config_test)
@@ -32,6 +45,9 @@ if(UNIX)
     target_include_directories(benchmark_fps_test PRIVATE ../include)
     target_link_libraries(benchmark_fps_test PRIVATE m)
     add_test(NAME benchmark_fps COMMAND benchmark_fps_test)
+    add_executable(frame_capture_test frame_capture_test.c ../src/platform/benchmark.c)
+    target_include_directories(frame_capture_test PRIVATE ../include)
+    add_test(NAME frame_capture COMMAND frame_capture_test)
     find_package(Threads REQUIRED)
     add_executable(skin_matrix_packets_test
         skin_matrix_packets_test.cpp

@@ -5,8 +5,49 @@
 #include "port/config.h"
 
 #include <string.h>
+#include <stdio.h>
+#include <stdlib.h>
+#if defined(PORT_VITA)
+#include <psp2/power.h>
+#endif
 
 static int s_read;
+// Opt-in finite capture independent of diagnostics/overlay. No per-frame I/O:
+// fixed storage is written once after the requested sample, with capture I/O
+// excluded from that sample. Startup, menus and gameplay remain identifiable.
+#define CAPTURE_LIMIT 8192
+typedef struct FrameCapture { unsigned int frameUs, tasksUs, presentUs, sleepUs; unsigned long matchFrame; int match; } FrameCapture;
+static FrameCapture* s_capture;
+static size_t s_captureCount, s_captureGoal;
+static char s_capturePath[1024];
+static int s_captureDone;
+static int s_captureMatchOnly;
+static size_t s_captureSkip;
+static int s_capturePlayOnly, s_playActive;
+static unsigned long s_playFrameCounter;
+
+static int capture_active(void) { return s_captureGoal && !s_captureDone; }
+static void finish_capture(void)
+{
+    s_captureDone = 1;
+    FILE* f = fopen(s_capturePath, "wb");
+    if (f == NULL) {free(s_capture);s_capture=NULL;return;}
+    fprintf(f, "# strikers-frame-capture-v1 diagnostics=%d fps_overlay=%d\n", PortDiagnosticsEnabled(), PortFpsOverlayEnabled());
+    fprintf(f, "# play_only=%d counter=%s\n", s_capturePlayOnly,
+            s_capturePlayOnly ? "live_play" : "renderer_scene");
+#if defined(PORT_VITA)
+    fprintf(f,"# actual_cpu_mhz=%d actual_gpu_mhz=%d actual_bus_mhz=%d actual_xbar_mhz=%d\n",
+        scePowerGetArmClockFrequency(),scePowerGetGpuClockFrequency(),scePowerGetBusClockFrequency(),scePowerGetGpuXbarClockFrequency());
+#endif
+    fprintf(f, "sample,match,match_frame,frame_us,tasks_us,present_us,sleep_us\n");
+    for (size_t i=0;i<s_captureCount;++i) {
+        const FrameCapture* r=&s_capture[i];
+        // Vita's small newlib printf does not implement the z length modifier.
+        fprintf(f,"%lu,%d,%lu,%u,%u,%u,%u\n",(unsigned long)i,r->match,r->matchFrame,r->frameUs,r->tasksUs,r->presentUs,r->sleepUs);
+    }
+    fclose(f);
+    free(s_capture);s_capture=NULL;
+}
 
 static unsigned long long s_t0;   // start of the current frame
 static unsigned long long s_tTasks;
@@ -200,11 +241,32 @@ void PortBenchInit(void)
     if (s_read)
         return;
     s_read = 1;
+    const char* path=getenv("STRIKERS_FRAME_CAPTURE");
+    const char* count=getenv("STRIKERS_FRAME_CAPTURE_FRAMES");
+    if(path && *path && strlen(path)<sizeof s_capturePath && count && *count) {
+        char* end=NULL;
+        const unsigned long n=strtoul(count,&end,10);
+        if(end && !*end && n && n<=CAPTURE_LIMIT) {
+            s_capture=calloc(n,sizeof(*s_capture));
+            if(s_capture){strcpy(s_capturePath,path);s_captureGoal=n;}
+        }
+    }
+    const char* only=getenv("STRIKERS_FRAME_CAPTURE_MATCH_ONLY");
+    s_captureMatchOnly=only&&strcmp(only,"1")==0;
+    const char* play=getenv("STRIKERS_FRAME_CAPTURE_PLAY_ONLY");
+    s_capturePlayOnly=play&&strcmp(play,"1")==0;
+    const char* skip=getenv("STRIKERS_FRAME_CAPTURE_SKIP");
+    if(skip&&*skip){char* end=NULL;unsigned long n=strtoul(skip,&end,10);if(end&&!*end&&n<=100000)s_captureSkip=n;}
+}
+
+void PortBenchSetPlayActive(int active)
+{
+    s_playActive = active != 0;
 }
 
 void PortBenchFrameBegin(void)
 {
-    if (!PortDiagnosticsEnabled() && !PortFpsOverlayEnabled())
+    if (!PortDiagnosticsEnabled() && !PortFpsOverlayEnabled() && !capture_active())
         return;
     s_t0 = port_monotonic_ns();
     s_sleepThisFrame = 0;
@@ -223,7 +285,7 @@ void PortBenchAddAcquire(unsigned long long ns)
 
 void PortBenchAfterTasks(void)
 {
-    s_tTasks = PortDiagnosticsEnabled() ? port_monotonic_ns() : s_t0;
+    s_tTasks = (PortDiagnosticsEnabled() || capture_active()) ? port_monotonic_ns() : s_t0;
 }
 
 double PortBenchGetFps(void)
@@ -272,6 +334,8 @@ void PortBenchGetLive(PortBenchLive* out)
     out->worstFrame = s_worstFrame;
     out->frames = s_matchFrameCounter;
     out->matchActive = s_matchActive;
+    out->playActive = s_playActive;
+    out->playFrames = s_playFrameCounter;
 
     n = s_liveFilled;
     if (n == 0)
@@ -301,7 +365,7 @@ void PortBenchGetLive(PortBenchLive* out)
 
 void PortBenchFrameEnd(void)
 {
-    if (!PortDiagnosticsEnabled() && !PortFpsOverlayEnabled())
+    if (!PortDiagnosticsEnabled() && !PortFpsOverlayEnabled() && !capture_active())
         return;
     const unsigned long long end = port_monotonic_ns();
     const unsigned long long tasks = s_tTasks - s_t0;
@@ -334,7 +398,17 @@ void PortBenchFrameEnd(void)
         }
         ++s_matchFrameCounter;
     }
-
+    if(s_playActive) ++s_playFrameCounter;
+    const int captureEligible=(!s_captureMatchOnly||s_matchActive)&&(!s_capturePlayOnly||s_playActive);
+    if(capture_active() && captureEligible && s_captureSkip) {
+        --s_captureSkip;
+    } else if(capture_active() && captureEligible) {
+        FrameCapture* r=&s_capture[s_captureCount++];
+        r->frameUs=s_lastFrameUs;r->tasksUs=s_lastBusyUs;r->presentUs=s_lastPresentUs;r->sleepUs=s_lastSleepUs;
+        r->match=s_matchActive;
+        r->matchFrame=s_capturePlayOnly?s_playFrameCounter-1:(s_matchActive?s_matchFrameCounter-1:0);
+        if(s_captureCount==s_captureGoal)finish_capture();
+    }
 }
 
 #if 0 // Legacy benchmark recorder removed from the runtime; kept only as historical reference.
