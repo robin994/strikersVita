@@ -930,7 +930,7 @@ if(STRIKERS_VITA)
         aurora::vita_backend SDL3::SDL3-static
         SceCtrl_stub SceAudio_stub SceAudioIn_stub ScePower_stub SceRtc_stub
         SceIofilemgr_stub SceAppMgr_stub SceDisplay_stub SceGxm_stub
-        SceSysmodule_stub SceLibKernel_stub pthread m)
+        SceSysmodule_stub SceVideodec_stub SceLibKernel_stub pthread m)
     if(STRIKERS_VITA_PROFILER)
         target_link_libraries(strikers PRIVATE
             strikers_vitaprofiler SceKernelThreadMgr_stub SceProcessmgr_stub SceSysmem_stub)

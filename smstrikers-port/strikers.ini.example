@@ -44,6 +44,21 @@
 # Graphics backend: auto, d3d12, vulkan, metal, opengl, opengles.
 # backend = vulkan
 
+# Vita: GPU matrix/normal/lighting/texgen for eligible dynamic vertices.
+# Keep 0 for the validated CPU fallback; 1 enables the streamed GPU experiment.
+# Restart Strikers after changing this. It is independent of test match/frameskip.
+# gxm_streamed_vertex_gpu = 0
+
+# Independent Vita experiments (restart after changes, default 0).
+# Prepared immutable single-draw lists on the GX consumer; original FIFO fallback.
+# gxm_prepared_dl = 0
+# Exact compact CMPR subset as BC1; other textures keep lossless fallback.
+# gxm_exact_bc1 = 0
+# Immutable geometry buffers prefer CDRAM, retaining USER allocation fallback.
+# gxm_resident_cdram = 0
+# Consume native/v1 sidecars from asset_archive, if prepared by the host compiler.
+# gxm_native_assets = 0
+
 # Shaders compiled at once, 0 to 16. 0 picks a count from the CPU cores. Set 1 if the graphics driver
 # has problems at startup.
 # shader_jobs = 0
@@ -125,6 +140,17 @@
 # this unset to use the usual data path.
 # asset_archive = ux0:data/strikersVita/sms.psarc
 
+# Optional small PSARC containing only native/v1 sidecars. Requires
+# gxm_native_assets=1; absent, Aurora reads sidecars from asset_archive instead.
+# native_asset_archive = ux0:data/strikersVita/sms-native-cache.psarc
+# Native PCM preserves the current mixer, loop and resampling semantics. Opt-in;
+# the original ADPCM decoder handles any missing or mismatching frame.
+# vita_native_audio = 0
+# Converted movies use SceAvcdec hardware H.264, retaining original THP audio
+# and timing. Opt-in until device picture/audio validation. Missing movie sidecars
+# use the original movie path (movies are skipped on Vita without a decoder).
+# vita_native_video = 0
+
 # Where the game's reports go: 1 for strikers-log.txt beside it, a file path, or console.
 # log = 1
 # log = console
@@ -154,12 +180,50 @@
 # This does not change the original title-screen attract demo.
 # vita_test_match = 0
 
+# Independent pose/matrix jobs may use the quota-controlled CPU3 helper.
+# Default 0; requires vita_core3=auto/on and retains the total-core usage limit.
+# vita_game_core3 = 0
+# Separate per-view skin matrix preparation experiment, default 0.
+# vita_skin_packets = 0
+
 # Vita: adaptive gameplay frameskip. Default 0; 1 lets the simulation catch up
 # to wall time and drops up to three rendered frames through glDiscardFrame.
 # Restart the game after changing either setting. Frameskip is inactive when
 # fixed_dt is nonzero; use fixed_dt = 0 for normal gameplay with frameskip.
 # vita_frameskip = 0
 # fixed_dt = 0
+
+# Vita match pause/debug menu (L+R+SELECT). Off by default, independent of
+# diagnostics=0; enable for runtime fragment-program ON/OFF A/B testing.
+# Shader toggles last until restored or the game exits; they never change this INI.
+# vita_debug_menu = 0
+
+# Detailed GX view/native-draw attribution (heavy diagnostic, not quiet FPS).
+# Captures 12 gameplay frames after 600 warmup frames to view-draw-raw.jsonl;
+# seal raw data with the exact SELF/INI/shader-cache before interpreting results.
+# vita_view_draw_capture = 0
+# vita_view_draw_skip = 600
+# vita_view_draw_frames = 12
+# vita_view_draw_capacity = 8192
+# Optional extra CPU work: hash referenced indexed-vertex bytes, indices,
+# GPU uniform snapshots and sampler/viewport/scissor for stronger A1c A/B
+# equivalence tests. Not a GPU benchmark; use only on a short diagnostic run.
+# vita_view_draw_payloads = 0
+
+# A2a CPU-only redundant position XF write experiment. Default OFF; never
+# changes pose, skinning, shadow quality, draw order or shader programs.
+# gxm_xf_equal_pos_writes = 0
+
+# A3 indexed-PN vertex uniform delta upload experiment. OFF by default.
+# Always reserves a fresh GXM default-uniform buffer; restores a CPU-owned
+# complete prepared image before uploading only changed uniform groups.
+# Never enables streamed GPU vertex mode or skips any character/shadow draw.
+# gxm_uniform_delta_upload = 0
+
+# A4 shader generation experiment. Native GXM arithmetic TEV only, no effects
+# or draws disabled. 0=reference, 1=reuse identical texture/coord fetches,
+# 2=drop unused TEV color/alpha computations, 3=both. Default OFF.
+# gxm_a4_fragment_opt = 0
 
 # Which disc the data came from, when the data cannot say: the id is read from sys/boot.bin
 # beside `files` or from an image's first bytes, and an extraction of `files` alone is taken
@@ -184,6 +248,14 @@
 # Vita: keep the same minimal FPS counter in both diagnostic profiles (default 1).
 # Set 0 with diagnostics=0 to remove its timing/display too; then measure externally.
 # fps_overlay = 1
+
+# Completed GX-consumer samples without producer run_sync/fences.
+# Requires diagnostics=1. The path enables bounded attribution timers, suppresses
+# per-command GX clock reads and full tracing, and writes once after the sample.
+# Timers still perturb execution; use a separate diagnostics=0 FPS capture.
+# performance_capture = ux0:data/strikersVita/performance.csv
+# performance_capture_frames = 600 # maximum 3600
+# performance_capture_skip = 600   # live-play iterations before sampling
 
 # The debug overlay and menu. `menu` opens the menu straight away, `1` draws only the compact
 # heads-up form.

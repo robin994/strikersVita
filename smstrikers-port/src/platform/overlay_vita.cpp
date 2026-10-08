@@ -10,6 +10,7 @@
 #include "NL/gl/glState.h"
 
 #include <cstdint>
+#include <cstdlib>
 #include <cstdio>
 #include <cstring>
 #include <psp2/ctrl.h>
@@ -292,6 +293,12 @@ void activate_item(int page, int item)
 
 void handle_buttons(uint32_t buttons)
 {
+    if (!PortVitaDebugMenuEnabled())
+    {
+        s_nativeMenuRequest = false;
+        s_prevButtons = buttons;
+        return;
+    }
     const uint32_t combo = SCE_CTRL_LTRIGGER | SCE_CTRL_RTRIGGER | SCE_CTRL_SELECT;
     const bool comboNow = (buttons & combo) == combo;
     const bool comboBefore = (s_prevButtons & combo) == combo;
@@ -413,12 +420,27 @@ void draw_menu()
 }
 }
 
+extern "C" int PortVitaDebugMenuEnabled(void)
+{
+    static int enabled = -1;
+    if (enabled < 0)
+    {
+        const char* setting = std::getenv("STRIKERS_VITA_DEBUG_MENU");
+        enabled = setting != nullptr && std::strcmp(setting, "1") == 0;
+    }
+    return enabled;
+}
 extern "C" void PortOverlayInit(void) { capture_defaults(); }
 extern "C" int PortOverlayEnabled(void) { return 0; }
 extern "C" void PortOverlayDraw(void)
 {
     if (PortFpsOverlayEnabled())
         draw_perf_box();
+    if (!PortVitaDebugMenuEnabled())
+    {
+        s_nativeMenuRequest = false;
+        return;
+    }
     if (!s_nativeMenuRequest)
         return;
     s_nativeMenuRequest = false;
@@ -443,7 +465,8 @@ extern "C" void PortOverlaySetMatch(float clock, int scoreHome, int scoreAway)
 extern "C" const char* PortOverlaySceneName(void) { return s_scene; }
 extern "C" void PortOverlayToggleMenu(void)
 {
-    s_nativeMenuRequest = true;
+    if (PortVitaDebugMenuEnabled())
+        s_nativeMenuRequest = true;
 }
 extern "C" int PortOverlayMenuOpen(void) { return 0; }
 extern "C" void PortOverlayVitaInput(unsigned int buttons) { handle_buttons(buttons); }

@@ -3,6 +3,7 @@
 #include "port/audio.h"
 #include "port/host.h"
 #include "port/audio_sample_view.hpp"
+#include "port/native_audio.hpp"
 
 #if defined(PORT_USE_AURORA)
 
@@ -215,6 +216,10 @@ const float s_surroundMix = 0.7071f;
 // Decode one 8-byte ADPCM block into vm.decoded, carrying yn1/yn2 in.
 void decodeBlock(VoiceMix& vm, const u8* data, const SNDADPCMinfo* info, u32 block) {
     const u8* blk = data + (size_t)block * kAdpcmBytesPerBlock;
+    if(PortNativeAudioBlock(blk,&info->coefTab[0][0],vm.yn1,vm.yn2,vm.decoded)) {
+        vm.yn1=vm.decoded[13];vm.yn2=vm.decoded[12];vm.blockIndex=(s32)block;
+        return;
+    }
     const u8 ps = blk[0];
     const int scale = 1 << (ps & 0x0F);
     const int idx = (ps >> 4) & 0x07;

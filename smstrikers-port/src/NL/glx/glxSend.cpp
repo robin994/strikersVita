@@ -40,6 +40,7 @@ extern "C" int port_region_owns(const void*);  // src/platform/memalloc.cpp
 #include "port/skin_matrix_packets.hpp"
 #include "NL/gl/glRenderList.h"
 #include <vita_cpu_workers.hpp>
+#include <aurora_vita_backend.hpp>
 #endif
 
 // PORT: linkable, so the debug menu can drive it. Only the keyword changed.
@@ -162,7 +163,7 @@ struct SkinPacketStats
     unsigned long long overflows = 0;
     unsigned long long captureNs = 0;
     unsigned long long prepareNs = 0;
-    unsigned long long laneItems[3]{};
+    unsigned long long laneItems[4]{};
 };
 SkinPacketStats s_SkinPacketStats[2];
 
@@ -182,8 +183,8 @@ int SkinPacketViewIndex(eGLView view)
 
 bool DispatchSkinMatrices(size_t count, port::SkinMatrixPackets::RangeTask task, void* context) noexcept
 {
-    // One synchronous batch per view. Lane 3 is reserved for budgeted vertex jobs.
-    return aurora::vita::gfx::cpu_parallel_for_min_lanes(count, 64, 3, task, context);
+    // Owned matrices only. Public game lane cap and CPU3 quota apply.
+    return aurora::vita::parallel_for(count, 64, task, context);
 }
 
 void CaptureSkinPacket(eGLView, unsigned long flags, const glModelPacket* packet)
@@ -225,7 +226,7 @@ void glx_PrepareSkinPackets(eGLView view, GLRenderList* list)
     stats.prepared += prepared ? 1 : 0;
     stats.overflows += s_SkinPackets.blocked() ? 1 : 0;
     stats.capturedMatrices += s_SkinPackets.matrices();
-    for (unsigned int lane = 0; lane < 3; ++lane)
+    for (unsigned int lane = 0; lane < port::SkinMatrixPackets::ExecutionLanes; ++lane)
         stats.laneItems[lane] += s_SkinPackets.laneItems(lane);
 }
 
@@ -245,11 +246,11 @@ void glx_ReportSkinPackets(FILE* out)
         fprintf(out, "[skin-packets] view=%s enabled=%u batches_delta=%llu prepared_delta=%llu "
                      "matrices_delta=%llu used_matrices_delta=%llu fallbacks_delta=%llu overflows_delta=%llu "
                      "capture_us_delta=%llu prepare_us_delta=%llu l0_items_delta=%llu "
-                     "l1_items_delta=%llu l2_items_delta=%llu\n",
+                     "l1_items_delta=%llu l2_items_delta=%llu l3_items_delta=%llu\n",
                 index == 0 ? "Characters" : "Shadowed", SkinPacketsEnabled() ? 1u : 0u,
                 stats.batches, stats.prepared, stats.capturedMatrices, stats.usedMatrices,
                 stats.fallbacks, stats.overflows, stats.captureNs / 1000, stats.prepareNs / 1000,
-                stats.laneItems[0], stats.laneItems[1], stats.laneItems[2]);
+                stats.laneItems[0], stats.laneItems[1], stats.laneItems[2], stats.laneItems[3]);
         s_SkinPacketStats[index] = {};
     }
 }

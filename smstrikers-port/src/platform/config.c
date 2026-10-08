@@ -26,7 +26,7 @@
 #if defined(PORT_VITA)
 #define PORT_VITA_DEFAULTS_BEGIN "# --- STRIKERS VALIDATED DEFAULTS BEGIN ---"
 #define PORT_VITA_DEFAULTS_END "# --- STRIKERS VALIDATED DEFAULTS END ---"
-#define PORT_VITA_DEFAULTS_REVISION "2026-10-03-async-gx-stable"
+#define PORT_VITA_DEFAULTS_REVISION "2026-10-08-native-assets-frameskip-off"
 
 typedef struct VitaDefaultConfigEntry
 {
@@ -38,15 +38,40 @@ typedef struct VitaDefaultConfigEntry
 // is validated on hardware, update it here; the managed strikers.ini block is
 // regenerated from this table on every launch.
 static const VitaDefaultConfigEntry s_vita_defaults[] = {
+    // Confirmed runtime baseline; keep these in sync with the device INI.
+    { "gxm_disable", "0x8" },
+    { "gxm_shader_profile", "WARM" },
+    { "diagnostics", "0" },
+    { "fps_overlay", "0" },
+    { "vita_test_match", "0" },
+    { "vita_frameskip", "0" },
+    { "vita_debug_menu", "0" },
+    { "vita_view_draw_capture", "0" },
+    { "vita_view_draw_payloads", "0" },
+    { "seed", "0x53545249" },
+    { "fixed_dt", "0" },
+    { "frame_capture", "ux0:data/strikersVita/native08-diagnostic.csv" },
+    { "frame_capture_frames", "300" },
+    { "frame_capture_match_only", "0" },
+    { "frame_capture_play_only", "0" },
+    { "frame_capture_skip", "60" },
+    { "vita_snapshot_match_frame", "0" },
+    { "vita_snapshot_play_frame", "0" },
+    { "log", "ux0:data/strikersVita/native08-diagnostic.log" },
+    { "asset_archive", "ux0:data/strikersVita/sms.psarc" },
+    { "gxm_native_assets", "1" },
+    { "vita_native_audio", "1" },
+    { "vita_native_video", "1" },
+    { "task_profile", "1" },
+    { "vita_packet_profile_period", "0" },
+
+    // Other established Vita settings retained from the previous profile.
     { "benchmark", "1" },
     { "benchmark_seconds", "60" },
     { "bench_record", "ux0:data/strikersVita/bench-nolog-gxthread2-1.csv" },
     { "cpu_mhz", "500" },
     { "gpu_mhz", "222" },
-    { "gxm_shader_profile", "WARM" },
     { "gxm_streamed_vertex_gpu", "0" },
-    { "gxm_disable", "0x8" },
-    { "task_profile", "1" },
     { "gxm_dl_shadow", "0" },
     { "vita_core3", "auto" },
     { "vita_core3_max_total_pct", "70" },
@@ -55,15 +80,15 @@ static const VitaDefaultConfigEntry s_vita_defaults[] = {
     { "vita_core3_chunk_target_us", "250" },
     { "vita_core3_sample_us", "10000" },
     { "gxm_bp_cache", "0" },
+    { "gxm_xf_equal_pos_writes", "0" },
     { "gxm_fragment_prepare_cache", "1" },
+    { "gxm_uniform_delta_upload", "0" },
+    { "gxm_a4_fragment_opt", "0" },
     { "gxm_fixed_uniform_pool", "1" },
     { "gxm_geometry_preflight", "1" },
     { "task_profile_buffered", "1" },
     { "vita_skin_packets", "0" },
-    { "vita_packet_profile_period", "16" },
     { "gxm_local_draw_batching", "0" },
-    { "diagnostics", "0" },
-    { "fps_overlay", "0" },
 };
 #endif
 
@@ -78,6 +103,7 @@ static int s_fpsOverlay = 1;
 
 int PortDiagnosticsEnabled(void) { return s_diagnostics; }
 int PortFpsOverlayEnabled(void) { return s_fpsOverlay; }
+void PortSetFpsOverlayEnabled(int enabled) { s_fpsOverlay = enabled != 0; }
 
 static void configure_diagnostics(void)
 {

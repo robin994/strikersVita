@@ -23,6 +23,8 @@ add_test(NAME tool_vita_cpu_trace
          COMMAND python3 "${CMAKE_CURRENT_SOURCE_DIR}/../tools/test_analyze_vita_cpu_trace.py")
 add_test(NAME tool_vita_frames
          COMMAND python3 "${CMAKE_CURRENT_SOURCE_DIR}/../tools/test_analyze_vita_frames.py")
+add_test(NAME tool_vita_performance
+         COMMAND python3 "${CMAKE_CURRENT_SOURCE_DIR}/../tools/test_vita_performance_analysis.py")
 
 if(UNIX)
     add_executable(cpu_trace_hotpaths_test
@@ -84,4 +86,20 @@ if(UNIX)
              COMMAND python3 "${CMAKE_CURRENT_SOURCE_DIR}/../tools/test_switch_rebuild.py")
     add_test(NAME tool_vita_delay_contract
              COMMAND python3 "${CMAKE_CURRENT_SOURCE_DIR}/vita_delay_contract_test.py")
+endif()
+
+add_test(NAME tool_native_asset_adapter
+         COMMAND python3 "${CMAKE_CURRENT_SOURCE_DIR}/../tools/test_native_asset_adapter.py")
+
+if(UNIX)
+    add_executable(strikers_compile_native_audio ../tools/compile_native_audio.cpp)
+    target_include_directories(strikers_compile_native_audio PRIVATE ../include)
+    set_target_properties(strikers_compile_native_audio PROPERTIES CXX_STANDARD 17 CXX_STANDARD_REQUIRED ON)
+    add_executable(native_media_record_test native_media_record_test.cpp)
+    target_include_directories(native_media_record_test PRIVATE ../include)
+    set_target_properties(native_media_record_test PROPERTIES CXX_STANDARD 17 CXX_STANDARD_REQUIRED ON)
+    target_compile_options(native_media_record_test PRIVATE -UNDEBUG)
+    add_test(NAME native_media_record COMMAND native_media_record_test)
+    add_test(NAME tool_native_media COMMAND python3 "${CMAKE_CURRENT_SOURCE_DIR}/../tools/test_native_media.py"
+        --audio-compiler $<TARGET_FILE:strikers_compile_native_audio>)
 endif()

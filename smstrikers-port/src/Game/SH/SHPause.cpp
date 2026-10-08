@@ -17,8 +17,14 @@
 #include "NL/nlLocalization.h"
 #include "NL/nlPrint.h"
 #include "NL/nlTask.h"
+#include "port/config.h"
 
 #include <cstdio>
+#if defined(PORT_VITA)
+#include <aurora_vita_shader_debug.h>
+#include "port/overlay.h"
+#include <algorithm>
+#endif
 
 extern FEInput* g_pFEInput;
 extern nlColour MenuHighliteColour;
@@ -84,13 +90,41 @@ enum DebugRuntimeBits : unsigned int
     DR_STATIC_STABLE_ONLY = 1u << 6,
 };
 
-static const int kDebugPageCount = 10;
-static const char* const kDebugPageNames[kDebugPageCount] = {
+static const int kDebugBasePageCount = 10;
+static const char* const kDebugPageNames[kDebugBasePageCount] = {
     "RENDER", "SHADOWS", "SHADERS", "EFFECTS",
     "VIEWS A", "VIEWS B", "VIEWS C", "POST FX",
     "GXM", "ADVANCED"
 };
 static unsigned short sDebugMenuText[6][64];
+
+#if defined(PORT_VITA)
+// Snapshot once on entry, sorted by actual game draw frequency; no sorting or
+// renderer locks in the game/render frame loop.
+static AuroraVitaDebugFragment sDebugFragments[1024];
+static size_t sDebugFragmentCount;
+static int DebugPageCount()
+{
+    const size_t extra = sDebugFragmentCount > 2 ? (sDebugFragmentCount - 2 + 3) / 4 : 0;
+    return kDebugBasePageCount + 1 + static_cast<int>(extra);
+}
+
+static int FragmentRowIndex(int page, int row)
+{
+    if (page < kDebugBasePageCount || row < 0 || row >= 4)
+        return -1;
+    if (page == kDebugBasePageCount)
+        return row < 2 ? -1 : row - 2;
+    return 2 + (page - kDebugBasePageCount - 1) * 4 + row;
+}
+#else
+static int DebugPageCount() { return kDebugBasePageCount; }
+#endif
+
+static const char* DebugPageName(int page)
+{
+    return page < kDebugBasePageCount ? kDebugPageNames[page] : "FRAGMENT SHADERS";
+}
 
 struct DebugViewEntry
 {
@@ -152,16 +186,44 @@ static void FormatDebugLabel(int page, int row, char* out, unsigned int outSize)
 
     if (row == 4)
     {
-        const int prev = (page + kDebugPageCount - 1) % kDebugPageCount;
-        std::snprintf(out, outSize, "< PREV  [%s]", kDebugPageNames[prev]);
+        const int prev = (page + DebugPageCount() - 1) % DebugPageCount();
+        std::snprintf(out, outSize, "< PREV  [%s]", DebugPageName(prev));
         return;
     }
     if (row == 5)
     {
-        const int next = (page + 1) % kDebugPageCount;
-        std::snprintf(out, outSize, "NEXT  [%s] >", kDebugPageNames[next]);
+        const int next = (page + 1) % DebugPageCount();
+        std::snprintf(out, outSize, "NEXT  [%s] >", DebugPageName(next));
         return;
     }
+
+#if defined(PORT_VITA)
+    if (page >= kDebugBasePageCount)
+    {
+        if (page == kDebugBasePageCount && row == 0)
+        {
+            std::snprintf(out, outSize, "LIVE FPS COUNTER : %s", OnOff(PortFpsOverlayEnabled() != 0));
+            return;
+        }
+        if (page == kDebugBasePageCount && row == 1)
+        {
+            std::snprintf(out, outSize, "RESTORE ALL FRAGMENTS");
+            return;
+        }
+        const int index = FragmentRowIndex(page, row);
+        if (index < 0 || static_cast<size_t>(index) >= sDebugFragmentCount)
+        {
+            std::snprintf(out, outSize, "%s", sDebugFragmentCount ? "-" : "NO GAME FRAGMENTS YET");
+            return;
+        }
+        const auto& shader = sDebugFragments[index];
+        std::snprintf(out, outSize, "FS%03d %08llX %s T%u D%llu",
+                      index + 1, static_cast<unsigned long long>(shader.shader_hash & 0xffffffffULL),
+                      OnOff(shader.enabled != 0), unsigned(shader.tev_stages),
+                      static_cast<unsigned long long>(shader.draws));
+        return;
+    }
+#endif
 
     if (page >= 4 && page <= 7 && row >= 0 && row < 4)
     {
@@ -225,6 +287,33 @@ static void FormatDebugLabel(int page, int row, char* out, unsigned int outSize)
 
 static void ToggleDebugOption(int page, int row)
 {
+#if defined(PORT_VITA)
+    if (page >= kDebugBasePageCount)
+    {
+        if (page == kDebugBasePageCount && row == 0)
+        {
+            PortSetFpsOverlayEnabled(!PortFpsOverlayEnabled());
+        }
+        else if (page == kDebugBasePageCount && row == 1)
+        {
+            aurora_vita_shader_debug_restore_all();
+            for (size_t i = 0; i < sDebugFragmentCount; ++i)
+                sDebugFragments[i].enabled = 1;
+        }
+        else
+        {
+            const int index = FragmentRowIndex(page, row);
+            if (index >= 0 && static_cast<size_t>(index) < sDebugFragmentCount)
+            {
+                auto& shader = sDebugFragments[index];
+                const int enabled = !shader.enabled;
+                if (aurora_vita_shader_debug_set_enabled(shader.shader_hash, enabled))
+                    shader.enabled = static_cast<uint8_t>(enabled);
+            }
+        }
+        return;
+    }
+#endif
     unsigned int flags = aurora_vita_debug_runtime_flags();
     switch (page)
     {
@@ -302,6 +391,11 @@ PauseMenuScene::PauseMenuScene(PauseMenuScene::ScreenContext context)
         mContext = SC_DEBUG;
         mDebugMenuRequested = false;
     }
+#if defined(PORT_VITA)
+    // A shader shared by HUD and pause screens may be disabled during tests.
+    // Keep every kind of pause menu accessible, not only the debug variant.
+    aurora_vita_shader_debug_bypass(1);
+#endif
     mDelayBeforeUnpause = 0.1f;
 }
 
@@ -309,7 +403,23 @@ void PauseMenuScene::OpenDebugMenu()
 {
     if (FrontEnd::m_bInPauseMenuState)
         return;
+#if defined(PORT_VITA)
+    if (!PortVitaDebugMenuEnabled())
+        return;
+    // Pause-menu rendering remains visible even when a common HUD shader is
+    // suppressed. Snapshot only fragment stages already used by gameplay.
+    aurora_vita_shader_debug_bypass(1);
+    sDebugFragmentCount = aurora_vita_shader_debug_snapshot(
+        sDebugFragments, sizeof(sDebugFragments) / sizeof(sDebugFragments[0]));
+    std::sort(sDebugFragments, sDebugFragments + sDebugFragmentCount,
+              [](const AuroraVitaDebugFragment& a, const AuroraVitaDebugFragment& b) {
+                  return a.draws != b.draws ? a.draws > b.draws : a.shader_hash < b.shader_hash;
+              });
+    // Enter directly on the high-value per-shader controls.
+    mDebugPage = kDebugBasePageCount;
+#else
     mDebugPage = 0;
+#endif
     mLastSelectedIndex = 0;
     mDebugMenuRequested = true;
     FrontEnd::EnterMenuState(FrontEnd::MET_PAUSE);
@@ -325,6 +435,9 @@ bool PauseMenuScene::DebugMenuRequested()
  */
 PauseMenuScene::~PauseMenuScene()
 {
+#if defined(PORT_VITA)
+    aurora_vita_shader_debug_bypass(0);
+#endif
 }
 
 /**
@@ -747,11 +860,11 @@ void PauseMenuScene::OnSelectDEBUG(TLComponentInstance* instance)
     const int row = mMenuItems.GetActiveItemIndex();
     if (row == 4)
     {
-        mDebugPage = (mDebugPage + kDebugPageCount - 1) % kDebugPageCount;
+        mDebugPage = (mDebugPage + DebugPageCount() - 1) % DebugPageCount();
     }
     else if (row == 5)
     {
-        mDebugPage = (mDebugPage + 1) % kDebugPageCount;
+        mDebugPage = (mDebugPage + 1) % DebugPageCount();
     }
     else
     {

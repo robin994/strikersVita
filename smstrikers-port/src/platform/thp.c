@@ -7,6 +7,7 @@
 #include "dolphin/types.h"
 #include "port/determinism.h"
 #include "port/host.h"
+#include "port/native_video.h"
 
 #ifdef STRIKERS_FFMPEG
 #include <libavcodec/avcodec.h>
@@ -347,6 +348,10 @@ static void port_thp_report_once(void)
 BOOL THPInit(void)
 {
     port_thp_pace_reset();
+#ifdef PORT_VITA
+    if (!port_thp_movies_disabled() && PortNativeVideoEnabled())
+        return TRUE;
+#endif
     if (!port_thp_movies_disabled())
     {
         // Nothing to complain about when they were switched off on purpose.
@@ -357,6 +362,10 @@ BOOL THPInit(void)
 
 s32 port_thp_video_decode(const void* frame, u32 size, void* tileY, void* tileU, void* tileV)
 {
+#ifdef PORT_VITA
+    if (PortNativeVideoEnabled())
+        return PortNativeVideoDecode(frame, size, tileY, tileU, tileV);
+#endif
     (void)frame;
     (void)size;
     (void)tileY;

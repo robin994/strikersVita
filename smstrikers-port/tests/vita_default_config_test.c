@@ -11,6 +11,7 @@
 #define CHECK(c) do { if (!(c)) { fprintf(stderr, "FAIL line %d: %s\n", __LINE__, #c); exit(1); } } while (0)
 #define DEFAULTS_BEGIN "# --- STRIKERS VALIDATED DEFAULTS BEGIN ---"
 #define DEFAULTS_END "# --- STRIKERS VALIDATED DEFAULTS END ---"
+#define DEFAULT_CONFIG_KEY_COUNT 48
 
 static char s_data_dir[1024];
 
@@ -34,6 +35,7 @@ static void write_ini(const char* path, const char* profile, const char* disable
     CHECK(f != NULL);
     fprintf(f, "gxm_shader_profile = %s\n", profile);
     fprintf(f, "gxm_disable = %s\n", disable);
+    fprintf(f, "vita_debug_menu = 1\n");
     fprintf(f, "diagnostics = 0\n");
     fprintf(f, "fps_overlay = 0\n");
     CHECK(fclose(f) == 0);
@@ -115,7 +117,7 @@ static void run_case(const char* root, int mode)
         CHECK(PortFpsOverlayEnabled() == 0);
         if (mode == 1)
         {
-            CHECK(applied == 26);
+            CHECK(applied == DEFAULT_CONFIG_KEY_COUNT);
             CHECK(strcmp(PortConfigPath(), user_ini) == 0);
             CHECK(file_contains(user_ini, "gxm_shader_profile = CONTROL"));
             CHECK(file_contains(user_ini, "gxm_disable = 0x1234"));
@@ -123,7 +125,7 @@ static void run_case(const char* root, int mode)
         }
         else if (mode == 2)
         {
-            CHECK(applied == 26);
+            CHECK(applied == DEFAULT_CONFIG_KEY_COUNT);
             CHECK(strcmp(PortConfigPath(), user_ini) == 0);
             CHECK(strcmp(getenv("STRIKERS_CPU_MHZ"), "500") == 0);
             CHECK(strcmp(getenv("STRIKERS_GPU_MHZ"), "333") == 0);
@@ -137,20 +139,39 @@ static void run_case(const char* root, int mode)
         else
         {
             struct stat info;
-            CHECK(applied == 26);
+            CHECK(applied == DEFAULT_CONFIG_KEY_COUNT);
             CHECK(strcmp(PortConfigPath(), user_ini) == 0);
             CHECK(stat(user_ini, &info) == 0 && info.st_size > 0);
             CHECK(strcmp(getenv("STRIKERS_CPU_MHZ"), "500") == 0);
             CHECK(strcmp(getenv("STRIKERS_GPU_MHZ"), "222") == 0);
             CHECK(strcmp(getenv("STRIKERS_GXM_FRAGMENT_PREPARE_CACHE"), "1") == 0);
+            CHECK(strcmp(getenv("STRIKERS_GXM_UNIFORM_DELTA_UPLOAD"), "0") == 0);
+            CHECK(strcmp(getenv("STRIKERS_GXM_A4_FRAGMENT_OPT"), "0") == 0);
             CHECK(strcmp(getenv("STRIKERS_GXM_FIXED_UNIFORM_POOL"), "1") == 0);
             CHECK(strcmp(getenv("STRIKERS_GXM_GEOMETRY_PREFLIGHT"), "1") == 0);
             CHECK(strcmp(getenv("STRIKERS_GXM_LOCAL_DRAW_BATCHING"), "0") == 0);
             CHECK(strcmp(getenv("STRIKERS_VITA_CORE3_MAX_TOTAL_PCT"), "70") == 0);
         }
+        CHECK(strcmp(getenv("STRIKERS_VITA_FRAMESKIP"), "0") == 0);
+        CHECK(strcmp(getenv("STRIKERS_VITA_DEBUG_MENU"), mode == 1 ? "1" : "0") == 0);
+        CHECK(strcmp(getenv("STRIKERS_VITA_VIEW_DRAW_CAPTURE"), "0") == 0);
+        CHECK(strcmp(getenv("STRIKERS_VITA_VIEW_DRAW_PAYLOADS"), "0") == 0);
+        CHECK(strcmp(getenv("STRIKERS_GXM_XF_EQUAL_POS_WRITES"), "0") == 0);
+        CHECK(strcmp(getenv("STRIKERS_GXM_UNIFORM_DELTA_UPLOAD"), "0") == 0);
+        CHECK(strcmp(getenv("STRIKERS_GXM_A4_FRAGMENT_OPT"), "0") == 0);
+        if (mode == 1)
+            CHECK(file_contains(user_ini, "vita_debug_menu = 1"));
+        CHECK(strcmp(getenv("STRIKERS_FIXED_DT"), "0") == 0);
+        CHECK(strcmp(getenv("STRIKERS_GXM_NATIVE_ASSETS"), "1") == 0);
+        CHECK(strcmp(getenv("STRIKERS_VITA_NATIVE_AUDIO"), "1") == 0);
+        CHECK(strcmp(getenv("STRIKERS_VITA_NATIVE_VIDEO"), "1") == 0);
+        // diagnostics=0 deliberately removes the profiling env switch after loading.
+        CHECK(getenv("STRIKERS_VITA_PACKET_PROFILE_PERIOD") == NULL);
+        CHECK(file_contains(user_ini, "vita_packet_profile_period = 0"));
+        CHECK(strcmp(getenv("STRIKERS_ASSET_ARCHIVE"), "ux0:data/strikersVita/sms.psarc") == 0);
         CHECK(file_count(user_ini, DEFAULTS_BEGIN) == 1);
         CHECK(file_count(user_ini, DEFAULTS_END) == 1);
-        CHECK(file_contains(user_ini, "profile_revision = 2026-10-03-async-gx-stable"));
+        CHECK(file_contains(user_ini, "profile_revision = 2026-10-08-native-assets-frameskip-off"));
         exit(0);
     }
 

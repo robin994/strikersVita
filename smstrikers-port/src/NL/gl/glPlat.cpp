@@ -34,6 +34,7 @@
 #include <cstring>
 #if defined(PORT_VITA)
 #include <aurora_vita_backend.hpp>
+#include <aurora_vita_view_draw_capture.h>
 #include "port/profile_output.hpp"
 
 static port::ProfileOutput& PortRenderProfileOutput()
@@ -691,6 +692,11 @@ static void glx_SendViews()
     GXFogAdjTable fogAdjTable;
 
     glx_SendReset();
+#if defined(PORT_VITA)
+    // Diagnostic markers are ordered in the same FIFO as the draw commands.
+    // 255 denotes work outside a named gameplay view.
+    aurora_vita_view_draw_mark(255, glGetCurrentFrame());
+#endif
 
     renderList = gl_ViewGetRenderList((eGLView)9);
     if (!renderList->IsEmpty())
@@ -716,6 +722,9 @@ static void glx_SendViews()
         {
             continue;
         }
+#if defined(PORT_VITA)
+        aurora_vita_view_draw_mark((unsigned int)view, glGetCurrentFrame());
+#endif
 
         PortProfilerRenderViewScope viewProfile((unsigned int)view);
         PortDebugRenderViewTimer viewTimer((unsigned int)view);
@@ -856,6 +865,9 @@ static void glx_SendViews()
     }
 
     glx_SendEnd();
+#if defined(PORT_VITA)
+    aurora_vita_view_draw_mark(255, glGetCurrentFrame());
+#endif
     if (glx_ViewFence < 0)
     {
         glx_StopMetrics();

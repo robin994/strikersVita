@@ -132,8 +132,14 @@ animation/material structures. Those conversions cannot be applied to Strikers
 by replacing a filename or byte-swapping every file. A Strikers native compiler
 must preserve animated/deformed meshes, TEV semantics, palette/mip behavior and
 resource retirement, and provide a matching Aurora consumer. This change does
-not implement that renderer path. All original assets remain available, and
-the adapter interface provides the preparation stage for a future compiler.
+not implement that renderer path at the 2026-10-05 packaging snapshot. All
+original assets remain available.
+
+The 2026-10-06 follow-up adds a bounded GLT/static-GLG adapter and matching
+Aurora AVNR compiler/consumer. See [NATIVE_ASSETS.md](NATIVE_ASSETS.md) for
+`--native-compiler`, `--native-only` and the independent native cache archive.
+Only cold native sidecars use compression; original game blocks stay stored.
+Animated/deformed and unsupported assets retain their original runtime path.
 
 Storage savings and fewer host filesystem opens are useful, but no gameplay FPS
 gain follows from packaging alone. Native texture/geometry compilation is a

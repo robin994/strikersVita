@@ -188,7 +188,7 @@ void RenderSnapshot::Grab()
             }
         }
         CharacterGrabJob job = { this, serialMask };
-        (void)aurora::vita::parallel_for(10, 3, GrabCharacters, &job);
+        (void)aurora::vita::parallel_for(10, aurora::vita::game_execution_lanes()>=4 ? 2 : 3, GrabCharacters, &job);
     }
     else
     {
@@ -412,7 +412,7 @@ void RenderSnapshot::Render(float deltaTime) const
             }
 
             CharacterSkinPoseJob poseJob = { this, serialMask };
-            (void)aurora::vita::parallel_for(10, 3, PoseCharacterSkins, &poseJob);
+            (void)aurora::vita::parallel_for(10, aurora::vita::game_execution_lanes()>=4 ? 2 : 3, PoseCharacterSkins, &poseJob);
 
             // GX state emission remains strictly ordered on CPU0. Only the
             // matrix/morph preparation above is parallel.
@@ -489,7 +489,7 @@ void RenderSnapshot::Blend(const float* blendFactors, const RenderSnapshot& lhs,
         }
 
         CharacterBlendJob characterJob = { this, &lhs, &rhs, blendFactors, serialCharacterMask };
-        (void)aurora::vita::parallel_for(10, 3, BlendCharacters, &characterJob);
+        (void)aurora::vita::parallel_for(10, aurora::vita::game_execution_lanes()>=4 ? 2 : 3, BlendCharacters, &characterJob);
 
         // Powerups and explosion fragments are pure value interpolation with
         // disjoint destinations. Batch them into one job so the barrier cost is

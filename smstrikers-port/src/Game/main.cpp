@@ -43,6 +43,13 @@ extern "C" void PortDebugFrame(void);   // PORT: defined in Game.cpp
 #include "port/benchmark.h"
 #include "port/audio.h"
 #include "port/vita_profiler.h"
+#if defined(PORT_VITA)
+#include "port/vita_performance_capture.hpp"
+#include "port/vita_view_draw_capture.hpp"
+#include "port/native_assets.hpp"
+#include "port/native_audio.hpp"
+#include <aurora_vita_shader_debug.h>
+#endif
 #include "port/determinism.h"
 #include "port/config.h"
 #include "port/texture_packs.h"
@@ -967,7 +974,7 @@ static void PortVitaSampleRendererStats()
 {
     if (!PortDiagnosticsEnabled())
         return;
-    const aurora::vita::PerformanceSnapshot perf = aurora::vita::performance_snapshot();
+    const aurora::vita::PerformanceSnapshot perf = aurora::vita::completed_performance_snapshot();
     static uint64_t s_lastNativePipelineUs = 0;
     static uint64_t s_lastNativeTextureUs = 0;
     static uint64_t s_lastNativeDrawUs = 0;
@@ -1278,6 +1285,7 @@ int main(int argc, char* argv[])
         fprintf(stderr, "[vita] runtime log started\n");
     }
 #endif
+    PortNativeAudioInitialize();
 #endif
 
     // PORT: strikers.ini -> environment, before anything reads one.
@@ -1304,6 +1312,11 @@ int main(int argc, char* argv[])
 #endif
     }
     PortBenchInit();
+#if defined(PORT_VITA)
+    // Register only the shaders used by actual gameplay draws when opted in.
+    // With the menu disabled this adds no per-draw counters to the GXM path.
+    aurora_vita_shader_debug_capture(PortVitaDebugMenuEnabled());
+#endif
 
 #if defined(PORT_USE_AURORA)
 #if defined(PORT_VITA)
@@ -1441,10 +1454,9 @@ int main(int argc, char* argv[])
         cfg.stream_vertex_bytes = 8 * 1024 * 1024;
         cfg.stream_index_bytes = 512 * 1024;
         cfg.stream_slots = 3;
-        // Keep GX/GXM ownership and command ordering on the proven synchronous
-        // CPU0 path. CPU3 may only execute independent preparation chunks via
-        // Aurora's quota-aware dynamic scheduler; OFF retains the exact 3-core
-        // topology used by the validated post-goal stability baseline.
+        // GX/GXM retains a single owner. CPU3 only executes independent
+        // preparation chunks through Aurora's quota-aware scheduler; OFF
+        // retains the validated three-core helper topology.
         enum VitaCore3Mode { VITA_CORE3_OFF, VITA_CORE3_AUTO, VITA_CORE3_ON };
         VitaCore3Mode core3Mode = VITA_CORE3_AUTO;
         const char* core3 = getenv("STRIKERS_VITA_CORE3");
@@ -1459,12 +1471,23 @@ int main(int argc, char* argv[])
         }
         cfg.cpu_worker_threads = core3Mode == VITA_CORE3_OFF ? 2u : 3u;
         cfg.cpu_core3_budget_enabled = core3Mode != VITA_CORE3_OFF;
-        // P3 is deliberately vertex-only: ordinary renderer helpers (texture
-        // decode/swizzle) and public game jobs retain the validated three-lane
-        // topology. Vertex decode/transform/pack opts into lane 3 internally
-        // when this budget is enabled.
+        // Renderer helpers retain three lanes. Vertex decode/transform/pack
+        // opts into CPU3 internally; game pose jobs use it only with the
+        // separate INI experiment below and the same budget enforcement.
         cfg.cpu_renderer_execution_lanes = 3;
-        cfg.cpu_game_execution_lanes = 3;
+        const char* gameCore3=getenv("STRIKERS_VITA_GAME_CORE3");
+        cfg.cpu_game_execution_lanes = gameCore3 && strcmp(gameCore3,"1")==0 &&
+            cfg.cpu_core3_budget_enabled ? 4u : 3u;
+        const char* preparedLists=getenv("STRIKERS_GXM_PREPARED_DL");
+        cfg.prepared_display_lists=preparedLists && strcmp(preparedLists,"1")==0;
+        const char* cdramGeometry=getenv("STRIKERS_GXM_RESIDENT_CDRAM");
+        cfg.resident_geometry_cdram=cdramGeometry && strcmp(cdramGeometry,"1")==0;
+        const char* bc1=getenv("STRIKERS_GXM_EXACT_BC1");
+        cfg.exact_bc1=bc1 && strcmp(bc1,"1")==0;
+        const char* nativeAssets=getenv("STRIKERS_GXM_NATIVE_ASSETS");
+        if(nativeAssets && strcmp(nativeAssets,"1")==0) {
+            port::initialize_native_assets();cfg.native_asset_reader=port::read_native_asset;
+        }
         cfg.cpu_parallel_min_vertices = 64;
         const char* workerCount = getenv("STRIKERS_AURORA_CPU_WORKERS");
         if (workerCount != NULL && workerCount[0] >= '0' && workerCount[0] <= '3' && workerCount[1] == '\0')
@@ -1539,7 +1562,9 @@ int main(int argc, char* argv[])
         const char* auroraDiagnostics = getenv("STRIKERS_AURORA_DIAGNOSTICS");
         const bool fullAuroraDiagnostics = auroraDiagnostics != NULL
             && auroraDiagnostics[0] != '\0' && auroraDiagnostics[0] != '0';
+        const char* perfCapture=getenv("STRIKERS_PERFORMANCE_CAPTURE");
         cfg.diagnostics = fullAuroraDiagnostics;
+        cfg.performance_attribution = perfCapture && *perfCapture && PortDiagnosticsEnabled();
         cfg.diagnostics_enabled = PortDiagnosticsEnabled() != 0;
         const char* splitVertexPhases = getenv("STRIKERS_PROFILE_VERTEX_PHASES");
         cfg.profile_split_vertex_phases = splitVertexPhases != NULL && splitVertexPhases[0] == '1';
@@ -1605,6 +1630,14 @@ int main(int argc, char* argv[])
             OSReport("[vita] gxm_bp_cache=%u\n", enableBpCache ? 1u : 0u);
         }
         {
+            // Isolated A2a candidate; keep disabled until reference vs candidate
+            // draw/output and hardware frame-time comparisons pass.
+            const char* value = getenv("STRIKERS_GXM_XF_EQUAL_POS_WRITES");
+            const bool enabled = value && strcmp(value, "1") == 0;
+            cfg.gxm_xf_equal_pos_writes = enabled;
+            OSReport("[vita] gxm_xf_equal_pos_writes=%u\n", enabled ? 1u : 0u);
+        }
+        {
             const char* prepareCache = getenv("STRIKERS_GXM_FRAGMENT_PREPARE_CACHE");
             const bool enablePrepareCache = prepareCache != NULL && prepareCache[0] == '1';
             [&](auto& config) {
@@ -1612,6 +1645,24 @@ int main(int argc, char* argv[])
                     config.gxm_fragment_prepare_cache = enablePrepareCache;
             }(cfg);
             OSReport("[vita] gxm_fragment_prepare_cache=%u\n", enablePrepareCache ? 1u : 0u);
+        }
+        {
+            // A3 indexed-PN experiment: restore a complete, CPU-owned GXM
+            // vertex default-uniform image and update only changed parameters.
+            // Hardware A/B must precede any decision to enable by default.
+            const char* value = getenv("STRIKERS_GXM_UNIFORM_DELTA_UPLOAD");
+            cfg.gxm_uniform_delta_upload = value && strcmp(value, "1") == 0;
+            OSReport("[vita] gxm_uniform_delta_upload=%u\n", cfg.gxm_uniform_delta_upload ? 1u : 0u);
+        }
+        {
+            // A4 optimizes Cg generation, not GX draw/filter state. The two
+            // independent transformations can be compared one at a time.
+            const char* value = getenv("STRIKERS_GXM_A4_FRAGMENT_OPT");
+            char* end = NULL;
+            const unsigned long mask = value ? strtoul(value, &end, 0) : 0ul;
+            cfg.gxm_a4_fragment_opt = value && end != value && *end == '\0' && mask <= 3ul
+                ? static_cast<uint8_t>(mask) : 0u;
+            OSReport("[vita] gxm_a4_fragment_opt=%u\n", unsigned(cfg.gxm_a4_fragment_opt));
         }
         {
             const char* uniformPool = getenv("STRIKERS_GXM_FIXED_UNIFORM_POOL");
@@ -1732,7 +1783,7 @@ int main(int argc, char* argv[])
         if (cfg.diagnostic_draw_limit != 0)
             OSReport("[vita] diagnostic draw limit=%u\n", (unsigned int)cfg.diagnostic_draw_limit);
         cfg.strict_unsupported = false;
-        cfg.diagnostics_period_frames = 10;
+        cfg.diagnostics_period_frames = cfg.performance_attribution ? 24000 : 10;
 #if defined(STRIKERS_VITA_NO_LOGS)
         // Use Aurora Vita's native runtime logging switch rather than compiling
         // logging code out. This keeps renderer behavior identical while making
@@ -2012,7 +2063,7 @@ int main(int argc, char* argv[])
         }
         if (PortDiagnosticsEnabled())
         {
-            const aurora::vita::PerformanceSnapshot perf = aurora::vita::performance_snapshot();
+            const aurora::vita::PerformanceSnapshot perf = aurora::vita::completed_performance_snapshot();
             PortProfilerRendererSample sample = {};
             sample.rendererCpuFrameUs = perf.rendererCpuFrameUs;
             sample.displayQueueLastUs = perf.displayQueueLastUs;
@@ -2029,6 +2080,8 @@ int main(int argc, char* argv[])
             sample.nativeTimingsSampled = perf.nativeTimingsSampled ? 1u : 0u;
             PortProfilerRecordRendererSample(&sample);
         }
+        port::capture_completed_performance(g_pGame != NULL && g_pGame->IsGameplayOrOvertime());
+        port::capture_view_draw(g_pGame != NULL && g_pGame->IsGameplayOrOvertime());
         VitaMaybeCaptureFrame();
 #else
         aurora_end_frame();
@@ -2046,8 +2099,10 @@ int main(int argc, char* argv[])
              s_portExitReason != NULL ? s_portExitReason : "unknown reason");
 #if defined(PORT_VITA)
     PortAudioStop();
+    PortNativeAudioShutdown();
     PortProfilerStop();
     aurora::vita::shutdown();
+    port::shutdown_native_assets();
     VitaBootRelease();
     sceKernelExitProcess(0);
 #else

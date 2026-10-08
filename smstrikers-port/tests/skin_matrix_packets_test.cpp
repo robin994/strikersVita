@@ -63,6 +63,17 @@ bool parallel(size_t count, Packets::RangeTask task, void* context) noexcept
     return ok[0] && ok[1] && ok[2];
 }
 
+bool parallelFour(size_t count, Packets::RangeTask task, void* context) noexcept
+{
+    bool ok[4]{};
+    std::thread workers[3];
+    for(unsigned lane=1;lane<4;++lane)
+        workers[lane-1]=std::thread([&,lane] {ok[lane]=task(context,count*lane/4,count*(lane+1)/4,lane);});
+    ok[0]=task(context,0,count/4,0);
+    for(auto& worker:workers)worker.join();
+    return ok[0]&&ok[1]&&ok[2]&&ok[3];
+}
+
 void verify(const port::SkinMatrixResult* results, const port::SkinMatrixSource* source,
             size_t count, const Mtx view, bool inverse)
 {
@@ -105,6 +116,11 @@ void equivalence(bool inverse)
     CHECK(packets.laneItems(2) == 87);
     CHECK(packets.laneItems(3) == 0);
     CHECK(std::memcmp(source.data(), original.data(), source.size() * sizeof(source[0])) == 0);
+    Packets four;four.begin(view,inverse);
+    CHECK(four.capture(30,source.data(),source.size()));CHECK(four.prepare(parallelFour));
+    verify(four.find(30,source.data(),source.size(),view,inverse),source.data(),source.size(),view,inverse);
+    CHECK(four.laneItems(3)==65);
+    CHECK(four.laneItems(0)+four.laneItems(1)+four.laneItems(2)+four.laneItems(3)==source.size());
 }
 
 // A guest write during dispatch must neither change worker input nor produce
@@ -190,7 +206,7 @@ bool rejectDispatch(size_t count, Packets::RangeTask task, void* context) noexce
 }
 bool forbiddenLane(size_t count, Packets::RangeTask task, void* context) noexcept
 {
-    return task(context, 0, count, 3);
+    return task(context, 0, count, Packets::ExecutionLanes);
 }
 
 void boundsAndFailure()

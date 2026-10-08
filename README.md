@@ -19,7 +19,7 @@ The Vita bring-up is under active development. The current port includes:
 - A dedicated PS Vita CMake/VPK target.
 - `aurora-vita` integration using the `vita-experiment` backend.
 - Native 960x544 output and 60 Hz display setup.
-- vitaGL/vitashark rendering infrastructure.
+- Native GXM draw submission, shader programs and resource pools.
 - Native PS Vita controls through `sceCtrl`.
 - Vita filesystem, timing, memory and runtime adaptations.
 - Game data loading from `ux0:data/strikersVita`.
@@ -43,7 +43,17 @@ The Vita port uses:
 ux0:data/strikersVita/
 ```
 
-The preferred layouts are either a disc image directly in that directory:
+The selected Vita workflow uses a verified, deduplicated PSARC archive made from
+your own disc. See [asset preparation](smstrikers-port/tools/VITA_ASSET_PIPELINE.md)
+and [native sidecars](smstrikers-port/tools/NATIVE_ASSETS.md). Select the archive
+in `strikers.ini`:
+
+```ini
+asset_archive = ux0:data/strikersVita/sms.psarc
+```
+
+The original disc image and extracted layouts remain supported. A disc image
+can be placed directly in that directory:
 
 ```text
 ux0:data/strikersVita/strikers.iso
@@ -87,9 +97,8 @@ During development, **Start + Select** exits the application cleanly.
 
 You need a working [VitaSDK](https://vitasdk.org/) installation with the libraries used by the Vita backend, including:
 
-- vitaGL
-- vitashark
 - SDL3
+- zlib for compressed native PSARC sidecars
 - VitaSDK system stubs/toolchain
 
 Clone the repository together with its submodules:
@@ -127,7 +136,16 @@ smstrikers-port/build-vita/strikers_vita.vpk
 
 The desktop port uses upstream Aurora and modern desktop graphics APIs. This fork instead has a dedicated Vita path using [robin994/aurora-vita](https://github.com/robin994/aurora-vita).
 
-The Vita backend is designed around the hardware available on PS Vita rather than trying to reproduce the desktop Dawn/WebGPU stack. Current work includes GX translation, vitaGL draw submission, texture decoding/caching, vertex conversion, EFB handling, shader generation, pipeline caching and memory-budget tracking.
+The Vita backend includes GX translation, native GXM draw submission, texture
+decoding/caching, vertex conversion, EFB handling, shader generation, pipeline
+caching and memory-budget tracking.
+
+The [60 FPS plan](PERFORMANCE_60FPS_PLAN_2026-10-06.md) and its
+[implementation and hardware evidence](PERFORMANCE_IMPLEMENTATION_2026-10-06.md)
+record the performance experiments and their limits. Startup selectors,
+including `vita_test_match` and `vita_frameskip`, are documented in
+[Vita diagnostics](smstrikers-port/tools/VITA_DIAGNOSTICS.md). The automatic
+CPU-versus-CPU test match defaults to OFF and is enabled only through the INI.
 
 Runtime diagnostics are written under:
 
@@ -145,7 +163,7 @@ The focus of this repository is the **PS Vita port**. Useful contributions inclu
 
 - GX/Aurora Vita rendering fixes.
 - ARM32 correctness and alignment fixes.
-- vitaGL/vitashark performance work.
+- Native GXM performance work.
 - Memory reduction and allocator improvements.
 - Audio backend work.
 - Input and PS TV compatibility.

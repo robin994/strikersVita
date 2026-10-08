@@ -29,7 +29,7 @@ public:
     static constexpr size_t MaxPackets = 512;
     static constexpr size_t MaxMatrices = 4096;
     static constexpr size_t MinimumMatrices = 128;
-    static constexpr uint32_t ExecutionLanes = 3; // CPU0/CPU2/CPU1; never CPU3.
+    static constexpr uint32_t ExecutionLanes = 4; // Lane3 is admitted only by the quota scheduler.
     using RangeTask = bool (*)(void*, size_t, size_t, uint32_t) noexcept;
     using Dispatch = bool (*)(size_t, RangeTask, void*) noexcept;
 

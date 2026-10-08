@@ -27,7 +27,7 @@ static void completed(s32 r, DVDFileInfo* f) { (void)f; ++calls; result = r; }
 
 int main(int argc, char** argv)
 {
-    assert(argc == 3);
+    assert(argc == 3 || (argc == 4 && strcmp(argv[3], "--reader-only") == 0));
     char err[2048];
     PortAssetArchive* a = port_asset_archive_open(argv[1], err, sizeof err);
     if (strcmp(argv[2], "--reject") == 0) {
@@ -71,6 +71,10 @@ int main(int argc, char** argv)
         fclose(source);
     }
     port_asset_archive_close(a);
+    if (argc == 4) {
+        puts("PSARC sidecar byte equivalence and random reads passed");
+        return 0;
+    }
     setenv("STRIKERS_ASSET_ARCHIVE", argv[1], 1);
     DVDInit();
     assert(memcmp(DVDGetCurrentDiskID(), "G4QP01", 6) == 0);

@@ -45,6 +45,48 @@ class AssetsTest(unittest.TestCase):
             subprocess.run([str(PROBE), str(archive or self.archive), mode or str(self.tree)],
                            check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
+    def test_native_only_compression_preserves_stored_game_blocks(self):
+        native=self.tree/"native";native.mkdir();payload=b"canonical native geometry"*10000
+        (native/"mesh.avnr").write_bytes(payload)
+        report=create_psarc(self.archive,[self.files,self.sys,native],compress_prefixes=("native/",))
+        archive=parse_psarc(self.archive)
+        entry=archive.entries[archive.paths.index("native/mesh.avnr")+1]
+        self.assertLess(archive.block_sizes[entry.zindex],65536)
+        original=archive.entries[archive.paths.index("files/Art/texture.glt")+1]
+        self.assertEqual(archive.block_sizes[original.zindex],0)
+        self.assertEqual(extract_entry(self.archive,"native/mesh.avnr"),payload)
+        self.assertGreater(report["native_compression_saved_bytes"],0)
+        self.assertEqual(verify_psarc(self.archive)["entries"],len(archive.paths))
+        self.probe()
+        before=self.archive.read_bytes()
+        create_psarc(self.archive,[self.files,self.sys,native],compress_prefixes=("native/",))
+        self.assertEqual(before,self.archive.read_bytes())
+
+    def test_existing_psarc_roundtrip_and_input_protection(self):
+        self.pack();before=self.archive.read_bytes();output=self.base/'derived.psarc'
+        result=prepare('strikers',None,[],output,source_archive=self.archive)
+        self.assertEqual(result['source_disc']['kind'],'psarc')
+        self.assertEqual(before,self.archive.read_bytes());self.assertEqual(before,output.read_bytes())
+        with self.assertRaises(ValueError):prepare('strikers',None,[],self.archive,source_archive=self.archive,replace=True)
+
+    def test_native_only_package_keeps_game_archive_independent(self):
+        with self.assertRaises(ValueError):
+            prepare("generic",None,[self.files],self.archive,native_only=True)
+        entries=[(True,"",0,2),(False,"common.ini",0,len(PAYLOAD))]
+        entries[1]=(False,"common.ini",payload_offset(entries),len(PAYLOAD))
+        iso=self.base/"disc.iso";write_disc(iso,entries)
+        native=self.base/"sidecars"/"native";native.mkdir(parents=True)
+        payload=b"versioned native payload"*10000
+        (native/"mesh.avnr").write_bytes(payload)
+        with patch("asset_pipeline.native.prepare_native",return_value=(native,{"compiled":1})):
+            report=prepare("strikers",iso,[],self.archive,native_compiler=self.base/"compiler",native_only=True)
+        self.assertTrue(report["native_only"])
+        self.assertEqual(parse_psarc(self.archive).paths,("native/mesh.avnr",))
+        self.assertEqual(extract_entry(self.archive,"native/mesh.avnr"),payload)
+        if PROBE:
+            subprocess.run([str(PROBE),str(self.archive),str(native.parent),"--reader-only"],check=True,
+                           stdout=subprocess.PIPE,stderr=subprocess.PIPE)
+
     def test_roundtrip_dedup_determinism_and_real_reader(self):
         report = self.pack()
         self.assertEqual(report["deduplicated_bytes"], 131328)

@@ -225,7 +225,7 @@ void FixedUpdateTask::PrePhysicsAITask(float fDeltaT)
     if (PortGameParallelEnabled() && aurora::vita::worker_threads() != 0)
     {
         PrePhysicsPoseJob job = {};
-        (void)aurora::vita::parallel_for(10, 3, PreparePlayerPoses, &job);
+        (void)aurora::vita::parallel_for(10, aurora::vita::game_execution_lanes()>=4 ? 2 : 3, PreparePlayerPoses, &job);
 
         // Physics objects and the held ball are deliberately committed in the
         // original deterministic character order on CPU0.

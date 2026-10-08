@@ -7,7 +7,7 @@ See LICENSE-CC0.txt and UPSTREAM.md in this directory.
 
 The writer intentionally targets the subset RE4 Vita needs:
 - PSARC 1.4, zlib tag, 64 KiB blocks
-- payload blocks stored uncompressed
+- original payload blocks stored uncompressed; optional prefix-limited zlib for cold native sidecars
 - relative paths with optional case-insensitive hashing
 - optional content deduplication
 
@@ -210,6 +210,7 @@ def create_psarc(
     *,
     ignore_case: bool = True,
     merge_duplicates: bool = True,
+    compress_prefixes: tuple[str, ...] = (),
 ) -> dict:
     if output.is_symlink():
         raise ValueError("refusing a symlink output")
@@ -223,116 +224,140 @@ def create_psarc(
     manifest = "\n".join(archive_paths).encode("utf-8")
     payloads, payload_for_file = _dedup_payloads(files, merge_duplicates)
 
-    entry_count = 1 + len(files)
-    block_count = 1 + len(_block_words(len(manifest)))
-    for payload in payloads:
-        block_count += len(_block_words(payload.size))
+    # Compression is restricted to explicitly selected cold native sidecars.
+    # Original game payloads remain stored. Deduplicated aliases outside the
+    # selected prefixes protect that shared payload from compression too.
+    output.parent.mkdir(parents=True,exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix="psarc-native-",dir=output.parent) as compressed_workspace:
+        selected={payload_for_file[i] for i,f in enumerate(files) if any(f.archive_path.startswith(p) for p in compress_prefixes)}
+        selected.difference_update(payload_for_file[i] for i,f in enumerate(files) if not any(f.archive_path.startswith(p) for p in compress_prefixes))
+        payload_blocks=[];stored_sizes=[]
+        for index,payload in enumerate(payloads):
+            if index not in selected:
+                payload_blocks.append(_block_words(payload.size));stored_sizes.append(payload.size);continue
+            encoded_path=Path(compressed_workspace)/str(index)
+            blocks=[];stored=0
+            with payload.source.open("rb") as source,encoded_path.open("wb") as target:
+                remaining=payload.size
+                while remaining:
+                    block=source.read(min(BLOCK_SIZE,remaining))
+                    if not block:raise IOError("truncated native payload while compressing")
+                    candidate=zlib.compress(block,9)
+                    encoded=candidate if len(candidate)<len(block) else block
+                    target.write(encoded);blocks.append(0 if len(encoded)==BLOCK_SIZE else len(encoded));stored+=len(encoded);remaining-=len(block)
+            payload.source=encoded_path;payload_blocks.append(blocks);stored_sizes.append(stored)
+        entry_count = 1 + len(files)
+        block_count = 1 + len(_block_words(len(manifest)))
+        for payload in payloads:
+            block_count += len(_block_words(payload.size))
 
-    toc_length = HEADER.size + entry_count * ENTRY_SIZE + block_count * BLOCK_WORD_SIZE
-    data_start = _align_up(toc_length, DATA_ALIGNMENT)
-    padding = data_start - toc_length
-    if padding > 0xFFFF:
-        raise AssertionError("PSARC TOC padding does not fit block table word")
+        toc_length = HEADER.size + entry_count * ENTRY_SIZE + block_count * BLOCK_WORD_SIZE
+        data_start = _align_up(toc_length, DATA_ALIGNMENT)
+        padding = data_start - toc_length
+        if padding > 0xFFFF:
+            raise AssertionError("PSARC TOC padding does not fit block table word")
 
-    block_sizes: list[int] = [padding]
-    manifest_payload = Payload(None, len(manifest), zindex=1, offset=data_start)
-    block_sizes.extend(_block_words(manifest_payload.size))
-    data_offset = data_start + manifest_payload.size
+        block_sizes: list[int] = [padding]
+        manifest_payload = Payload(None, len(manifest), zindex=1, offset=data_start)
+        block_sizes.extend(_block_words(manifest_payload.size))
+        data_offset = data_start + manifest_payload.size
 
-    for payload in payloads:
-        payload.zindex = len(block_sizes)
-        payload.offset = data_offset
-        block_sizes.extend(_block_words(payload.size))
-        data_offset += payload.size
+        for index,payload in enumerate(payloads):
+            payload.zindex = len(block_sizes)
+            payload.offset = data_offset
+            block_sizes.extend(payload_blocks[index])
+            data_offset += stored_sizes[index]
 
-    if len(block_sizes) != block_count:
-        raise AssertionError("PSARC block table size changed during layout")
+        if len(block_sizes) != block_count:
+            raise AssertionError("PSARC block table size changed during layout")
 
-    flags = FLAG_IGNORE_CASE if ignore_case else 0
-    entries = [
-        TocEntry(bytes(16), manifest_payload.zindex, manifest_payload.size, manifest_payload.offset)
-    ]
-    for file_index, item in enumerate(files):
-        payload = payloads[payload_for_file[file_index]]
-        entries.append(
-            TocEntry(
-                _path_digest(item.archive_path, ignore_case),
-                payload.zindex,
-                item.size,
-                payload.offset,
-            )
-        )
-
-    output = output.resolve()
-    output.parent.mkdir(parents=True, exist_ok=True)
-    fd, temporary_name = tempfile.mkstemp(
-        prefix=output.name + ".", suffix=".tmp", dir=output.parent
-    )
-    os.close(fd)
-    temporary = Path(temporary_name)
-    try:
-        with temporary.open("wb", buffering=0) as out:
-            out.write(
-                HEADER.pack(
-                    MAGIC,
-                    VERSION,
-                    COMPRESSION,
-                    toc_length,
-                    ENTRY_SIZE,
-                    entry_count,
-                    BLOCK_SIZE,
-                    flags,
+        flags = FLAG_IGNORE_CASE if ignore_case else 0
+        entries = [
+            TocEntry(bytes(16), manifest_payload.zindex, manifest_payload.size, manifest_payload.offset)
+        ]
+        for file_index, item in enumerate(files):
+            payload = payloads[payload_for_file[file_index]]
+            entries.append(
+                TocEntry(
+                    _path_digest(item.archive_path, ignore_case),
+                    payload.zindex,
+                    item.size,
+                    payload.offset,
                 )
             )
-            for entry in entries:
-                out.write(entry.digest)
-                out.write(struct.pack(">I", entry.zindex))
-                out.write(_u40(entry.size))
-                out.write(_u40(entry.offset))
-            for word in block_sizes:
-                out.write(struct.pack(">H", word))
-            current = out.tell()
-            if current != toc_length:
-                raise AssertionError(f"TOC size mismatch: {current} != {toc_length}")
-            out.write(bytes(padding))
-            if out.tell() != data_start:
-                raise AssertionError("PSARC data alignment mismatch")
-            out.write(manifest)
-            for payload in payloads:
-                if payload.source is None:
-                    raise AssertionError("missing PSARC payload source")
-                with payload.source.open("rb", buffering=0) as src:
-                    remaining = payload.size
-                    while remaining:
-                        block = src.read(min(COPY_CHUNK, remaining))
-                        if not block:
-                            raise IOError(f"{payload.source}: truncated while packing")
-                        out.write(block)
-                        remaining -= len(block)
-            if out.tell() != data_offset:
-                raise AssertionError("PSARC final size mismatch")
-        os.replace(temporary, output)
-    except Exception:
-        temporary.unlink(missing_ok=True)
-        raise
 
-    logical_bytes = sum(item.size for item in files)
-    unique_bytes = sum(payload.size for payload in payloads)
-    return {
-        "archive": str(output),
-        "archive_bytes": output.stat().st_size,
-        "entries": len(files),
-        "unique_payloads": len(payloads),
-        "logical_payload_bytes": logical_bytes,
-        "unique_payload_bytes": unique_bytes,
-        "deduplicated_bytes": logical_bytes - unique_bytes,
-        "manifest_bytes": len(manifest),
-        "toc_bytes": toc_length,
-        "data_offset": data_start,
-        "block_count": len(block_sizes),
-        "ignore_case": ignore_case,
-        "merge_duplicates": merge_duplicates,
-    }
+        output = output.resolve()
+        output.parent.mkdir(parents=True, exist_ok=True)
+        fd, temporary_name = tempfile.mkstemp(
+            prefix=output.name + ".", suffix=".tmp", dir=output.parent
+        )
+        os.close(fd)
+        temporary = Path(temporary_name)
+        try:
+            with temporary.open("wb", buffering=0) as out:
+                out.write(
+                    HEADER.pack(
+                        MAGIC,
+                        VERSION,
+                        COMPRESSION,
+                        toc_length,
+                        ENTRY_SIZE,
+                        entry_count,
+                        BLOCK_SIZE,
+                        flags,
+                    )
+                )
+                for entry in entries:
+                    out.write(entry.digest)
+                    out.write(struct.pack(">I", entry.zindex))
+                    out.write(_u40(entry.size))
+                    out.write(_u40(entry.offset))
+                for word in block_sizes:
+                    out.write(struct.pack(">H", word))
+                current = out.tell()
+                if current != toc_length:
+                    raise AssertionError(f"TOC size mismatch: {current} != {toc_length}")
+                out.write(bytes(padding))
+                if out.tell() != data_start:
+                    raise AssertionError("PSARC data alignment mismatch")
+                out.write(manifest)
+                for index,payload in enumerate(payloads):
+                    if payload.source is None:
+                        raise AssertionError("missing PSARC payload source")
+                    with payload.source.open("rb", buffering=0) as src:
+                        remaining = stored_sizes[index]
+                        while remaining:
+                            block = src.read(min(COPY_CHUNK, remaining))
+                            if not block:
+                                raise IOError(f"{payload.source}: truncated while packing")
+                            out.write(block)
+                            remaining -= len(block)
+                if out.tell() != data_offset:
+                    raise AssertionError("PSARC final size mismatch")
+            os.replace(temporary, output)
+        except Exception:
+            temporary.unlink(missing_ok=True)
+            raise
+
+        logical_bytes = sum(item.size for item in files)
+        unique_bytes = sum(payload.size for payload in payloads)
+        return {
+            "archive": str(output),
+            "archive_bytes": output.stat().st_size,
+            "entries": len(files),
+            "unique_payloads": len(payloads),
+            "logical_payload_bytes": logical_bytes,
+            "unique_payload_bytes": unique_bytes,
+            "deduplicated_bytes": logical_bytes - unique_bytes,
+            "manifest_bytes": len(manifest),
+            "toc_bytes": toc_length,
+            "data_offset": data_start,
+            "block_count": len(block_sizes),
+            "ignore_case": ignore_case,
+            "merge_duplicates": merge_duplicates,
+            "compressed_prefixes": list(compress_prefixes),
+            "native_compression_saved_bytes": sum(p.size-n for p,n in zip(payloads,stored_sizes)),
+        }
 
 
 def _parse_entry(data: bytes) -> TocEntry:

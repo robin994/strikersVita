@@ -9,6 +9,7 @@
 #include "dolphin/thp/THPInfo.h"
 #include "dolphin/thp/THPPlayer.h"
 #include "dolphin/thp/THPVideoDecode.h"
+#include "port/native_video.h"
 #include "port/endian.h"   // PORT: the THP container is big-endian, as every file on the disc is
 #include "port/thp.h"      // PORT: the decoder entry points the SDK header cannot declare
 #include <stddef.h>        // PORT: offsetof, for the layout checks above the struct
@@ -286,6 +287,7 @@ extern "C" int THPSimpleInit(long audioSystem)
  */
 extern "C" void THPSimpleQuit()
 {
+    PortNativeVideoReset();
     LCDisable();
     if (AudioSystem != 1 && OldAIDCallback != NULL)
     {
@@ -323,7 +325,9 @@ extern "C" int THPSimpleOpen(const char* fileName)
     memset(&((THPSimpleControlWork*)&SimpleControl)->videoInfo, 0, sizeof(THPVideoInfo));
     memset(&((THPSimpleControlWork*)&SimpleControl)->audioInfo, 0, sizeof(THPAudioInfo));
 
-    SimpleControl.file = nlOpen(fileName);
+    SimpleControl.file = PortOpenNativeMovie(fileName);
+    if (!SimpleControl.file)
+        SimpleControl.file = nlOpen(fileName);
     if (!SimpleControl.file)
     {
         return 0;
@@ -435,6 +439,7 @@ extern "C" int THPSimpleClose()
             }
 
             nlClose(((THPSimpleControlWork*)&SimpleControl)->fileInfo);
+            PortNativeVideoReset();
 
             ((THPSimpleControlWork*)&SimpleControl)->fileInfo = NULL;
 

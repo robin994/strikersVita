@@ -87,6 +87,8 @@ def main():
     p.add_argument("--label", default="candidate")
     p.add_argument("--mask", default="0x8")
     p.add_argument("--asset-archive", help="optional ux0:data/strikersVita/*.psarc for this run")
+    p.add_argument("--streamed-vertex-gpu", choices=["0", "1"],
+                   help="override only dynamic fixed-vertex GPU preparation for this run")
     p.add_argument("--frames", type=int, default=1200)
     p.add_argument("--skip", type=int, default=600)
     p.add_argument("--visual", action="store_true")
@@ -95,6 +97,8 @@ def main():
     p.add_argument("--play-snapshot", action="store_true",
                    help="snapshot at live-play frame, excluding the introduction")
     p.add_argument("--diagnostics", action="store_true")
+    p.add_argument("--set", dest="ini_settings", action="append", default=[], metavar="KEY=VALUE",
+                   help="temporary INI override for one isolated performance experiment")
     args = p.parse_args()
     if not 1 <= args.snapshot_frame <= 100000:
         p.error("snapshot-frame must be in [1,100000]")
@@ -141,7 +145,14 @@ def main():
             overrides["log"] = DATA.replace(":/", ":") + "/" + args.label + ".log"
         if args.asset_archive is not None:
             overrides["asset_archive"] = args.asset_archive
+        if args.streamed_vertex_gpu is not None:
+            overrides["gxm_streamed_vertex_gpu"] = args.streamed_vertex_gpu
         original = (args.baseline / "strikers.ini").read_bytes()
+        for setting in args.ini_settings:
+            key, separator, value = setting.partition("=")
+            if not separator or not key.replace("_", "").isalnum() or any(c in value for c in "\r\n\x00"):
+                p.error("--set requires one valid INI KEY=VALUE")
+            overrides[key] = value
         metadata["config"] = overrides
         metadata["ini"] = promote(ftp, DATA, "strikers.ini", ini(original, overrides), args.out)
         metadata["eboot_sha256"] = sha(read(ftp, APP, "eboot.bin"))
@@ -154,10 +165,16 @@ def main():
                     raise
         metadata["launch"] = command(args.host, "launch SMSVITA01")
         # Launch may first show the app's own LiveArea start button.
-        time.sleep(1)
+        time.sleep(2)
         metadata["press"] = command(args.host, "press cross")
         time.sleep(.2)
         metadata["release"] = command(args.host, "release cross")
+        # Relaunching after kill can leave the LiveArea start animation active
+        # at the first input. A second bounded confirmation avoids idle tests.
+        time.sleep(3)
+        metadata["press_retry"] = command(args.host, "press cross")
+        time.sleep(.2)
+        metadata["release_retry"] = command(args.host, "release cross")
     else:
         for name in [args.label + ".csv", args.label + ".log", "strikers.ini"] + ([snapshot_name] if args.visual else []):
             try:
