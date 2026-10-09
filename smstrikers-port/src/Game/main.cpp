@@ -1480,6 +1480,7 @@ int main(int argc, char* argv[])
             cfg.cpu_core3_budget_enabled ? 4u : 3u;
         const char* preparedLists=getenv("STRIKERS_GXM_PREPARED_DL");
         cfg.prepared_display_lists=preparedLists && strcmp(preparedLists,"1")==0;
+        OSReport("[vita] gxm_prepared_dl=%u\n", cfg.prepared_display_lists?1u:0u);
         const char* cdramGeometry=getenv("STRIKERS_GXM_RESIDENT_CDRAM");
         cfg.resident_geometry_cdram=cdramGeometry && strcmp(cdramGeometry,"1")==0;
         const char* bc1=getenv("STRIKERS_GXM_EXACT_BC1");
@@ -1487,6 +1488,11 @@ int main(int argc, char* argv[])
         const char* nativeAssets=getenv("STRIKERS_GXM_NATIVE_ASSETS");
         if(nativeAssets && strcmp(nativeAssets,"1")==0) {
             port::initialize_native_assets();cfg.native_asset_reader=port::read_native_asset;
+        }
+        {
+            const char* packed = getenv("STRIKERS_GXM_NATIVE_GPU_STATIC");
+            cfg.gxm_native_gpu_static = packed && strcmp(packed,"1")==0;
+            OSReport("[vita] gxm_native_gpu_static=%u\n", cfg.gxm_native_gpu_static?1u:0u);
         }
         cfg.cpu_parallel_min_vertices = 64;
         const char* workerCount = getenv("STRIKERS_AURORA_CPU_WORKERS");
@@ -1638,6 +1644,17 @@ int main(int argc, char* argv[])
             OSReport("[vita] gxm_xf_equal_pos_writes=%u\n", enabled ? 1u : 0u);
         }
         {
+            // A5 per-frame state invalidation: independently test exact XF
+            // matrix writes and inactive/equivalent TEV writes. Neither
+            // bypasses any draw, skinning matrix update, depth or shadow pass.
+            const char* matrices=getenv("STRIKERS_GXM_XF_EQUAL_MATRIX_WRITES");
+            cfg.gxm_xf_equal_matrix_writes=matrices && strcmp(matrices,"1")==0;
+            const char* tev=getenv("STRIKERS_GXM_TEV_DECODED_WRITE_GATE");
+            cfg.gxm_tev_decoded_write_gate=tev && strcmp(tev,"1")==0;
+            OSReport("[vita] gxm_xf_equal_matrix_writes=%u gxm_tev_decoded_write_gate=%u\n",
+                cfg.gxm_xf_equal_matrix_writes?1u:0u,cfg.gxm_tev_decoded_write_gate?1u:0u);
+        }
+        {
             const char* prepareCache = getenv("STRIKERS_GXM_FRAGMENT_PREPARE_CACHE");
             const bool enablePrepareCache = prepareCache != NULL && prepareCache[0] == '1';
             [&](auto& config) {
@@ -1653,6 +1670,12 @@ int main(int argc, char* argv[])
             const char* value = getenv("STRIKERS_GXM_UNIFORM_DELTA_UPLOAD");
             cfg.gxm_uniform_delta_upload = value && strcmp(value, "1") == 0;
             OSReport("[vita] gxm_uniform_delta_upload=%u\n", cfg.gxm_uniform_delta_upload ? 1u : 0u);
+        }
+        {
+            const char* value=getenv("STRIKERS_GXM_VERTEX_REUSE_PROBE");
+            cfg.gxm_vertex_reuse_probe=value && strcmp(value,"1")==0;
+            OSReport("[vita] gxm_vertex_reuse_probe=%u sample_period=16\n",
+                cfg.gxm_vertex_reuse_probe?1u:0u);
         }
         {
             // A4 optimizes Cg generation, not GX draw/filter state. The two

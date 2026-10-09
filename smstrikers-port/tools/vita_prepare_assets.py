@@ -51,7 +51,8 @@ def prepare(profile: str, iso: Path | None, roots: list[Path], output: Path,
             native_only: bool = False, source_archive: Path | None = None,
             native_textures: str = 'compact', native_audio: str = 'off', audio_compiler: Path | None = None,
             native_video: bool = False, ffmpeg: str = 'ffmpeg', video_crf: int = 18,
-            video_threads: int = 4, shader_cache: Path | None = None) -> dict:
+            video_threads: int = 4, shader_cache: Path | None = None,
+            native_gpu_static: bool = False) -> dict:
     has_native = bool(native_compiler or native_audio != 'off' or native_video or shader_cache)
     if native_textures not in ('compact','all') or native_audio not in ('off','bank','all'):
         raise ValueError('invalid native preparation mode')
@@ -59,6 +60,8 @@ def prepare(profile: str, iso: Path | None, roots: list[Path], output: Path,
         raise ValueError("--native-only requires at least one native asset category")
     if native_audio != 'off' and not audio_compiler:
         raise ValueError('--native-audio requires --audio-compiler')
+    if native_gpu_static and not native_compiler:
+        raise ValueError('--native-gxm-static requires --native-compiler')
     if has_native and profile != 'strikers':
         raise ValueError('native game adapters require the strikers profile')
     if output.is_symlink():
@@ -126,7 +129,8 @@ def prepare(profile: str, iso: Path | None, roots: list[Path], output: Path,
                 raise ValueError("native GLT/GLG adapter requires the strikers profile")
             from asset_pipeline.native import prepare_native
             native_root, native_report = prepare_native(roots, native_compiler, workspace,
-                                                        include_rgba=native_textures=='all')
+                                                        include_rgba=native_textures=='all',
+                                                        gpu_static=native_gpu_static)
         media_report={}
         if native_audio!='off':
             from asset_pipeline.media import prepare_audio
@@ -142,7 +146,7 @@ def prepare(profile: str, iso: Path | None, roots: list[Path], output: Path,
             roots=[native_root] if native_only else [*original_roots,native_root]
         candidate = workspace / "candidate.psarc"
         packed = create_psarc(candidate, roots, merge_duplicates=deduplicate,
-                              compress_prefixes=("native/v1/textures/","native/v1/geometry/","native/v1/audio/",
+                              compress_prefixes=("native/v1/textures/","native/v1/geometry/","native/v2/geometry/","native/v1/audio/",
                                                  "native/v1/shaders/","native/v1/audio-index.bin") if has_native else ())
         checked = verify_psarc(candidate)
         files = verify_sources(candidate, roots)
@@ -180,6 +184,8 @@ def main() -> int:
     p.add_argument("--native-only", action="store_true",
                    help="package only native sidecars; keep the original game PSARC and select native_asset_archive")
     p.add_argument('--native-textures',choices=('compact','all'),default='compact',help='all includes exact RGBA/TPL texture outputs')
+    p.add_argument('--native-gxm-static',action='store_true',
+                   help='include AVNR v2 source-verified static geometry packed for common exact GXM layouts')
     p.add_argument('--native-audio',choices=('off','bank','all'),default='off',help='bank covers SFX; all also prepares DSP/IDSP music and streams')
     p.add_argument('--audio-compiler',type=Path,help='host strikers_compile_native_audio executable')
     p.add_argument('--native-video',action='store_true',help='add independent Baseline H.264 movies; originals retained')
@@ -193,7 +199,9 @@ def main() -> int:
                          replace=a.replace, deduplicate=not a.no_dedup,
                          native_compiler=a.native_compiler, native_only=a.native_only,source_archive=a.source_archive,
                          native_textures=a.native_textures,native_audio=a.native_audio,audio_compiler=a.audio_compiler,
-                         native_video=a.native_video,ffmpeg=a.ffmpeg,video_crf=a.video_crf,video_threads=a.video_threads,shader_cache=a.shader_cache)
+                         native_video=a.native_video,ffmpeg=a.ffmpeg,video_crf=a.video_crf,
+                         video_threads=a.video_threads,shader_cache=a.shader_cache,
+                         native_gpu_static=a.native_gxm_static)
     except (OSError, ValueError, RuntimeError, subprocess.CalledProcessError) as exc:
         p.exit(1, f"Asset preparation failed: {exc}\n")
     print(json.dumps({"archive": str(a.output), "sha256": report["archive_sha256"],

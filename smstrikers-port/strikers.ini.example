@@ -48,10 +48,22 @@
 # Keep 0 for the validated CPU fallback; 1 enables the streamed GPU experiment.
 # Restart Strikers after changing this. It is independent of test match/frameskip.
 # gxm_streamed_vertex_gpu = 0
+# Diagnostic-only census of decoded vertices before matrices/lighting. Samples
+# one renderer frame in 16; reports whole-stream and cross-draw position/normal
+# reuse in performance_capture. Never enables a geometry cache or skips a draw.
+# Requires diagnostics=1; leave off for FPS measurements.
+# gxm_vertex_reuse_probe = 0
 
 # Independent Vita experiments (restart after changes, default 0).
-# Prepared immutable single-draw lists on the GX consumer; original FIFO fallback.
+# A5: no per-draw parse for simple, immutable, pinned GX display lists.
+# Existing FIFO one-draw direct path only, ordered on GX consumer. OFF default.
 # gxm_prepared_dl = 0
+
+# A5 per-frame state write guards (OFF by default; test independently):
+# Skip bit-identical XF texture/normal/post-texture matrix writes.
+# gxm_xf_equal_matrix_writes = 0
+# Skip inactive / semantically identical decoded TEV stage invalidations.
+# gxm_tev_decoded_write_gate = 0
 # Exact compact CMPR subset as BC1; other textures keep lossless fallback.
 # gxm_exact_bc1 = 0
 # Immutable geometry buffers prefer CDRAM, retaining USER allocation fallback.
@@ -224,6 +236,31 @@
 # or draws disabled. 0=reference, 1=reuse identical texture/coord fetches,
 # 2=drop unused TEV color/alpha computations, 3=both. Default OFF.
 # gxm_a4_fragment_opt = 0
+
+# Native GXM static geometry AVNR v2: final prepacked GPU layout, direct
+# immutable VB/IB admission. Requires a NEW sidecar generated with
+# --native-gxm-static and native_asset_archive pointing to it. Default OFF.
+# gxm_native_gpu_static = 0
+
+# A6 phase 1: opt-in same-frame GX decoding bypass for consecutive identical,
+# immutable, unlit and untextured packets whose AVNR v2 GXM buffer is resident.
+# Uses pinned display-list identity and exact-slot original GX fallback.
+# Does NOT yet bypass GX for characters, shadows or animated materials.
+# gxm_native_draw_replay = 0
+
+# Native model/draw recipe experiment, disabled by default.
+# 1: original static-unlit branch, position/color and no textures.
+# 2: intercept only the DL draw slot, retaining original GLX state/userdata
+# updates; textured/lit/indexed-PN resident geometry uses current texture,
+# TLUT and EFB resolution, with reference GX fallback. Requires GX worker.
+# gxm_native_model_draw = 0
+# Opt-in CPU recipe cache: 256 entries, four-way lookup, selective replacement.
+# Producer/consumer capacity is coordinated with a 384-live-recipe ceiling.
+# Geometry remains at its separately configured budget. Requires mode 1 or 2.
+# gxm_native_model_cache = 0
+# Diagnostic producer census covers the mode-1 filter only; requires
+# diagnostics=1. Use native_model_* counters for mode-2 coverage.
+# gxm_native_model_census = 0
 
 # Which disc the data came from, when the data cannot say: the id is read from sys/boot.bin
 # beside `files` or from an image's first bytes, and an extraction of `files` alone is taken

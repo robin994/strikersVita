@@ -15,6 +15,7 @@ CUMULATIVE = {
     "finish_calls", "finish_wait_us", "native_texture_hits",
     "native_geometry_hits", "native_rejected", "native_misses",
     "core3_chunks", "core3_denied", "core3_telemetry_failures", "core3_overruns",
+    "native_model_attempts", "native_model_draws", "native_model_fallbacks", "native_model_compiled",
 }
 REQUIRED = {"frame", "gx_total_us", "producer_wait_us", "consumer_wait_us"}
 
@@ -54,7 +55,8 @@ def analyze(path):
             rows.append(row)
     if len(rows) < 2:
         raise ValueError("At least two different completed frames are required")
-    cumulative = CUMULATIVE.intersection(fields)
+    cumulative = CUMULATIVE.intersection(fields) | {key for key in fields if key.startswith("native_census_") or
+                                                  key.startswith("native_cache_") and not key.startswith("native_cache_peak_")}
     for key in cumulative:
         if any(after[key] < before[key] for before, after in zip(rows, rows[1:])):
             raise ValueError("Cumulative counter reset: " + key)

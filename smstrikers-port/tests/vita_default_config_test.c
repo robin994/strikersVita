@@ -11,7 +11,7 @@
 #define CHECK(c) do { if (!(c)) { fprintf(stderr, "FAIL line %d: %s\n", __LINE__, #c); exit(1); } } while (0)
 #define DEFAULTS_BEGIN "# --- STRIKERS VALIDATED DEFAULTS BEGIN ---"
 #define DEFAULTS_END "# --- STRIKERS VALIDATED DEFAULTS END ---"
-#define DEFAULT_CONFIG_KEY_COUNT 48
+#define DEFAULT_CONFIG_KEY_COUNT 56
 
 static char s_data_dir[1024];
 
@@ -36,6 +36,8 @@ static void write_ini(const char* path, const char* profile, const char* disable
     fprintf(f, "gxm_shader_profile = %s\n", profile);
     fprintf(f, "gxm_disable = %s\n", disable);
     fprintf(f, "vita_debug_menu = 1\n");
+    fprintf(f, "gxm_native_model_draw = 2\n");
+    fprintf(f, "gxm_native_model_cache = 1\n");
     fprintf(f, "diagnostics = 0\n");
     fprintf(f, "fps_overlay = 0\n");
     CHECK(fclose(f) == 0);
@@ -147,6 +149,11 @@ static void run_case(const char* root, int mode)
             CHECK(strcmp(getenv("STRIKERS_GXM_FRAGMENT_PREPARE_CACHE"), "1") == 0);
             CHECK(strcmp(getenv("STRIKERS_GXM_UNIFORM_DELTA_UPLOAD"), "0") == 0);
             CHECK(strcmp(getenv("STRIKERS_GXM_A4_FRAGMENT_OPT"), "0") == 0);
+            CHECK(strcmp(getenv("STRIKERS_GXM_XF_EQUAL_MATRIX_WRITES"), "0") == 0);
+            CHECK(strcmp(getenv("STRIKERS_GXM_TEV_DECODED_WRITE_GATE"), "0") == 0);
+            CHECK(strcmp(getenv("STRIKERS_GXM_PREPARED_DL"), "0") == 0);
+            CHECK(strcmp(getenv("STRIKERS_GXM_NATIVE_GPU_STATIC"), "0") == 0);
+            CHECK(strcmp(getenv("STRIKERS_GXM_NATIVE_DRAW_REPLAY"), "0") == 0);
             CHECK(strcmp(getenv("STRIKERS_GXM_FIXED_UNIFORM_POOL"), "1") == 0);
             CHECK(strcmp(getenv("STRIKERS_GXM_GEOMETRY_PREFLIGHT"), "1") == 0);
             CHECK(strcmp(getenv("STRIKERS_GXM_LOCAL_DRAW_BATCHING"), "0") == 0);
@@ -159,6 +166,14 @@ static void run_case(const char* root, int mode)
         CHECK(strcmp(getenv("STRIKERS_GXM_XF_EQUAL_POS_WRITES"), "0") == 0);
         CHECK(strcmp(getenv("STRIKERS_GXM_UNIFORM_DELTA_UPLOAD"), "0") == 0);
         CHECK(strcmp(getenv("STRIKERS_GXM_A4_FRAGMENT_OPT"), "0") == 0);
+        CHECK(strcmp(getenv("STRIKERS_GXM_XF_EQUAL_MATRIX_WRITES"), "0") == 0);
+        CHECK(strcmp(getenv("STRIKERS_GXM_TEV_DECODED_WRITE_GATE"), "0") == 0);
+        CHECK(strcmp(getenv("STRIKERS_GXM_NATIVE_MODEL_CACHE"), mode == 1 ? "1" : "0") == 0);
+        CHECK(strcmp(getenv("STRIKERS_GXM_PREPARED_DL"), "0") == 0);
+        CHECK(strcmp(getenv("STRIKERS_GXM_NATIVE_GPU_STATIC"), "0") == 0);
+        CHECK(strcmp(getenv("STRIKERS_GXM_NATIVE_DRAW_REPLAY"), "0") == 0);
+        CHECK(strcmp(getenv("STRIKERS_GXM_NATIVE_MODEL_DRAW"), mode == 1 ? "2" : "0") == 0);
+        CHECK(strcmp(getenv("STRIKERS_GXM_NATIVE_MODEL_CENSUS"), "0") == 0);
         if (mode == 1)
             CHECK(file_contains(user_ini, "vita_debug_menu = 1"));
         CHECK(strcmp(getenv("STRIKERS_FIXED_DT"), "0") == 0);

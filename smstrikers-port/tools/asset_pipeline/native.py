@@ -114,7 +114,8 @@ def geometry_requests(data):
             request+=raw
             if len(request)<=LIMIT: yield request
 
-def prepare_native(roots: list[Path], compiler: Path, workspace: Path, *, include_rgba=False) -> tuple[Path,dict]:
+def prepare_native(roots: list[Path], compiler: Path, workspace: Path, *, include_rgba=False,
+                   gpu_static=False) -> tuple[Path,dict]:
     compiler=compiler.resolve()
     if not compiler.is_file(): raise ValueError('native compiler is missing')
     output=workspace/'native';output.mkdir()
@@ -141,8 +142,10 @@ def prepare_native(roots: list[Path], compiler: Path, workspace: Path, *, includ
                 bundles.append({'path':asset.relative_to(root).as_posix(),'requests':requested-before,'fallback_reason':reason})
         command=[str(compiler),str(temp),str(workspace)]
         if include_rgba: command.append('--include-rgba')
+        if gpu_static: command.append('--gpu-static')
         result=subprocess.run(command,capture_output=True,text=True,check=True)
     report=json.loads(result.stdout)
     report.update({'version':1,'requested':requested,'skipped_large':skipped,'bundles':bundles,'include_rgba':include_rgba,
+                   'gpu_static':gpu_static,
                    'policy':'exact source match; original assets retained; canonical static GLG and native GLT layouts'})
     return output,report

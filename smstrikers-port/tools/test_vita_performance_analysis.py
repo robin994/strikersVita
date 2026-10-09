@@ -48,6 +48,47 @@ class PerformanceAnalysisTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "backwards"):
             analyze(self.capture(rows))
 
+    def test_native_model_counters_are_endpoint_deltas(self):
+        rows = self.rows()
+        for row, total in zip(rows, [10, 10, 14, 25]):
+            row.update(native_model_attempts=total, native_model_draws=total-2,
+                       native_model_fallbacks=2, native_model_compiled=3)
+        result = analyze(self.capture(rows))
+        self.assertEqual(result["cumulative_deltas"]["native_model_draws"], 15)
+        self.assertEqual(result["per_completed_frame"]["native_model_attempts"], 3)
+        self.assertEqual(result["cumulative_deltas"]["native_model_compiled"], 0)
+        self.assertNotIn("native_model_attempts", result["frame_distributions"])
+        rows[-1]["native_model_draws"] = 0
+        with self.assertRaisesRegex(ValueError, "counter reset: native_model_draws"):
+            analyze(self.capture(rows))
+
+    def test_admission_reasons_overlap_and_remain_cumulative(self):
+        rows = self.rows()
+        for row,total in zip(rows,[10,10,14,25]):
+            row.update(native_census_draw_callbacks=total,native_census_reject_program=total,
+                       native_census_reject_texture_handles=total,native_census_view_11=total)
+        path=self.capture(rows)
+        with path.open("a") as file:
+            file.write("# native_model_example kind=view index=11 program_kind=4\n")
+        result=analyze(path)
+        self.assertEqual(result["cumulative_deltas"]["native_census_draw_callbacks"],15)
+        self.assertEqual(result["cumulative_deltas"]["native_census_reject_program"],15)
+        self.assertNotIn("native_census_reject_program",result["frame_distributions"])
+        self.assertTrue(any("native_model_example" in line for line in result["metadata"]))
+
+    def test_cache_reasons_are_deltas_but_memory_peaks_are_gauges(self):
+        rows = self.rows()
+        for row,total in zip(rows,[10,10,14,25]):
+            row.update(native_cache_consumer_missing=total,native_cache_producer_replace=total,
+                       native_cache_peak_consumer_metadata_bytes=65536)
+        result=analyze(self.capture(rows))
+        self.assertEqual(result["cumulative_deltas"]["native_cache_consumer_missing"],15)
+        self.assertEqual(result["frame_distributions"]["native_cache_peak_consumer_metadata_bytes"]["maximum"],65536)
+        self.assertNotIn("native_cache_peak_consumer_metadata_bytes",result["cumulative_deltas"])
+        rows[-1]["native_cache_consumer_missing"]=0
+        with self.assertRaisesRegex(ValueError,"counter reset: native_cache_consumer_missing"):
+            analyze(self.capture(rows))
+
 
 if __name__ == "__main__":
     unittest.main()
