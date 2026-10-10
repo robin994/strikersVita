@@ -258,6 +258,10 @@
 # Producer/consumer capacity is coordinated with a 384-live-recipe ceiling.
 # Geometry remains at its separately configured budget. Requires mode 1 or 2.
 # gxm_native_model_cache = 0
+# Use the ordinary incremental fixed-uniform builder for native recipes.
+# Complete snapshots and GXM disable bits remain enforced. No GX state caching
+# or GPU reservation policy change; geometry budget is unchanged. Opt-in only.
+# gxm_native_model_uniform_build = 0
 # Diagnostic producer census covers the mode-1 filter only; requires
 # diagnostics=1. Use native_model_* counters for mode-2 coverage.
 # gxm_native_model_census = 0

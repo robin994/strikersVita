@@ -64,6 +64,7 @@ static const VitaDefaultConfigEntry s_vita_defaults[] = {
     { "gxm_native_draw_replay", "0" },
     { "gxm_native_model_draw", "0" },
     { "gxm_native_model_cache", "0" },
+    { "gxm_native_model_uniform_build", "0" },
     { "gxm_native_model_census", "0" },
     { "vita_native_audio", "1" },
     { "vita_native_video", "1" },

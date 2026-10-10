@@ -97,9 +97,15 @@ def main():
     p.add_argument("--play-snapshot", action="store_true",
                    help="snapshot at live-play frame, excluding the introduction")
     p.add_argument("--diagnostics", action="store_true")
+    p.add_argument("--launch-confirm", choices=["twice", "once", "none", "startup-log"],
+                   help="defaults to startup-log with diagnostics, otherwise none; once/twice are explicit LiveArea confirmation")
     p.add_argument("--set", dest="ini_settings", action="append", default=[], metavar="KEY=VALUE",
                    help="temporary INI override for one isolated performance experiment")
     args = p.parse_args()
+    if args.launch_confirm is None:
+        args.launch_confirm = "startup-log" if args.diagnostics else "none"
+    if args.action == "run" and args.launch_confirm == "startup-log" and not args.diagnostics:
+        p.error("startup-log requires --diagnostics")
     if not 1 <= args.snapshot_frame <= 100000:
         p.error("snapshot-frame must be in [1,100000]")
     if not args.label.replace("-", "").replace("_", "").isalnum():
@@ -153,9 +159,20 @@ def main():
             if not separator or not key.replace("_", "").isalnum() or any(c in value for c in "\r\n\x00"):
                 p.error("--set requires one valid INI KEY=VALUE")
             overrides[key] = value
+        if args.launch_confirm == "startup-log" and (overrides["diagnostics"] != "1"
+                or overrides.get("log") != DATA.replace(":/", ":") + "/" + args.label + ".log"):
+            p.error("startup-log requires diagnostics=1 and the run's unique log path")
         metadata["config"] = overrides
         metadata["ini"] = promote(ftp, DATA, "strikers.ini", ini(original, overrides), args.out)
         metadata["eboot_sha256"] = sha(read(ftp, APP, "eboot.bin"))
+        metadata["launch_confirm"] = args.launch_confirm
+        if args.launch_confirm == "startup-log":
+            ftp.cwd(DATA)
+            try:
+                ftp.delete(args.label + ".log")
+            except error_perm as e:
+                if not str(e).startswith("550"):
+                    raise
         if args.visual:
             ftp.cwd(DATA)
             try:
@@ -164,17 +181,42 @@ def main():
                 if not str(e).startswith("550"):
                     raise
         metadata["launch"] = command(args.host, "launch SMSVITA01")
+        if args.launch_confirm == "startup-log":
+            def started():
+                ftp.cwd(DATA)
+                ftp.voidcmd("TYPE I")
+                try:
+                    return ftp.size(args.label + ".log") is not None
+                except error_perm as e:
+                    if not str(e).startswith("550"):
+                        raise
+                    return False
+            time.sleep(3)
+            metadata["started_before_input"] = started()
+            if not metadata["started_before_input"]:
+                metadata["press"] = command(args.host, "press cross")
+                time.sleep(.2)
+                metadata["release"] = command(args.host, "release cross")
+            deadline = time.monotonic() + 30
+            while not started():
+                if time.monotonic() >= deadline:
+                    (args.out / "run-identity.json").write_text(json.dumps(metadata, indent=2) + "\n")
+                    raise RuntimeError("No startup log after one confirmation; refusing further game input")
+                time.sleep(2)
+            metadata["startup_log_confirmed"] = True
         # Launch may first show the app's own LiveArea start button.
-        time.sleep(2)
-        metadata["press"] = command(args.host, "press cross")
-        time.sleep(.2)
-        metadata["release"] = command(args.host, "release cross")
+        elif args.launch_confirm in ("twice", "once"):
+            time.sleep(2)
+            metadata["press"] = command(args.host, "press cross")
+            time.sleep(.2)
+            metadata["release"] = command(args.host, "release cross")
         # Relaunching after kill can leave the LiveArea start animation active
         # at the first input. A second bounded confirmation avoids idle tests.
-        time.sleep(3)
-        metadata["press_retry"] = command(args.host, "press cross")
-        time.sleep(.2)
-        metadata["release_retry"] = command(args.host, "release cross")
+        if args.launch_confirm == "twice":
+            time.sleep(3)
+            metadata["press_retry"] = command(args.host, "press cross")
+            time.sleep(.2)
+            metadata["release_retry"] = command(args.host, "release cross")
     else:
         for name in [args.label + ".csv", args.label + ".log", "strikers.ini"] + ([snapshot_name] if args.visual else []):
             try:
