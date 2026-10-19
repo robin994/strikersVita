@@ -1018,6 +1018,24 @@ void vglVertexAttribPointerMapped(GLuint index, const GLvoid *pointer);
 // Get the compiled shader binary of a given GL shader.
 void vglGetShaderBinary(GLuint index, GLsizei bufSize, GLsizei *length, void *binary);
 
+// Optional CPU packing cache. Configure on the GL owner before creating custom
+// programs; values and GPU uniform-buffer reservations remain program-local.
+enum {
+	VGL_UNIFORM_PACK_CALLS, VGL_UNIFORM_PACK_BYTES,
+	VGL_UNIFORM_RESERVATIONS, VGL_UNIFORM_RESERVED_BYTES,
+	VGL_UNIFORM_CACHE_COPIES, VGL_UNIFORM_CACHE_COPY_BYTES,
+	VGL_UNIFORM_REUSED_VALUES, VGL_UNIFORM_REUSED_BYTES,
+	VGL_UNIFORM_COUNTER_COUNT
+};
+typedef struct {
+	uint64_t stage[2][VGL_UNIFORM_COUNTER_COUNT]; // vertex, fragment; sizes in bytes
+	uint64_t fallback_uploads, errors, cache_bytes, cache_peak_bytes;
+	uint64_t verify_checks;
+	GLboolean enabled, profiling, verifying;
+} vglUniformCacheStats;
+GLboolean vglConfigureUniformCache(GLboolean enabled, GLboolean profile, GLboolean verify);
+void vglGetUniformCacheStats(vglUniformCacheStats *stats);
+
 typedef enum {
 	VGL_MEM_VRAM, // CDRAM
 	VGL_MEM_RAM, // USER_RW RAM

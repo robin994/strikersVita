@@ -71,6 +71,25 @@ int main()
     assert(generic.find("u_controls.w==3.0") != std::string::npos);
     assert(generic.find("u_controls.w==4.0") != std::string::npos);
     assert(scene_vertex_shader(true).find("STRIKERS_VERTEX_FOG 1") != std::string::npos);
+    for (bool vertexFog : {false, true})
+    {
+        const auto vertexSource = scene_vertex_shader(vertexFog);
+        const auto previousSource = "#define STRIKERS_SCENE_BONE_ROWS " + std::to_string(kSceneBoneRows) + "\n" +
+                                    "#define STRIKERS_VERTEX_FOG " + (vertexFog ? "1\n" : "0\n") +
+                                    kSceneVertexShader;
+        assert(vertexSource == previousSource && scene_vertex_shader(vertexFog, true) == previousSource);
+        assert(vertexSource.find("#define STRIKERS_SCENE_BONE_ROWS " +
+                                 std::to_string(kSceneBoneRows) + "\n") != std::string::npos);
+        assert(vertexSource.find("u_bones[STRIKERS_SCENE_BONE_ROWS]") != std::string::npos);
+        const auto rigid = scene_vertex_shader(vertexFog, false);
+        assert(!rigid.empty() && rigid.find("a_bone") == std::string::npos &&
+               rigid.find("u_bones") == std::string::npos && rigid.find("int b=") == std::string::npos);
+        assert(rigid.find(" float4 p=a_position;float3 n=a_normal;\n") != std::string::npos);
+        // Everything after the PN transform remains exactly the shipped
+        // vertex program, including lighting, texgen, projection and fog.
+        assert(rigid.substr(rigid.find(" float4 eye=")) == vertexSource.substr(vertexSource.find(" float4 eye=")));
+        assert(rigid.find(vertexFog ? "STRIKERS_VERTEX_FOG 1" : "STRIKERS_VERTEX_FOG 0") != std::string::npos);
+    }
     assert(scene_vertex_fog_eligible({100, 1000, 1, 0}));
     assert(!scene_vertex_fog_eligible({10000, 10000.01f, 1, 0}));
     assert(!scene_vertex_fog_eligible({1000, 500, 1, 0}));

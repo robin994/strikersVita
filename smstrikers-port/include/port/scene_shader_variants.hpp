@@ -1,6 +1,7 @@
 #pragma once
 #include "port/native_model_vertices.hpp"
 #include "port/scene_shaders.hpp"
+#include "port/scene_skinning.hpp"
 #include <algorithm>
 #include <string>
 
@@ -42,10 +43,30 @@ inline bool scene_affine_uv_eligible(unsigned projective, unsigned used,
     return !(projective & used);
 }
 
-inline std::string scene_vertex_shader(bool vertexFog)
+inline std::string scene_vertex_shader(bool vertexFog, bool usesBones = true)
 {
-    return std::string("#define STRIKERS_VERTEX_FOG ") + (vertexFog ? "1\n" : "0\n") +
-           kSceneVertexShader;
+    std::string source = "#define STRIKERS_SCENE_BONE_ROWS " + std::to_string(kSceneBoneRows) + "\n" +
+                         "#define STRIKERS_VERTEX_FOG " + (vertexFog ? "1\n" : "0\n") +
+                         kSceneVertexShader;
+    if (usesBones)
+        return source;
+    // Preserve the existing PN source/cache key. Rigid geometry must omit the
+    // palette declaration: the provider uploads every reflected vertex uniform.
+    const auto replace = [&](const char* from, const char* to) {
+        const auto p = source.find(from);
+        if (p == std::string::npos)
+            return false;
+        source.replace(p, std::char_traits<char>::length(from), to);
+        return true;
+    };
+    if (!replace("float a_bone:TEXCOORD6,", "") ||
+        !replace("uniform float4 u_bones[STRIKERS_SCENE_BONE_ROWS],", "") ||
+        !replace(" int b=(int)a_bone*3;float4 p=a_position;float3 n=a_normal;\n"
+                 " if(b>0){p.xyz=float3(dot(u_bones[b],p),dot(u_bones[b+1],p),dot(u_bones[b+2],p));\n"
+                 "  n=float3(dot(u_bones[b].xyz,n),dot(u_bones[b+1].xyz,n),dot(u_bones[b+2].xyz,n));}\n",
+                 " float4 p=a_position;float3 n=a_normal;\n"))
+        return {};
+    return source;
 }
 
 inline std::string scene_fragment_shader(unsigned mask, bool alpha, bool generic,
@@ -60,6 +81,8 @@ inline std::string scene_fragment_shader(unsigned mask, bool alpha, bool generic
     if (!generic)
     {
         replace("float mask=u_controls.x;", "float mask=" + std::to_string(mask) + ".0;");
+        // Keep the standard source and texture-coordinate mapping unchanged.
+        replace("u_controls.w==2.0?uv1:uv2", "uv2");
         replace(" if(u_controls.w==2.0){float "
                 "y=d.r,u=detail.r-0.5,v=sh.r-0.5;c=float4(y+1.402*v,y-0.344136*u-0.714136*v,y+"
                 "1.772*u,1.0);}", "");

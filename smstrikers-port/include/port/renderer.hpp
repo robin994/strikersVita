@@ -6,11 +6,13 @@
 #include <vector>
 #include "port/native_texture_record.hpp"
 #include "port/native_model_vertices.hpp"
+#include "port/scene_skinning.hpp"
 namespace port::render
 {
 using nativegxm::ModelVertex;
 using nativegxm::TextureStorage;
 using nativegxm::TextureUpload;
+enum class TargetFormat : uint8_t { Rgba8, Rgb565 };
 struct Raster
 {
     bool depthTest = true, depthWrite = true;
@@ -18,7 +20,11 @@ struct Raster
     uint8_t cull = 0;            // none, front, back, all
     uint8_t blend = 0;           // Strikers blend modes 0..7
     bool writeRgb = true, writeAlpha = false;
-    constexpr bool valid() const noexcept { return depthFunction < 4 && cull < 4 && blend < 8; }
+    uint8_t primitive = 0;       // triangle list, line list
+    constexpr bool valid() const noexcept
+    {
+        return depthFunction < 4 && cull < 4 && blend < 8 && primitive < 2;
+    }
 };
 
 struct SceneMaterial
@@ -36,10 +42,11 @@ struct SceneMaterial
     std::array<float, 4> fog{};   // start, end, enabled, type
     std::array<float, 4> fogColor{};
     std::array<std::array<float, 4>, 4> specular{}, specularColor{};
-    std::array<float, 4> material{ 1, 0, 0, 0 }; // gloss weight, dirt program, shadow partition+1
+    std::array<float, 4> material{ 1, 0, 0, 0 }; // gloss weight, dirt program, shadow partition+1, stage-1 RGB cleanup
+    std::array<float, 4> alpha{ 1, 1, 1, 0 }; // resolved K-alpha stages 0..2, inherited stage-2 pattern
     std::array<std::array<float, 4>, 8> lightPosition{};
     std::array<std::array<float, 4>, 8> lightColor{};
-    std::array<std::array<float, 4>, 10 * 3> bones{};
+    SceneBonePalette bones{};
     std::array<float, 16> modelView{ 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1 };
     std::array<float, 4> viewport{ 0, 0, 960, 544 }, scissor{ 0, 0, 960, 544 };
     std::array<float, 4>
@@ -57,17 +64,39 @@ struct TextureCopy
     // copies overwrite coverage and retain the other cached atlas partitions.
     std::array<uint32_t,4> destinationRect{};
     bool preserveDestination = false;
+    bool clearSource = false;
+    std::array<float, 4> clearColor{};
+};
+
+struct LoadingIndicator
+{
+    // Original 32x32 YUV422 operations, normal then selected. R is Y, G/B
+    // shared U/V, and A=85*(writeY+2*writeUV); alpha is an operation mask.
+    std::array<TextureUpload, 2> images;
+    std::array<std::array<float, 4>, 3> rectangles{};
+    uint32_t waitRetraces = 0, phaseRetraces = 19;
+    bool blackBackground = false;
 };
 
 class Renderer
 {
   public:
+    struct UniformTiming
+    {
+        // Per-frame owner deltas: pack calls/input bytes, reservations/bytes,
+        // cache copies/bytes, and unchanged values/input bytes, for VS then FS.
+        uint64_t stage[2][8]{};
+        uint64_t fallbackUploads = 0, errors = 0, cacheBytes = 0, cachePeakBytes = 0;
+        bool valid = false, enabled = false;
+    };
     struct FrameTiming
     {
         uint64_t fenceUs = 0, uploadUs = 0, drawUs = 0, queueUs = 0, dynamicVertexBytes = 0;
         uint64_t frontendWaitUs = 0, commandBytes = 0;
+        uint64_t commandCopyNs = 0, commandVertexBytes = 0, commandIndexBytes = 0;
         uint32_t draws = 0, globalFinishes = 0, slotWaits = 0;
         uint32_t affineUvDraws = 0, projectiveUvDraws = 0, vertexFogDraws = 0;
+        UniformTiming uniforms{};
     };
     Renderer() noexcept;
     ~Renderer();
@@ -76,7 +105,8 @@ class Renderer
     bool initialize(bool timings = false) noexcept;
     bool initialize_scene_program() noexcept;
     uint32_t create_texture(const TextureUpload&) noexcept;
-    uint32_t create_target(uint32_t width, uint32_t height) noexcept;
+    uint32_t create_target(uint32_t width, uint32_t height,
+                           TargetFormat format = TargetFormat::Rgba8) noexcept;
     void release_texture(uint32_t texture) noexcept;
     uint32_t create_model(std::span<const ModelVertex>, std::span<const uint16_t>) noexcept;
     void release_model(uint32_t model) noexcept;
@@ -88,6 +118,16 @@ class Renderer
     bool copy_textures(std::span<const TextureCopy>) noexcept;
     bool clear_color(std::array<float, 4>, bool depth = true) noexcept;
     bool clear_depth() noexcept;
+    // Stage VI-style blanking; the third subsequent successful frame is visible.
+    // Setting the flag alone never swaps or changes any render-target pixels.
+    bool set_black(bool) noexcept;
+    // Publish a complete loading bitmap independently of an open engine frame.
+    // The destination is top-left x/y/width/height in physical display pixels.
+    bool present_bitmap(const TextureUpload&, std::array<float, 4> destination) noexcept;
+    bool set_loading(bool begin, const LoadingIndicator&) noexcept;
+    // Owner-only timer entry: advances by the actual display retrace count.
+    bool loading_tick() noexcept;
+    bool loading_active() const noexcept;
     bool frame_active() const noexcept;
     bool begin_frame() noexcept;
     // Complete an engine pass without swapping an image it invalidated while
@@ -100,6 +140,7 @@ class Renderer
     FrameTiming completed_timing() const noexcept;
 
   private:
+    uint32_t create_target_internal(uint32_t, uint32_t, TargetFormat, bool depth) noexcept;
     struct Impl;
     std::unique_ptr<Impl> impl_;
 };

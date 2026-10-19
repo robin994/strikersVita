@@ -2,6 +2,7 @@
 #include "port/audio.h"
 #include "port/host.h"
 #include "port/config.h"
+#include "port/native_watchdog.hpp"
 #include <psp2/audioout.h>
 #include <psp2/kernel/threadmgr.h>
 #include <psp2/kernel/cpu.h>
@@ -13,6 +14,8 @@
 #include <cstdint>
 extern "C" void* salPortNextBuffer(void);
 extern "C" unsigned salPortBufferBytes(void);
+extern "C" void hwIRQEnterCritical(void);
+extern "C" void hwIRQLeaveCritical(void);
 namespace
 {
 int channel = -1;
@@ -27,6 +30,7 @@ std::atomic<int> outputError{ 0 };
 void* audio_thread(void*)
 {
     const SceUID id = sceKernelGetThreadId();
+    port::watchdog::enter_thread(port::watchdog::Role::AudioOutput, id);
     const int affinity = sceKernelChangeThreadCpuAffinityMask(id, SCE_KERNEL_CPU_MASK_USER_0);
     if (affinity < 0)
         std::fprintf(stderr, "[audio] affinity error=%08x\n", unsigned(affinity));
@@ -40,6 +44,7 @@ void* audio_thread(void*)
     {
         while (used < 512)
         {
+            port::watchdog::stage(port::watchdog::Role::AudioOutput, port::watchdog::Stage::AudioMix);
             const auto mixBegin = port_monotonic_ns();
             const auto* in = static_cast<const int16_t*>(salPortNextBuffer());
             const auto mixUs = (port_monotonic_ns() - mixBegin) / 1000;
@@ -80,22 +85,35 @@ void* audio_thread(void*)
                 nonSilent.store(1);
                 break;
             }
+        port::watchdog::stage(port::watchdog::Role::AudioOutput, port::watchdog::Stage::AudioOutput);
         const int r = sceAudioOutOutput(channel, output.data());
+        port::watchdog::stage(port::watchdog::Role::AudioOutput, port::watchdog::Stage::AudioDump);
         PortAudioDumpWrite(output.data(), 512);
         nextBlock ^= 1;
         const auto calls = outputCalls.fetch_add(1) + 1;
+        if (port::watchdog::enabled())
+            port::watchdog::progress(port::watchdog::Role::AudioOutput, uint32_t(calls),
+                                     uint32_t(buffers.load(std::memory_order_relaxed)));
         if (r < 0)
         {
             outputError.store(r);
             underruns.fetch_add(1);
             running.store(false);
+            port::watchdog::stage(port::watchdog::Role::AudioOutput, port::watchdog::Stage::AudioLog);
             std::fprintf(stderr, "[audio] output failed=%08x\n", unsigned(r));
             break;
         }
         if (PortDiagnosticsEnabled() && (calls == 1 || calls % 100 == 0))
         {
             PortAudioMixInfo mix{};
+            // Public game audio APIs can mutate these lists between mixer ticks.
+            // Copy under their MusyX lock, then release it before log I/O.
+            port::watchdog::stage(port::watchdog::Role::AudioOutput, port::watchdog::Stage::AudioStatsLock);
+            hwIRQEnterCritical();
+            port::watchdog::stage(port::watchdog::Role::AudioOutput, port::watchdog::Stage::AudioStats);
             const int mixed = PortAudioMixStats(&mix);
+            hwIRQLeaveCritical();
+            port::watchdog::stage(port::watchdog::Role::AudioOutput, port::watchdog::Stage::AudioLog);
             std::fprintf(
                 stderr,
                 "[audio] outputs=%lu ticks=%lu underruns=%lu non_silent=%d error=%08x mix=%d "
@@ -106,7 +124,9 @@ void* audio_thread(void*)
         }
         used -= 512;
         std::memmove(queue.data(), queue.data() + 1024, used * 4);
+        port::watchdog::stage(port::watchdog::Role::AudioOutput, port::watchdog::Stage::AudioLoop);
     }
+    port::watchdog::leave_thread(port::watchdog::Role::AudioOutput);
     return nullptr;
 }
 }   // namespace

@@ -1,6 +1,7 @@
 #if defined(STRIKERS_VITA_VITAGL)
 #include "port/deferred_renderer.hpp"
 #include "port/host.h"
+#include "port/native_watchdog.hpp"
 #include "../../extern/command-buffer/command_buffer.hpp"
 #include <psp2/kernel/threadmgr.h>
 #include <psp2/kernel/cpu.h>
@@ -11,6 +12,8 @@
 #include <cstdio>
 #include <type_traits>
 #include <utility>
+#include <cerrno>
+#include <time.h>
 namespace port::render
 {
 struct DeferredRenderer::Impl
@@ -24,7 +27,9 @@ struct DeferredRenderer::Impl
     std::array<bool, Slots> busy{};
     pthread_t worker{};
     pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
-    pthread_cond_t ready = PTHREAD_COND_INITIALIZER, completed = PTHREAD_COND_INITIALIZER;
+    pthread_cond_t ready{}, completed = PTHREAD_COND_INITIALIZER;
+    bool readyInitialized = false;
+    int readyError = 0;
     bool created = false, stopping = false, bootDone = false, bootResult = false, timed = false,
          active = false;
     unsigned writeSlot = 0, readSlot = 0, readyCount = 0, pendingDraws = 0;
@@ -33,21 +38,129 @@ struct DeferredRenderer::Impl
     std::atomic<const char*> operation{ "none" };
     Renderer::FrameTiming timing{};
     uint64_t frontendWaitUs = 0, commandBytes = 0;
+    uint64_t commandCopyNs = 0, commandVertexBytes = 0, commandIndexBytes = 0;
     uint32_t slotWaits = 0;
+    // Only failed frame commands latch here. A handled resource-admission
+    // failure may fall back to dynamic geometry without invalidating a frame.
+    // Failed commands prevent presentation until an explicit renderer restart.
+    bool commandFailed = false;
+    int commandError = 0;
+    const char* commandOperation = "none";
+    bool loading = false;
+    uint64_t nextLoadingWake = 0;
+    static constexpr uint64_t LoadingPeriodNs = 1000000000ull / 60;
+    Impl()
+    {
+        pthread_condattr_t attributes;
+        readyError = pthread_condattr_init(&attributes);
+        if (readyError)
+            return;
+#if !defined(__APPLE__)
+        readyError = pthread_condattr_setclock(&attributes, CLOCK_MONOTONIC);
+#endif
+        if (!readyError)
+            readyError = pthread_cond_init(&ready, &attributes);
+        pthread_condattr_destroy(&attributes);
+        readyInitialized = !readyError;
+    }
+    bool loading_failure(const char* operation, int code)
+    {
+        if (!commandFailed)
+        {
+            commandFailed = true;
+            commandError = code ? -code : -1;
+            commandOperation = operation;
+        }
+        loading = false;
+        // Timer failures are owner-thread failures too: release the private
+        // backdrop and operation textures without publishing another image.
+        core.set_loading(false, {});
+        return false;
+    }
+    bool loading_now(uint64_t& result)
+    {
+        timespec now{};
+        if (clock_gettime(CLOCK_MONOTONIC, &now))
+            return loading_failure("loading_clock", errno);
+        result = uint64_t(now.tv_sec) * 1000000000ull + uint64_t(now.tv_nsec);
+        return true;
+    }
+    int loading_wait()
+    {
+        timespec deadline{time_t(nextLoadingWake / 1000000000ull),
+                          long(nextLoadingWake % 1000000000ull)};
+#if defined(__APPLE__)
+        // Darwin has no condattr_setclock. Its relative wait is the host
+        // adapter for the same monotonic deadline used by the Vita path.
+        uint64_t now = 0;
+        if (!loading_now(now))
+            return EINVAL;
+        if (now >= nextLoadingWake)
+            return ETIMEDOUT;
+        const auto remaining = nextLoadingWake - now;
+        timespec relative{time_t(remaining / 1000000000ull), long(remaining % 1000000000ull)};
+        return pthread_cond_timedwait_relative_np(&ready, &mutex, &relative);
+#else
+        return pthread_cond_timedwait(&ready, &mutex, &deadline);
+#endif
+    }
+    void service_loading()
+    {
+        if (!loading || commandFailed)
+            return;
+        if (!core.loading_active())
+        {
+            loading = false;
+            core.set_loading(false, {});
+            return;
+        }
+        uint64_t now = 0;
+        if (!loading_now(now) || now < nextLoadingWake)
+            return;
+        if (!record(core.loading_tick(), "loading_tick"))
+            return;
+        if (!core.loading_active())
+        {
+            loading = false;
+            return;
+        }
+        if (loading_now(now))
+            nextLoadingWake += ((now - nextLoadingWake) / LoadingPeriodNs + 1) * LoadingPeriodNs;
+    }
+    bool record(bool result, const char* op)
+    {
+        if (!result && !commandFailed)
+        {
+            commandFailed = true;
+            commandError = core.error_code();
+            if (!commandError)
+                commandError = -1;
+            commandOperation = op;
+        }
+        if (!result)
+        {
+            loading = false;
+            core.set_loading(false, {});
+        }
+        return result;
+    }
     void snapshot()
     {
-        error.store(core.error_code(), std::memory_order_release);
-        operation.store(core.last_error(), std::memory_order_release);
+        operation.store(commandFailed ? commandOperation : core.last_error(), std::memory_order_release);
+        error.store(commandFailed ? commandError : core.error_code(), std::memory_order_release);
     }
     static void* entry(void* opaque)
     {
         auto& d = *static_cast<Impl*>(opaque);
         const auto id = sceKernelGetThreadId();
+        watchdog::enter_thread(watchdog::Role::Renderer, id);
+        watchdog::stage(watchdog::Role::Renderer, watchdog::Stage::RendererInit);
         const int affinity = sceKernelChangeThreadCpuAffinityMask(id, SCE_KERNEL_CPU_MASK_USER_1);
         sceKernelChangeThreadPriority(id, 0x10000100);
         std::fprintf(stderr, "[vitagl-backend] GPU owner affinity=%08x rc=%08x\n",
                      SCE_KERNEL_CPU_MASK_USER_1, unsigned(affinity));
         const bool initialized = affinity >= 0 && d.core.initialize(d.timed);
+        watchdog::stage(watchdog::Role::Renderer, watchdog::Stage::RendererMutex);
         pthread_mutex_lock(&d.mutex);
         d.bootResult = initialized;
         d.bootDone = true;
@@ -55,31 +168,73 @@ struct DeferredRenderer::Impl
         for (;;)
         {
             while (!d.readyCount && !d.stopping)
-                pthread_cond_wait(&d.ready, &d.mutex);
+            {
+                watchdog::stage(watchdog::Role::Renderer, watchdog::Stage::RendererWait);
+                // No clock, retrace query or timeout exists on the OFF path.
+                const int status = d.loading && !d.commandFailed
+                                       ? d.loading_wait()
+                                       : pthread_cond_wait(&d.ready, &d.mutex);
+                if (status == ETIMEDOUT)
+                    break;
+                if (status)
+                {
+                    d.loading_failure("loading_wait", status);
+                    d.snapshot();
+                }
+            }
             if (!d.readyCount && d.stopping)
                 break;
-            const unsigned slot = d.readSlot;
-            pthread_mutex_unlock(&d.mutex);
-            d.buffers[slot].execute();
-            d.snapshot();
-            pthread_mutex_lock(&d.mutex);
-            --d.readyCount;
-            d.busy[slot] = false;
-            d.readSlot = (slot + 1) % Slots;
-            ++d.retired;
-            pthread_cond_broadcast(&d.completed);
+            if (d.readyCount)
+            {
+                const unsigned slot = d.readSlot;
+                pthread_mutex_unlock(&d.mutex);
+                watchdog::stage(watchdog::Role::Renderer, watchdog::Stage::RendererBatch);
+                d.buffers[slot].execute();
+                d.snapshot();
+                watchdog::stage(watchdog::Role::Renderer, watchdog::Stage::RendererMutex);
+                pthread_mutex_lock(&d.mutex);
+                --d.readyCount;
+                d.busy[slot] = false;
+                d.readSlot = (slot + 1) % Slots;
+                ++d.retired;
+                pthread_cond_broadcast(&d.completed);
+            }
+            if (d.loading && !d.commandFailed && !d.stopping)
+            {
+                pthread_mutex_unlock(&d.mutex);
+                watchdog::stage(watchdog::Role::Renderer, watchdog::Stage::RendererLoading);
+                d.service_loading();
+                d.snapshot();
+                watchdog::stage(watchdog::Role::Renderer, watchdog::Stage::RendererMutex);
+                pthread_mutex_lock(&d.mutex);
+            }
         }
         pthread_mutex_unlock(&d.mutex);
+        watchdog::stage(watchdog::Role::Renderer, watchdog::Stage::RendererStop);
         d.core.shutdown();
+        watchdog::leave_thread(watchdog::Role::Renderer);
         return nullptr;
     }
     bool start(bool timings)
     {
         if (created)
             return bootResult;
+        if (!readyInitialized)
+        {
+            error.store(-readyError, std::memory_order_release);
+            operation.store("loading_wait_initialize", std::memory_order_release);
+            return false;
+        }
         timed = timings;
         stopping = bootDone = bootResult = false;
         active = false;
+        commandFailed = false;
+        commandError = 0;
+        commandOperation = "none";
+        loading = false;
+        nextLoadingWake = 0;
+        error.store(0, std::memory_order_release);
+        operation.store("none", std::memory_order_release);
         writeSlot = readSlot = readyCount = pendingDraws = 0;
         issued = retired = 0;
         busy.fill(false);
@@ -123,6 +278,7 @@ struct DeferredRenderer::Impl
     {
         if (!buffers[writeSlot].size())
             return;
+        watchdog::Scope watchdogWait(watchdog::Role::Frontend, watchdog::Stage::FrontendPublish);
         if (timed && active)
             commandBytes += buffers[writeSlot].size();
         pthread_mutex_lock(&mutex);
@@ -147,6 +303,7 @@ struct DeferredRenderer::Impl
     {
         if (!created)
             return;
+        watchdog::Scope watchdogWait(watchdog::Role::Frontend, watchdog::Stage::FrontendDrain);
         publish();
         pthread_mutex_lock(&mutex);
         const auto target = issued;
@@ -170,7 +327,22 @@ struct DeferredRenderer::Impl
         }
         return command;
     }
-    template <class Function> auto sync(Function function) -> decltype(function())
+    template <class T, class... Args> T* emplace(size_t bytes, Args&&... args) noexcept
+    {
+        static_assert(std::is_nothrow_constructible_v<T, Args...>);
+        if (!created || !bootResult)
+            return nullptr;
+        auto* command = buffers[writeSlot].append<T>(bytes, std::forward<Args>(args)...);
+        if (!command)
+        {
+            // Capacity is checked before construction, so all arguments remain
+            // available while publication waits for the next owned slot.
+            publish();
+            command = buffers[writeSlot].append<T>(bytes, std::forward<Args>(args)...);
+        }
+        return command;
+    }
+    template <watchdog::Command Operation, class Function> auto sync(Function function) -> decltype(function())
     {
         using Result = decltype(function());
         if constexpr (std::is_void_v<Result>)
@@ -178,7 +350,7 @@ struct DeferredRenderer::Impl
             struct Call
             {
                 Function fn;
-                void operator()() { fn(); }
+                void operator()() { watchdog::CommandScope observed(Operation); fn(); }
             };
             if (!append(0, Call{ function }))
                 return;
@@ -191,7 +363,7 @@ struct DeferredRenderer::Impl
             {
                 Function fn;
                 Result* result;
-                void operator()() { *result = fn(); }
+                void operator()() { watchdog::CommandScope observed(Operation); *result = fn(); }
             };
             if (!append(0, Call{ function, &result }))
                 return result;
@@ -199,14 +371,25 @@ struct DeferredRenderer::Impl
             return result;
         }
     }
-    template <class Function> bool enqueue(Function function)
+    template <watchdog::Command Operation, class Function> bool enqueue(Function function)
     {
         struct Call
         {
             Function fn;
-            void operator()() { fn(); }
+            void operator()() { watchdog::CommandScope observed(Operation); fn(); }
         };
         return append(0, Call{ function }) != nullptr;
+    }
+    template <watchdog::Command Operation, class Function> bool enqueue_checked(Function function, const char* op)
+    {
+        struct Call
+        {
+            Impl* owner;
+            Function fn;
+            const char* operation;
+            void operator()() { watchdog::CommandScope observed(Operation); owner->record(fn(), operation); }
+        };
+        return append(0, Call{ this, function, op }) != nullptr;
     }
     void stop()
     {
@@ -233,7 +416,8 @@ struct DeferredRenderer::Impl
     ~Impl()
     {
         stop();
-        pthread_cond_destroy(&ready);
+        if (readyInitialized)
+            pthread_cond_destroy(&ready);
         pthread_cond_destroy(&completed);
         pthread_mutex_destroy(&mutex);
     }
@@ -243,30 +427,30 @@ DeferredRenderer::~DeferredRenderer() { shutdown(); }
 bool DeferredRenderer::initialize(bool timing) noexcept { return impl_ && impl_->start(timing); }
 bool DeferredRenderer::initialize_scene_program() noexcept
 {
-    return impl_ && impl_->sync([&] { return impl_->core.initialize_scene_program(); });
+    return impl_ && impl_->sync<watchdog::Command::InitializeScene>([&] { return impl_->core.initialize_scene_program(); });
 }
 uint32_t DeferredRenderer::create_texture(const TextureUpload& upload) noexcept
 {
-    return impl_ ? impl_->sync([&] { return impl_->core.create_texture(upload); }) : 0;
+    return impl_ ? impl_->sync<watchdog::Command::CreateTexture>([&] { return impl_->core.create_texture(upload); }) : 0;
 }
-uint32_t DeferredRenderer::create_target(uint32_t w, uint32_t h) noexcept
+uint32_t DeferredRenderer::create_target(uint32_t w, uint32_t h, TargetFormat format) noexcept
 {
-    return impl_ ? impl_->sync([&] { return impl_->core.create_target(w, h); }) : 0;
+    return impl_ ? impl_->sync<watchdog::Command::CreateTarget>([this, w, h, format] { return impl_->core.create_target(w, h, format); }) : 0;
 }
 uint32_t DeferredRenderer::create_model(std::span<const ModelVertex> v,
                                         std::span<const uint16_t> i) noexcept
 {
-    return impl_ ? impl_->sync([&] { return impl_->core.create_model(v, i); }) : 0;
+    return impl_ ? impl_->sync<watchdog::Command::CreateModel>([&] { return impl_->core.create_model(v, i); }) : 0;
 }
 void DeferredRenderer::release_texture(uint32_t id) noexcept
 {
     if (impl_)
-        impl_->enqueue([d = impl_.get(), id] { d->core.release_texture(id); });
+        impl_->enqueue<watchdog::Command::ReleaseTexture>([d = impl_.get(), id] { d->core.release_texture(id); });
 }
 void DeferredRenderer::release_model(uint32_t id) noexcept
 {
     if (impl_)
-        impl_->enqueue([d = impl_.get(), id] { d->core.release_model(id); });
+        impl_->enqueue<watchdog::Command::ReleaseModel>([d = impl_.get(), id] { d->core.release_model(id); });
 }
 bool DeferredRenderer::draw_scene(uint32_t model, std::span<const ModelVertex> vertices,
                                   std::span<const uint16_t> indices,
@@ -278,17 +462,24 @@ bool DeferredRenderer::draw_scene(uint32_t model, std::span<const ModelVertex> v
     auto& d = *impl_;
     struct Draw
     {
-        Renderer* core;
+        Impl* owner;
         uint32_t model, vertexCount, indexCount;
         std::array<float, 16> matrix;
         Raster raster;
         SceneMaterial material;
+        Draw(Impl* owner, uint32_t model, uint32_t vertexCount, uint32_t indexCount,
+             const std::array<float, 16>& matrix, const Raster& raster,
+             const SceneMaterial& material) noexcept
+            : owner(owner), model(model), vertexCount(vertexCount), indexCount(indexCount),
+              matrix(matrix), raster(raster), material(material)
+        {}
         void operator()()
         {
+            watchdog::CommandScope observed(watchdog::Command::Draw);
             const auto* v = reinterpret_cast<const ModelVertex*>(this + 1);
             const auto* i = reinterpret_cast<const uint16_t*>(v + vertexCount);
-            core->draw_scene(model, { v, vertexCount }, { i, indexCount }, matrix, raster,
-                             material);
+            owner->record(owner->core.draw_scene(model, { v, vertexCount }, { i, indexCount },
+                                                  matrix, raster, material), "draw_scene");
         }
     };
     const size_t vertexBytes = model ? 0 : vertices.size_bytes(),
@@ -297,35 +488,44 @@ bool DeferredRenderer::draw_scene(uint32_t model, std::span<const ModelVertex> v
     // with result-bearing pointer calls. The normal path copies.
     if (vertexBytes > Impl::SlotBytes - sizeof(Draw) - 32 ||
         indexBytes > Impl::SlotBytes - sizeof(Draw) - 32 - vertexBytes)
-        return d.sync(
-            [&] { return d.core.draw_scene(model, vertices, indices, matrix, raster, material); });
+        return d.sync<watchdog::Command::Draw>([&] {
+            return d.record(d.core.draw_scene(model, vertices, indices, matrix, raster, material),
+                            "draw_scene");
+        });
     auto* command =
-        d.append(vertexBytes + indexBytes,
-                 Draw{ &d.core, model, model ? 0u : uint32_t(vertices.size()),
-                       model ? 0u : uint32_t(indices.size()), matrix, raster, material });
+        d.emplace<Draw>(vertexBytes + indexBytes, &d, model,
+                        model ? 0u : uint32_t(vertices.size()),
+                        model ? 0u : uint32_t(indices.size()), matrix, raster, material);
     if (!command)
         return false;
     auto* payload = reinterpret_cast<uint8_t*>(command + 1);
+    const auto copyBegin = d.timed && (vertexBytes || indexBytes) ? port_monotonic_ns() : 0;
     if (vertexBytes)
         std::memcpy(payload, vertices.data(), vertexBytes);
     if (indexBytes)
         std::memcpy(payload + vertexBytes, indices.data(), indexBytes);
+    if (copyBegin)
+    {
+        d.commandCopyNs += port_monotonic_ns() - copyBegin;
+        d.commandVertexBytes += vertexBytes;
+        d.commandIndexBytes += indexBytes;
+    }
     if (++d.pendingDraws >= 16)
         d.publish();
     return true;
 }
 bool DeferredRenderer::select_target(uint32_t id, bool color, bool depth) noexcept
 {
-    return impl_ && impl_->enqueue([d = impl_.get(), id, color, depth] {
-        d->core.select_target(id, color, depth);
-    });
+    return impl_ && impl_->enqueue_checked<watchdog::Command::SelectTarget>([d = impl_.get(), id, color, depth] {
+        return d->core.select_target(id, color, depth);
+    }, "select_target");
 }
 bool DeferredRenderer::copy_texture(uint32_t id, std::array<float, 4> source,
                                     bool intensity) noexcept
 {
-    return impl_ && impl_->enqueue([d = impl_.get(), id, source, intensity] {
-        d->core.copy_texture(id, source, intensity);
-    });
+    return impl_ && impl_->enqueue_checked<watchdog::Command::CopyTexture>([d = impl_.get(), id, source, intensity] {
+        return d->core.copy_texture(id, source, intensity);
+    }, "copy_texture");
 }
 bool DeferredRenderer::copy_textures(std::span<const TextureCopy> copies) noexcept
 {
@@ -333,17 +533,22 @@ bool DeferredRenderer::copy_textures(std::span<const TextureCopy> copies) noexce
         return false;
     struct Copy
     {
-        Renderer* core;
+        Impl* owner;
         uint32_t count;
         void operator()()
         {
-            core->copy_textures({ reinterpret_cast<const TextureCopy*>(this + 1), count });
+            watchdog::CommandScope observed(watchdog::Command::CopyTextures);
+            owner->record(owner->core.copy_textures(
+                              { reinterpret_cast<const TextureCopy*>(this + 1), count }),
+                          "copy_textures");
         }
     };
     if (copies.size_bytes() > Impl::SlotBytes - sizeof(Copy) - 32)
-        return impl_->sync([&] { return impl_->core.copy_textures(copies); });
+        return impl_->sync<watchdog::Command::CopyTextures>([&] {
+            return impl_->record(impl_->core.copy_textures(copies), "copy_textures");
+        });
     auto* command =
-        impl_->append(copies.size_bytes(), Copy{ &impl_->core, uint32_t(copies.size()) });
+        impl_->append(copies.size_bytes(), Copy{ impl_.get(), uint32_t(copies.size()) });
     if (!command)
         return false;
     if (!copies.empty())
@@ -352,12 +557,50 @@ bool DeferredRenderer::copy_textures(std::span<const TextureCopy> copies) noexce
 }
 bool DeferredRenderer::clear_color(std::array<float, 4> color, bool depth) noexcept
 {
-    return impl_ &&
-           impl_->enqueue([d = impl_.get(), color, depth] { d->core.clear_color(color, depth); });
+    return impl_ && impl_->enqueue_checked<watchdog::Command::ClearColor>([d = impl_.get(), color, depth] {
+        return d->core.clear_color(color, depth);
+    }, "clear_color");
 }
 bool DeferredRenderer::clear_depth() noexcept
 {
-    return impl_ && impl_->enqueue([d = impl_.get()] { d->core.clear_depth(); });
+    return impl_ && impl_->enqueue_checked<watchdog::Command::ClearDepth>([d = impl_.get()] { return d->core.clear_depth(); },
+                                          "clear_depth");
+}
+bool DeferredRenderer::set_black(bool black) noexcept
+{
+    return impl_ && impl_->enqueue_checked<watchdog::Command::SetBlack>([d = impl_.get(), black] {
+        return d->core.set_black(black);
+    }, "set_black");
+}
+bool DeferredRenderer::present_bitmap(const TextureUpload& upload,
+                                      std::array<float, 4> destination) noexcept
+{
+    return impl_ && impl_->sync<watchdog::Command::PresentBitmap>([&] {
+        // Drain prior commands in order, but never publish a frame whose
+        // earlier command failed. This does not close the producer's frame.
+        return !impl_->commandFailed && impl_->record(
+            impl_->core.present_bitmap(upload, destination), "present_bitmap");
+    });
+}
+bool DeferredRenderer::set_loading(bool begin, const LoadingIndicator& request) noexcept
+{
+    return impl_ && impl_->sync<watchdog::Command::SetLoading>([&] {
+        auto& d = *impl_;
+        // OFF is cleanup and remains executable after a previous failure.
+        if (begin && d.commandFailed)
+            return false;
+        if (!d.record(d.core.set_loading(begin, request), "set_loading"))
+            return false;
+        d.loading = begin && d.core.loading_active();
+        if (d.loading)
+        {
+            uint64_t now = 0;
+            if (!d.loading_now(now))
+                return false;
+            d.nextLoadingWake = now + Impl::LoadingPeriodNs;
+        }
+        return true;
+    });
 }
 bool DeferredRenderer::frame_active() const noexcept { return impl_ && impl_->active; }
 bool DeferredRenderer::begin_frame() noexcept
@@ -365,27 +608,34 @@ bool DeferredRenderer::begin_frame() noexcept
     if (!impl_ || impl_->active)
         return false;
     impl_->frontendWaitUs = impl_->commandBytes = impl_->slotWaits = 0;
-    impl_->active = impl_->sync([&] { return impl_->core.begin_frame(); });
+    impl_->commandCopyNs = impl_->commandVertexBytes = impl_->commandIndexBytes = 0;
+    impl_->active = impl_->sync<watchdog::Command::BeginFrame>([&] {
+        return !impl_->commandFailed && impl_->record(impl_->core.begin_frame(), "begin_frame");
+    });
     return impl_->active;
 }
 bool DeferredRenderer::end_frame(bool present) noexcept
 {
     if (!impl_ || !impl_->active)
         return false;
-    const bool result = impl_->sync([&] {
-        const bool ok = impl_->core.end_frame(present);
+    const bool result = impl_->sync<watchdog::Command::EndFrame>([&] {
+        const bool commandsOk = !impl_->commandFailed;
+        const bool ok = impl_->record(impl_->core.end_frame(present && commandsOk), "end_frame");
         impl_->timing = impl_->core.completed_timing();
-        return ok;
+        return ok && commandsOk;
     });
     impl_->timing.frontendWaitUs = impl_->frontendWaitUs;
     impl_->timing.commandBytes = impl_->commandBytes;
+    impl_->timing.commandCopyNs = impl_->commandCopyNs;
+    impl_->timing.commandVertexBytes = impl_->commandVertexBytes;
+    impl_->timing.commandIndexBytes = impl_->commandIndexBytes;
     impl_->timing.slotWaits += impl_->slotWaits;
     impl_->active = false;
     return result;
 }
 bool DeferredRenderer::readback_presented_rgba8(std::vector<uint8_t>& out) noexcept
 {
-    return impl_ && impl_->sync([&] { return impl_->core.readback_presented_rgba8(out); });
+    return impl_ && impl_->sync<watchdog::Command::Readback>([&] { return impl_->core.readback_presented_rgba8(out); });
 }
 void DeferredRenderer::shutdown() noexcept
 {
@@ -403,6 +653,10 @@ int DeferredRenderer::error_code() const noexcept
 DeferredRenderer::FrameTiming DeferredRenderer::completed_timing() const noexcept
 {
     return impl_ ? impl_->timing : FrameTiming{};
+}
+uint64_t DeferredRenderer::pending_frontend_wait_us() const noexcept
+{
+    return impl_ ? impl_->frontendWaitUs : 0;
 }
 }   // namespace port::render
 #endif

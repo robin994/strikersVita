@@ -53,7 +53,8 @@ u32 PADRead(PADStatus* status)
 #if defined(STRIKERS_VITA)
     SceCtrlData pad;
     memset(&pad, 0, sizeof pad);
-    if (sceCtrlPeekBufferPositive(0, &pad, 1) > 0)
+    const int result = sceCtrlPeekBufferPositive(0, &pad, 1);
+    if (result > 0)
     {
         PortOverlayVitaInput(pad.buttons);
         u16 b = 0;
@@ -95,9 +96,16 @@ u32 PADRead(PADStatus* status)
             status[0].analogB = 0;
         }
     }
+    else
+    {
+        // VBlankPadUpdate retains the last sample on transfer errors. Only a
+        // reported missing device should clear it and disconnect the game pad.
+        status[0].err = (u32)result == (u32)SCE_CTRL_ERROR_NO_DEVICE
+            ? PAD_ERR_NO_CONTROLLER : PAD_ERR_TRANSFER;
+    }
 #endif
 
-    // Bitmask of ports whose read failed.
+    // Motor-capable ports; the native Vita pad has no motors.
     return 0;
 }
 

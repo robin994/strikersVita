@@ -6,6 +6,7 @@
 #include "port/native_match_runtime.hpp"
 #include <psp2/ctrl.h>
 #include <psp2/power.h>
+#include <psp2/kernel/processmgr.h>
 #include <psp2/kernel/threadmgr.h>
 #include <cstdlib>
 #include <cstdio>
@@ -13,6 +14,8 @@ namespace port::native_runtime
 {
 bool initialize() noexcept
 {
+    // Refresh idle timers before game initialization and resource preload.
+    (void)sceKernelPowerTick(SCE_KERNEL_POWER_TICK_DEFAULT);
     sceCtrlSetSamplingMode(SCE_CTRL_MODE_ANALOG);
     const int frontAffinity =
         sceKernelChangeThreadCpuAffinityMask(sceKernelGetThreadId(), SCE_KERNEL_CPU_MASK_USER_2);
@@ -40,6 +43,8 @@ bool initialize() noexcept
 }
 bool pump() noexcept
 {
+    // Match SDL Vita's default idle-timer handling while the game pumps events.
+    (void)sceKernelPowerTick(SCE_KERNEL_POWER_TICK_DEFAULT);
     SceCtrlData c{};
     sceCtrlPeekBufferPositive(0, &c, 1);
     static SceUInt64 held = 0;
