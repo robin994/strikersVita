@@ -1,0 +1,99 @@
+{
+  "benchmark": {
+    "at_least_30_fps_frames": 72,
+    "at_least_60_fps_frames": 0,
+    "csv_bytes": 8823,
+    "csv_sha256": "bfdd256a9001bbcb1590494d86928c5c67ddba391b8d87187c000571a03d7ad3",
+    "first": 600,
+    "fps": 27.1143645938458,
+    "frames": 300,
+    "header": [
+      "# strikers-frame-capture-v1 diagnostics=0 fps_overlay=0",
+      "# play_only=1 counter=live_play",
+      "# actual_cpu_mhz=444 actual_gpu_mhz=222 actual_bus_mhz=222 actual_xbar_mhz=166"
+    ],
+    "last": 899,
+    "mean_us": 36880.82,
+    "median_us": 34384.0,
+    "p95_us": 47686,
+    "p99_us": 49923
+  },
+  "c9_exact_binary": false,
+  "card_b_empty_confirmed": true,
+  "created_unix": 1792519571.8125482,
+  "files": {
+    "build-result.json": {
+      "bytes": 683,
+      "sha256": "d791167664cbb43043b4f067c0d9c10e7a5c5c865b9256ab80d604e7a9cfe84f"
+    },
+    "fetch-identity.json": {
+      "bytes": 741,
+      "sha256": "f1e1b7023585208ff05dd635b306ce6dd543f3e9e929263767da7d9555089536"
+    },
+    "install-identity.json": {
+      "bytes": 583,
+      "sha256": "0625e03c1edcfbc2a3b0982a0471aec4df8619ffaf8d0c5f7d930d866017abba"
+    },
+    "quiet300.csv": {
+      "bytes": 8823,
+      "sha256": "bfdd256a9001bbcb1590494d86928c5c67ddba391b8d87187c000571a03d7ad3"
+    },
+    "ready-marker.csv": {
+      "bytes": 122,
+      "sha256": "a849bfb343b0b5cc1c656e333052ec56fe472d5d43d43a817e79efeeb47a0b0e"
+    },
+    "restore-identity.json": {
+      "bytes": 551,
+      "sha256": "28f42492d97b1413d52691f2f98a3d76f5c2d65e964878513df7d2dc2b6ec693"
+    },
+    "run-identity.json": {
+      "bytes": 1875,
+      "sha256": "6f16c695a60a38c71f8c98066a1795b85829a928372b1cd9d597e04c2c495e6b"
+    },
+    "run-result.json": {
+      "bytes": 2341,
+      "sha256": "8282afe0649e4af7a2bc2673927f1312881c9adda5cb7bd52bee5fb1d8ee3d9d"
+    },
+    "source-checkpoint.json": {
+      "bytes": 5469,
+      "sha256": "365c7473a302f3e49e8eb5d29e8a31c15d921fbcb03adcdbede0e381bcfb253d"
+    }
+  },
+  "full_gameplay_acceptance": false,
+  "ini_original_sha256": "aac80bdf22392a11167a11dd9f713ffcff4088d3e9c898f9e6e50f5314620759",
+  "limits": [
+    "300 frames of synthetic autonomous match only; not a full human-controls test",
+    "30/60 FPS stable not reached",
+    "Source pins and recovered transitive inputs are not proof of exact historical executable"
+  ],
+  "old_c20_rollback_self_sha256": "a9ef59c940ba70097695cd514aa03483f07aaa2558ec133d717477ccafb53751",
+  "original_c20_dirty_checkout_preserved": true,
+  "original_c9_self_sha256": "69a4bcf2a34b2d5163d9b61d715a37005c6a3bc7493c4cf24c0c837f49916c42",
+  "save_card_a_original_file_hashes": {
+    "cardA/4d6172696f536f63636572.sav": {
+      "bytes": 40960,
+      "sha256": "34367251ec96e1adde5fa3f85eb05054ef66e84ea73ba08e5a95537c9e531800"
+    },
+    "cardA/4d6172696f536f63636572.stat": {
+      "bytes": 116,
+      "sha256": "4d04275d4e91cfc693e3a29989e17d70229ce6f26b79724c5edeaec42ef49c3f"
+    }
+  },
+  "schema": "strikers-c9-reconstructed-device-hardware-evidence-v1",
+  "source_branch": "refs/heads/recovery/c9-hardware-27fps-20261020",
+  "source_cache_reconfigured_to": "/Users/robin994/Documents/Code/strikersVita/.tmp/native-c9-isolated-20261020/source/smstrikers-port",
+  "source_commit": "a5fe9b9422c49e50ef8f4fdf21cfde67329d7ab2",
+  "status": "complete_bounded_300_frame_c9_reconstruction_installed",
+  "tested_reconstructed_self": {
+    "bytes": 2455894,
+    "exact_historical": false,
+    "sha256": "7c8c6cd8d9f9857173cd51e22507654764e60d1c29b3d9d1b493be53225f3d6e"
+  },
+  "tested_reconstructed_vpk": {
+    "bytes": 2989560,
+    "exact_historical": false,
+    "sha256": "5d7714b779ec501f8ab46b769f4a6383e323ab49e82fcfa35cf17c4e410a6132"
+  },
+  "tested_self_installed_at_end": "7c8c6cd8d9f9857173cd51e22507654764e60d1c29b3d9d1b493be53225f3d6e",
+  "user_requested_target": "C9 high FPS rollback"
+}

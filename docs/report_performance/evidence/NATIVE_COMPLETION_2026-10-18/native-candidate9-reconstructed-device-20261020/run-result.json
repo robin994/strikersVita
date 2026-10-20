@@ -1,0 +1,73 @@
+{
+  "build": {
+    "exact_historical": false,
+    "sha256": "7c8c6cd8d9f9857173cd51e22507654764e60d1c29b3d9d1b493be53225f3d6e"
+  },
+  "capture": {
+    "at_least_30_fps_frames": 72,
+    "at_least_60_fps_frames": 0,
+    "csv_bytes": 8823,
+    "csv_sha256": "bfdd256a9001bbcb1590494d86928c5c67ddba391b8d87187c000571a03d7ad3",
+    "first": 600,
+    "fps": 27.1143645938458,
+    "frames": 300,
+    "header": [
+      "# strikers-frame-capture-v1 diagnostics=0 fps_overlay=0",
+      "# play_only=1 counter=live_play",
+      "# actual_cpu_mhz=444 actual_gpu_mhz=222 actual_bus_mhz=222 actual_xbar_mhz=166"
+    ],
+    "last": 899,
+    "mean_us": 36880.82,
+    "median_us": 34384.0,
+    "p95_us": 47686,
+    "p99_us": 49923
+  },
+  "cards_after": {
+    "cardA/4d6172696f536f63636572.sav": {
+      "bytes": 40960,
+      "sha256": "34367251ec96e1adde5fa3f85eb05054ef66e84ea73ba08e5a95537c9e531800"
+    },
+    "cardA/4d6172696f536f63636572.stat": {
+      "bytes": 116,
+      "sha256": "4d04275d4e91cfc693e3a29989e17d70229ce6f26b79724c5edeaec42ef49c3f"
+    }
+  },
+  "cards_before": {
+    "cardA/4d6172696f536f63636572.sav": {
+      "bytes": 40960,
+      "sha256": "34367251ec96e1adde5fa3f85eb05054ef66e84ea73ba08e5a95537c9e531800"
+    },
+    "cardA/4d6172696f536f63636572.stat": {
+      "bytes": 116,
+      "sha256": "4d04275d4e91cfc693e3a29989e17d70229ce6f26b79724c5edeaec42ef49c3f"
+    }
+  },
+  "cards_repaired": [],
+  "fetch_exit": 0,
+  "finished_unix": 1792519162.011887,
+  "install_exit": 0,
+  "label": "native-c9-restore-quiet600",
+  "launch_exit": 0,
+  "original_cards_saved": {
+    "cardA/4d6172696f536f63636572.sav": {
+      "bytes": 40960,
+      "sha256": "34367251ec96e1adde5fa3f85eb05054ef66e84ea73ba08e5a95537c9e531800"
+    },
+    "cardA/4d6172696f536f63636572.stat": {
+      "bytes": 116,
+      "sha256": "4d04275d4e91cfc693e3a29989e17d70229ce6f26b79724c5edeaec42ef49c3f"
+    }
+  },
+  "release_after": "Input released.",
+  "release_before": "Input released.",
+  "remote_final": {
+    "eboot_sha256": "7c8c6cd8d9f9857173cd51e22507654764e60d1c29b3d9d1b493be53225f3d6e",
+    "ini_sha256": "aac80bdf22392a11167a11dd9f713ffcff4088d3e9c898f9e6e50f5314620759"
+  },
+  "remote_final_verified": true,
+  "restore_exit": 0,
+  "start_unix": 1792519015.662299,
+  "started_before_input": false,
+  "status": "complete",
+  "updated_unix": 1792519162.011914
+}

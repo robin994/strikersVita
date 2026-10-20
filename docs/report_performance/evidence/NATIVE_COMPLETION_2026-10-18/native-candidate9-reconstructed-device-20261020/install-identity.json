@@ -1,0 +1,14 @@
+{
+  "host": "192.168.1.79",
+  "action": "install",
+  "time_unix": 1792519018.225077,
+  "label": "native-c9-restore-quiet600",
+  "kill": "Error: cannot kill the app. Is the TITLEID correct?",
+  "installed": {
+    "path": "ux0:/app/SMSVITA01/eboot.bin",
+    "sha256": "7c8c6cd8d9f9857173cd51e22507654764e60d1c29b3d9d1b493be53225f3d6e",
+    "previous_sha256": "a9ef59c940ba70097695cd514aa03483f07aaa2558ec133d717477ccafb53751",
+    "remote_backup": null,
+    "local_backup": "/Users/robin994/Documents/Code/strikersVita/.tmp/native-c9-isolated-20261020/quiet600/eboot.bin.before"
+  }
+}
