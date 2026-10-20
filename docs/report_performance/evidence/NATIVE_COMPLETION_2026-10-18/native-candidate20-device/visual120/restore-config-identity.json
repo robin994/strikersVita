@@ -1,0 +1,14 @@
+{
+  "host": "192.168.1.79",
+  "action": "restore-config",
+  "time_unix": 1792443238.66668,
+  "label": "native-c20-visual120-retry",
+  "kill": "Killed.",
+  "ini": {
+    "path": "ux0:/data/strikersVita/strikers.ini",
+    "sha256": "aac80bdf22392a11167a11dd9f713ffcff4088d3e9c898f9e6e50f5314620759",
+    "previous_sha256": "13e7450ca2b78eaed627aa7873b90f3f99591b122ade0a5c78770003eb8edfd8",
+    "remote_backup": null,
+    "local_backup": "/Users/robin994/Documents/Code/strikersVita/.tmp/native-c20-device-20261019/restore_visual_retry/strikers.ini.before"
+  }
+}

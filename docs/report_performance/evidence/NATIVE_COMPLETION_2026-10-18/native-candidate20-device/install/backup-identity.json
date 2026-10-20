@@ -1,0 +1,8 @@
+{
+  "host": "192.168.1.79",
+  "action": "backup",
+  "time_unix": 1792442238.425405,
+  "label": "candidate",
+  "eboot.bin": "90d5e6cc6f36ab0f472f65ffcf203c9973e60fabcf26fc7d6c040a88b4fe54a7",
+  "strikers.ini": "aac80bdf22392a11167a11dd9f713ffcff4088d3e9c898f9e6e50f5314620759"
+}

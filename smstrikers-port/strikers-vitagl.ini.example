@@ -24,6 +24,8 @@ benchmark = 0
 cpu_mhz = 500
 gpu_mhz = 222
 vitagl_timing = 0
+# Finite per-packet CPU attribution, aligned with frame_capture; not an FPS run.
+vitagl_packet_profile = 0
 # Independent shader experiments, disabled until matched hardware validation.
 # Remove projective divides only when every used UV channel has exact Q=1.
 vitagl_affine_uv = 0

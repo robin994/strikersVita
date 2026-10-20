@@ -23,12 +23,31 @@ static size_t s_captureCount, s_captureGoal;
 static char s_capturePath[1024];
 static PortBenchCaptureState s_captureState;
 static int s_captureError;
+static unsigned long s_captureLastFrame;
 static int s_captureMatchOnly;
 static size_t s_captureSkip;
 static int s_capturePlayOnly, s_playActive;
 static unsigned long s_playFrameCounter;
 
 static int capture_active(void) { return s_captureState == PORT_CAPTURE_COLLECTING; }
+static void capture_ready(void)
+{
+    // A finite capture can confirm a quiet launch before the timing window.
+    // This one-shot marker is not a gameplay heartbeat or a completion signal.
+    char path[sizeof s_capturePath + sizeof ".ready"];
+    snprintf(path, sizeof path, "%s.ready", s_capturePath);
+    FILE* f = fopen(path, "wb");
+    if (!f) return;
+    int failed = fprintf(f, "# strikers-frame-capture-ready-v1\n"
+        "requested,warmup_remaining,match_only,play_only,diagnostics,fps_overlay\n"
+        "%u,%u,%d,%d,%d,%d\n", (unsigned)s_captureGoal, (unsigned)s_captureSkip,
+        s_captureMatchOnly, s_capturePlayOnly, PortDiagnosticsEnabled(), PortFpsOverlayEnabled()) < 0;
+    if (ferror(f)) failed = 1;
+    if (fclose(f)) failed = 1;
+    if (failed) remove(path);
+    // Marker failure must not discard samples which can still be collected
+    // and exported/retried through the existing capture error contract.
+}
 static void finish_capture(void)
 {
     // Stop sampling before output, including on failure. Keep all samples for
@@ -63,7 +82,7 @@ static void finish_capture(void)
 
 void PortBenchGetCaptureStatus(PortBenchCaptureStatus* out)
 {
-    if (out) *out=(PortBenchCaptureStatus){s_captureState,s_captureCount,s_captureGoal,s_captureSkip,s_captureError};
+    if (out) *out=(PortBenchCaptureStatus){s_captureState,s_captureCount,s_captureGoal,s_captureSkip,s_captureError,s_captureLastFrame};
 }
 int PortBenchRetryCapture(void)
 {
@@ -283,6 +302,7 @@ void PortBenchInit(void)
     s_capturePlayOnly=play&&strcmp(play,"1")==0;
     const char* skip=getenv("STRIKERS_FRAME_CAPTURE_SKIP");
     if(skip&&*skip){char* end=NULL;unsigned long n=strtoul(skip,&end,10);if(end&&!*end&&n<=100000)s_captureSkip=n;}
+    if (capture_active()) capture_ready();
 }
 
 void PortBenchSetPlayActive(int active)
@@ -439,6 +459,7 @@ void PortBenchFrameEnd(void)
         r->frameUs=s_lastFrameUs;r->tasksUs=s_lastBusyUs;r->presentUs=s_lastPresentUs;r->sleepUs=s_lastSleepUs;
         r->match=s_matchActive;
         r->matchFrame=s_capturePlayOnly?s_playFrameCounter-1:(s_matchActive?s_matchFrameCounter-1:0);
+        s_captureLastFrame=r->matchFrame;
         if(s_captureCount==s_captureGoal)finish_capture();
     }
 }

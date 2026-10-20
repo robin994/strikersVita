@@ -1,0 +1,21 @@
+{
+  "c20_rollback_verified": true,
+  "duration_s": 16.455,
+  "ended_unix": 1792518927.021066,
+  "exit_code": 0,
+  "schema": "c9-isolated-build-result-v1",
+  "self": {
+    "bytes": 2455894,
+    "exact_historical": false,
+    "sha256": "7c8c6cd8d9f9857173cd51e22507654764e60d1c29b3d9d1b493be53225f3d6e"
+  },
+  "stage": "/Users/robin994/Documents/Code/strikersVita/.tmp/native-c9-isolated-20261020/source/smstrikers-port",
+  "started_unix": 1792518910.565582,
+  "status": "reconstructed_c9_built",
+  "target": "strikers_vita.vpk-vpk",
+  "vpk": {
+    "bytes": 2989560,
+    "exact_historical": false,
+    "sha256": "5d7714b779ec501f8ab46b769f4a6383e323ab49e82fcfa35cf17c4e410a6132"
+  }
+}

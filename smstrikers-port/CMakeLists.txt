@@ -42,8 +42,9 @@ endif()
 option(STRIKERS_ASAN "Build with AddressSanitizer" OFF)
 option(STRIKERS_VITA_NO_LOGS "Build the Vita port without runtime log files" OFF)
 option(STRIKERS_VITA_HOT_LTO "Use LTO/fast math only on Vita render/matrix hot paths" ON)
+option(STRIKERS_VITA_NATIVE_LTO "Use LTO across native Vita game/platform sources" OFF)
 set(STRIKERS_VITA_LTO_JOBS "auto" CACHE STRING
-    "Vita hot-path LTO parallelism: auto or a positive GCC -flto job count")
+    "Vita LTO parallelism: auto or a positive GCC -flto job count")
 option(STRIKERS_VITA_AUDIO_THREAD "Run the Vita MusyX software mixer on a dedicated worker" ON)
 option(STRIKERS_VITA_VITAGL "Use the Strikers VitaGL graphics backend" OFF)
 option(STRIKERS_VITA_PROFILER "Build VitaDebugger's user-mode profiler into the Vita port" OFF)
@@ -566,6 +567,24 @@ endif()
 add_library(strikers_ode      OBJECT ${ODE_SOURCES})
 add_library(strikers_game     OBJECT ${GAME_SOURCES})
 add_library(strikers_platform OBJECT ${PLATFORM_SOURCES})
+if(STRIKERS_VITA AND STRIKERS_VITA_NATIVE_LTO)
+    if(NOT CMAKE_CXX_COMPILER_ID STREQUAL "GNU" OR NOT CMAKE_C_COMPILER_ID STREQUAL "GNU")
+        message(FATAL_ERROR "STRIKERS_VITA_NATIVE_LTO requires the VitaSDK GCC toolchain")
+    endif()
+    # Expose game/platform calls to the linker without extending the hot-path
+    # fast-math policy to gameplay, validation or resource management.
+    foreach(_t strikers_game strikers_platform)
+        target_compile_options(${_t} PRIVATE
+            "-flto=${STRIKERS_VITA_LTO_JOBS}" -ffat-lto-objects)
+    endforeach()
+    # These boundaries protect virtual event dispatch, disabled audio TLS and
+    # strict DOF math from interprocedural optimization across their callers.
+    set_property(SOURCE
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/platform/event_data.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/platform/audio_out_native.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/NL/glx/glxTarget.cpp"
+        APPEND PROPERTY COMPILE_OPTIONS -fno-lto)
+endif()
 if(NOT STRIKERS_VITA)
     # The shared native file reader uses bounded C++20 spans. Keep this
     # requirement local instead of changing the legacy desktop game's dialect.
@@ -617,7 +636,7 @@ add_executable(strikers
     $<TARGET_OBJECTS:strikers_operators>
     $<TARGET_OBJECTS:strikers_musyx>
 )
-if(STRIKERS_VITA AND STRIKERS_VITA_HOT_LTO)
+if(STRIKERS_VITA AND (STRIKERS_VITA_HOT_LTO OR STRIKERS_VITA_NATIVE_LTO))
     target_link_options(strikers PRIVATE "-flto=${STRIKERS_VITA_LTO_JOBS}")
 endif()
 target_link_libraries(strikers PRIVATE port_flags)

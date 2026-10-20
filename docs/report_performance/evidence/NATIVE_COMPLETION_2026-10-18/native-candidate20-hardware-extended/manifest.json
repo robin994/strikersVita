@@ -1,0 +1,104 @@
+{
+  "compressed_sources": {
+    "practice/runtime.log.gz": {
+      "bytes": 379066,
+      "sha256": "f012931eed4dba1ffc18d24cdac2b47ac876f7c48ad0cefe0ce1f12bd9dadbf4"
+    },
+    "stress/runtime.log.gz": {
+      "bytes": 959965,
+      "sha256": "45104697c94bd41e8166b62f25f6c93251d098177f1360f7022077b2a68dbbac"
+    }
+  },
+  "created_unix": 1792446157.9875689,
+  "files": {
+    "counterprobe/restore-config-identity.json": {
+      "bytes": 574,
+      "sha256": "ab4e64f042c612e074de3422cb40a5d981bbc8b0e070fef588b139ca7b78fcc1"
+    },
+    "counterprobe/result.json": {
+      "bytes": 2677,
+      "sha256": "d077b358ca52c95b169aec10f114950ea9b1a3b4900c6b85cb2fd810cf06a3d7"
+    },
+    "counterprobe/run-identity.json": {
+      "bytes": 1592,
+      "sha256": "2db402f0c9ffb789f28702a853822d61f7d0bc8ee87a5d7d80ee29092a712e1a"
+    },
+    "postflight/final-hardware-inventory.json": {
+      "bytes": 1769,
+      "sha256": "c658da913f879b1cfc01793c8986f37e2fa31163a2281bf8d27f8f2abec620cf"
+    },
+    "practice/health-warning-frame-1.jpg": {
+      "bytes": 39250,
+      "sha256": "4206c930314ce5a5dfb6b09645f4375925687f462b9b0f34fe883ce6a82c13d8"
+    },
+    "practice/request2-after-stop.json": {
+      "bytes": 352,
+      "sha256": "c203f4620f2ce8f0c44d0369fd601b59eb2b346da17185cca219df5edc5a7937"
+    },
+    "practice/restore-config-identity.json": {
+      "bytes": 612,
+      "sha256": "742fed60d39fb6a5561ea8d1418f6c542d98d55013bdfe6c81089d762db46ecd"
+    },
+    "practice/run-identity.json": {
+      "bytes": 1694,
+      "sha256": "beed60e2c3dddec40d0fe86d804460cf8c33332ee75f564724c3779ba53c29a9"
+    },
+    "practice/runtime.log.gz": {
+      "bytes": 37996,
+      "sha256": "39b6e86cbd351e743bb86fb96faffc6a8a86734a65c1cd959adbbb6fe8cddec0"
+    },
+    "practice/snapshot-external.jsonl": {
+      "bytes": 349,
+      "sha256": "661ff8cda0bfa02263d52ecf7f10dc0d0d2136de4027d26733369eabdeaaaa01"
+    },
+    "practice/state.json": {
+      "bytes": 5782,
+      "sha256": "f14a98ce980c6f1ecc92080e4f8a0f9c8b80e8232ca3eda85fe67eebf2e3c559"
+    },
+    "quiet-repeat/fetch-identity.json": {
+      "bytes": 741,
+      "sha256": "e19887748ae2bc7d2bbf0cf55648c9eda5767b8b53deba68402cb078d1028aa9"
+    },
+    "quiet-repeat/native-c20-quiet600-repeat.csv": {
+      "bytes": 8864,
+      "sha256": "f53df83949493d9878c103a9874331e671406efc33572014c4d336de83330f48"
+    },
+    "quiet-repeat/repetition-comparison.json": {
+      "bytes": 3511,
+      "sha256": "b2a2b62f00dc58f7d4a2a46173493b65ba44c1e62d51f942af355950dfb830e3"
+    },
+    "quiet-repeat/restore-config-identity.json": {
+      "bytes": 558,
+      "sha256": "31d4f648931e5bca6b6a7db5bed22927c308191c65a587cd4611c0e23b3c9dfa"
+    },
+    "quiet-repeat/run-identity.json": {
+      "bytes": 2560,
+      "sha256": "9a14c659d6982d7c7f30c93a0c52bb43a02e4490b532cbbf5a80748480689787"
+    },
+    "quiet-repeat/verified-result.json": {
+      "bytes": 1837,
+      "sha256": "62386c48a2cc8d061379b679f0e9304a17546c93d7c6f9568058f77e5c3eff48"
+    },
+    "stress/restore-config-identity.json": {
+      "bytes": 566,
+      "sha256": "b50dfc48e4ed0865c12956a3dc2b183aca60775f2cef13e43670bc8d116f72ec"
+    },
+    "stress/result.json": {
+      "bytes": 9172,
+      "sha256": "6e81ec9141b9f0be819f8380043dbca9f463a59df523e3ec2ecdc5a43967d855"
+    },
+    "stress/run-identity.json": {
+      "bytes": 1590,
+      "sha256": "42909ac403cb5455a989be937964e1d32f2d6a030ec94b1839897eaa5ba6e00f"
+    },
+    "stress/runtime.log.gz": {
+      "bytes": 80384,
+      "sha256": "04196a675fd880b82e276c5d0a8d9fecb36ecf0ef2e7a702adada85caa5c0594"
+    }
+  },
+  "schema": "strikers-c20-hardware-extended-manifest-v1",
+  "scope": "limited on-device finite runs; no VPK, SELF, full raw card files copied",
+  "self_sha256": "a9ef59c940ba70097695cd514aa03483f07aaa2558ec133d717477ccafb53751",
+  "status": "complete_bounded_evidence_with_hardware_anomaly",
+  "version": "C20"
+}

@@ -1,0 +1,52 @@
+{
+  "capture_remote_sha256": "463ec71a0a2d951b255a6d1271d1538a555053e7b40349a44d8c81e8694b41dc",
+  "cards_after": {
+    "cardA/4d6172696f536f63636572.sav": {
+      "bytes": 40960,
+      "sha256": "34367251ec96e1adde5fa3f85eb05054ef66e84ea73ba08e5a95537c9e531800"
+    },
+    "cardA/4d6172696f536f63636572.stat": {
+      "bytes": 116,
+      "sha256": "4d04275d4e91cfc693e3a29989e17d70229ce6f26b79724c5edeaec42ef49c3f"
+    }
+  },
+  "cards_before": {
+    "cardA/4d6172696f536f63636572.sav": {
+      "bytes": 40960,
+      "sha256": "34367251ec96e1adde5fa3f85eb05054ef66e84ea73ba08e5a95537c9e531800"
+    },
+    "cardA/4d6172696f536f63636572.stat": {
+      "bytes": 116,
+      "sha256": "4d04275d4e91cfc693e3a29989e17d70229ce6f26b79724c5edeaec42ef49c3f"
+    }
+  },
+  "fetch_exit": 0,
+  "finished_unix": 1792443241.425875,
+  "image_remote_sha256": "5dc7bc75ac6ec9929fcff56590ac6f466d827532103a6f4697d226e06b15674b",
+  "label": "native-c20-visual120-retry",
+  "launch_exit": 0,
+  "release_after": "Input released.",
+  "release_before": "Input released.",
+  "remote_final": {
+    "eboot": "a9ef59c940ba70097695cd514aa03483f07aaa2558ec133d717477ccafb53751",
+    "ini": "aac80bdf22392a11167a11dd9f713ffcff4088d3e9c898f9e6e50f5314620759"
+  },
+  "remote_final_verified": true,
+  "restore_exit": 0,
+  "start_unix": 1792443025.229429,
+  "status": "complete",
+  "updated_unix": 1792443241.42589,
+  "visual": {
+    "difference_bbox": null,
+    "height": 544,
+    "identical_to_C19": true,
+    "mean_absolute_difference_rgb": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "png_sha256": "c71fff18c69fe2ee4ade5358f73e8d7feb271e3b6ef6fe8ce1c68a5ff69e5031",
+    "reference_sha256": "5dc7bc75ac6ec9929fcff56590ac6f466d827532103a6f4697d226e06b15674b",
+    "width": 960
+  }
+}

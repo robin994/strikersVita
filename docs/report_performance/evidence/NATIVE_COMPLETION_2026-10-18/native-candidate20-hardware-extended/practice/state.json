@@ -1,0 +1,143 @@
+{
+  "cards_after": {
+    "4d6172696f536f63636572.sav": {
+      "sha256": "34367251ec96e1adde5fa3f85eb05054ef66e84ea73ba08e5a95537c9e531800",
+      "size": 40960
+    },
+    "4d6172696f536f63636572.stat": {
+      "sha256": "4d04275d4e91cfc693e3a29989e17d70229ce6f26b79724c5edeaec42ef49c3f",
+      "size": 116
+    }
+  },
+  "cards_before": {
+    "4d6172696f536f63636572.sav": {
+      "sha256": "34367251ec96e1adde5fa3f85eb05054ef66e84ea73ba08e5a95537c9e531800",
+      "size": 40960
+    },
+    "4d6172696f536f63636572.stat": {
+      "sha256": "4d04275d4e91cfc693e3a29989e17d70229ce6f26b79724c5edeaec42ef49c3f",
+      "size": 116
+    }
+  },
+  "cleanup_verified": true,
+  "commands": [
+    {
+      "response": "Input released.",
+      "time_unix": 1792445486.166966,
+      "value": "release all"
+    },
+    {
+      "response": "Input released.",
+      "time_unix": 1792445647.120394,
+      "value": "release all"
+    },
+    {
+      "response": "Input pressed.",
+      "time_unix": 1792445647.133766,
+      "value": "press cross"
+    },
+    {
+      "response": "Input released.",
+      "time_unix": 1792445647.373891,
+      "value": "release all"
+    },
+    {
+      "response": "Input released.",
+      "time_unix": 1792445728.991085,
+      "value": "release all"
+    },
+    {
+      "response": "Input pressed.",
+      "time_unix": 1792445729.0051231,
+      "value": "press left-stick 128 255"
+    },
+    {
+      "response": "Input released.",
+      "time_unix": 1792445730.057607,
+      "value": "release all"
+    },
+    {
+      "response": "Input released.",
+      "time_unix": 1792445785.3616982,
+      "value": "release all"
+    }
+  ],
+  "events": [
+    {
+      "message": "RuntimeError: snapshot malformed or incomplete",
+      "op": "snapshot",
+      "status": "error",
+      "time_unix": 1792445501.1890821
+    },
+    {
+      "button": "cross",
+      "ms": 150,
+      "op": "tap",
+      "status": "sent_only",
+      "time_unix": 1792445647.373915
+    },
+    {
+      "audio_last": "[audio] outputs=13700 ticks=29227 underruns=0 non_silent=1 error=00000000 mix=1 studios=1 voices=15 samples=15 env=32767 vol=6294 peak=5410 mixer_us=23130755 max_us=26030",
+      "bytes": 379066,
+      "op": "log",
+      "path": ".tmp/native-c20-hardware-tests-20261019/practice/trace-0001.log",
+      "player_PAD0_last": "[control] seq=1856 match=1 tick=2380 sim=47.6009 kind=player index=0 present=1 pad=0 team=0 class=6 kind=2 action=13 anim=0 pos=0.53646,-8.2098,0 speed=0 desired=0 ball=0 power=-1 count=1 effect_active=0 meter=0 charge_time=0 sts=-1,-1",
+      "scene_last": "[port] enter scene 43",
+      "sha256": "f012931eed4dba1ffc18d24cdac2b47ac876f7c48ad0cefe0ce1f12bd9dadbf4",
+      "status": "complete",
+      "time_unix": 1792445713.6856902,
+      "trace_records": 1859,
+      "truncated": false,
+      "world_last": "[control] seq=1857 match=1 tick=2390 sim=47.8009 kind=world state=4 score=0,0 owner=6 target=-1 shooter=0 ball=-7.5969,-8.8558,0.18 velocity=0,0,0.014829 items=-1:0,-1:0;5:1,2:1"
+    },
+    {
+      "direction": "down",
+      "op": "stick",
+      "post": {
+        "audio_last": "[audio] outputs=13700 ticks=29227 underruns=0 non_silent=1 error=00000000 mix=1 studios=1 voices=15 samples=15 env=32767 vol=6294 peak=5410 mixer_us=23130755 max_us=26030",
+        "bytes": 379066,
+        "path": ".tmp/native-c20-hardware-tests-20261019/practice/trace-0003.log",
+        "player_PAD0_last": "[control] seq=1856 match=1 tick=2380 sim=47.6009 kind=player index=0 present=1 pad=0 team=0 class=6 kind=2 action=13 anim=0 pos=0.53646,-8.2098,0 speed=0 desired=0 ball=0 power=-1 count=1 effect_active=0 meter=0 charge_time=0 sts=-1,-1",
+        "scene_last": "[port] enter scene 43",
+        "sha256": "f012931eed4dba1ffc18d24cdac2b47ac876f7c48ad0cefe0ce1f12bd9dadbf4",
+        "trace_records": 1859,
+        "truncated": false,
+        "world_last": "[control] seq=1857 match=1 tick=2390 sim=47.8009 kind=world state=4 score=0,0 owner=6 target=-1 shooter=0 ball=-7.5969,-8.8558,0.18 velocity=0,0,0.014829 items=-1:0,-1:0;5:1,2:1"
+      },
+      "pre": {
+        "audio_last": "[audio] outputs=13700 ticks=29227 underruns=0 non_silent=1 error=00000000 mix=1 studios=1 voices=15 samples=15 env=32767 vol=6294 peak=5410 mixer_us=23130755 max_us=26030",
+        "bytes": 379066,
+        "path": ".tmp/native-c20-hardware-tests-20261019/practice/trace-0002.log",
+        "player_PAD0_last": "[control] seq=1856 match=1 tick=2380 sim=47.6009 kind=player index=0 present=1 pad=0 team=0 class=6 kind=2 action=13 anim=0 pos=0.53646,-8.2098,0 speed=0 desired=0 ball=0 power=-1 count=1 effect_active=0 meter=0 charge_time=0 sts=-1,-1",
+        "scene_last": "[port] enter scene 43",
+        "sha256": "f012931eed4dba1ffc18d24cdac2b47ac876f7c48ad0cefe0ce1f12bd9dadbf4",
+        "trace_records": 1859,
+        "truncated": false,
+        "world_last": "[control] seq=1857 match=1 tick=2390 sim=47.8009 kind=world state=4 score=0,0 owner=6 target=-1 shooter=0 ball=-7.5969,-8.8558,0.18 velocity=0,0,0.014829 items=-1:0,-1:0;5:1,2:1"
+      },
+      "status": "sent_pending_trace_review",
+      "time_unix": 1792445731.502469
+    },
+    {
+      "op": "close",
+      "status": "operator_requested",
+      "time_unix": 1792445785.263902
+    }
+  ],
+  "finished_unix": 1792445787.754376,
+  "images": [],
+  "label": "native-c20-hardware-practice-1",
+  "last_snapshot_id": 1,
+  "launch_exit": 0,
+  "log_file_counter": 3,
+  "release_final": "Input released.",
+  "remote_final": {
+    "ini": "aac80bdf22392a11167a11dd9f713ffcff4088d3e9c898f9e6e50f5314620759",
+    "self": "a9ef59c940ba70097695cd514aa03483f07aaa2558ec133d717477ccafb53751"
+  },
+  "restore_exit": 0,
+  "schema": "c20-manual-practice-v1",
+  "start_unix": 1792445484.5809548,
+  "status": "complete",
+  "updated_unix": 1792445787.7543879
+}

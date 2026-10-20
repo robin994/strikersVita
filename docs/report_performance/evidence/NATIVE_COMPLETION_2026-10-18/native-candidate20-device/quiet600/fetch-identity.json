@@ -1,0 +1,24 @@
+{
+  "host": "192.168.1.79",
+  "action": "fetch",
+  "time_unix": 1792442733.318075,
+  "label": "native-c20-quiet600",
+  "native-c20-quiet600.csv": {
+    "sha256": "07f0b08e341250534eab1ee56000d64ab87fad78e696b330061201467eeddb99",
+    "bytes": 8853
+  },
+  "native-c20-quiet600.log": {
+    "missing": "550 File not found."
+  },
+  "native-c20-quiet600.csv.packets.csv": {
+    "missing": "550 File not found."
+  },
+  "native-c20-quiet600.csv.views.csv": {
+    "missing": "550 File not found."
+  },
+  "strikers.ini": {
+    "sha256": "3a56880f9de2e2ecbc5dbdd18f0227028a751460ec20010de32390e6657803af",
+    "bytes": 1789
+  },
+  "eboot_sha256": "a9ef59c940ba70097695cd514aa03483f07aaa2558ec133d717477ccafb53751"
+}

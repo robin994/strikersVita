@@ -1,0 +1,280 @@
+{
+  "schema": "strikers-c20-source-root-review-v1",
+  "status": "accepted_finite_host_checks_target_unbuilt",
+  "reviewed_utc": "2026-10-19T20:09:26.503574+00:00",
+  "implementation": "Delayed acquisition of a busy deferred write slot; one producer-only ownership flag; free-slot fast path and all synchronous drains preserved.",
+  "review": {
+    "root_source_and_gate": "approved after initial-append coverage and owner-held handshake were added",
+    "independent_renderer_review": "approved on the recorded three postimages",
+    "scope": "static ownership review plus one actual full host run and one preimage witness; no additional test runs"
+  },
+  "sources": {
+    "smstrikers-port/src/platform/deferred_renderer.cpp": {
+      "bytes": 30496,
+      "sha256": "b13bfa4682bbb2a7d5570acd2825fae73964fa4de78c5ad14fcfc7cc6b1e9d29"
+    },
+    "smstrikers-port/tests/deferred_renderer_driver_test.cpp": {
+      "bytes": 31764,
+      "sha256": "620d76aa407dfc0f2b9f6198ae8e2b1b1897cb4a234215d982a61b428610ffbb"
+    },
+    "smstrikers-port/tests/deferred_slot_acquire_cases.inc": {
+      "bytes": 10438,
+      "sha256": "c55c350a88b2c166cc2da00d42f58219f03ab89d16da404f9fa7c9715ef63de4"
+    }
+  },
+  "preimages": {
+    "smstrikers-port/src/platform/deferred_renderer.cpp": {
+      "bytes": 29378,
+      "sha256": "197ae293902a964e95b589fcabd4923e25c16d33f38a4ec594b0b5e35e40ee1a",
+      "archive": ".tmp/native-c20-deferred-20261019/base/smstrikers-port/src/platform/deferred_renderer.cpp"
+    },
+    "smstrikers-port/tests/deferred_renderer_driver_test.cpp": {
+      "bytes": 31370,
+      "sha256": "d1366b0be287a2a51125a3b793ae82351d5d92d9d26c2cc7a1bd482f6658019d",
+      "archive": ".tmp/native-c20-deferred-20261019/base/smstrikers-port/tests/deferred_renderer_driver_test.cpp"
+    },
+    "smstrikers-port/extern/command-buffer/command_buffer.hpp": {
+      "bytes": 1999,
+      "sha256": "c7ba0c19780fb53cf00d0bce141700f26b0e559d4de0dc27be8da67ef2b388d7",
+      "archive": ".tmp/native-c20-deferred-20261019/base/smstrikers-port/extern/command-buffer/command_buffer.hpp"
+    }
+  },
+  "runner": {
+    "path": ".tmp/native-c20-deferred-20261019/run_host.py",
+    "bytes": 9600,
+    "sha256": "c7c1b822db86bf761c8873bd861f4330808f2a16b7bc1c230bc3c532403d9e76"
+  },
+  "host": {
+    "started_utc": "2026-10-19T20:05:13Z",
+    "finished_utc": "2026-10-19T20:06:05Z",
+    "runner_seconds": 51.80137704103254,
+    "runner_exit_code": 0,
+    "executor_final_result": {
+      "exit_code": 0,
+      "chunk_id": "chunk-13682",
+      "collected_by": "pipeline_next_review; final result relayed to root"
+    },
+    "steps": [
+      {
+        "name": "compile-driver",
+        "exit_code": 0,
+        "reaped": true,
+        "timed_out": false,
+        "wall_seconds": 27.826573624974117
+      },
+      {
+        "name": "compile-candidate",
+        "exit_code": 0,
+        "reaped": true,
+        "timed_out": false,
+        "wall_seconds": 4.973188709001988
+      },
+      {
+        "name": "compile-preimage",
+        "exit_code": 0,
+        "reaped": true,
+        "timed_out": false,
+        "wall_seconds": 4.453026415896602
+      },
+      {
+        "name": "link-candidate",
+        "exit_code": 0,
+        "reaped": true,
+        "timed_out": false,
+        "wall_seconds": 0.43997225002385676
+      },
+      {
+        "name": "link-preimage",
+        "exit_code": 0,
+        "reaped": true,
+        "timed_out": false,
+        "wall_seconds": 0.19843533297535032
+      },
+      {
+        "name": "candidate-full",
+        "exit_code": 0,
+        "reaped": true,
+        "timed_out": false,
+        "wall_seconds": 10.216020375024527
+      },
+      {
+        "name": "preimage-witness",
+        "exit_code": 64,
+        "reaped": true,
+        "timed_out": false,
+        "wall_seconds": 1.258830290986225
+      }
+    ],
+    "new_cases": [
+      {
+        "case": "next_draw",
+        "first_wait_stage": 129,
+        "draws": 129,
+        "copy_records": 0,
+        "fifo": true,
+        "cleanup": true,
+        "timeout": false
+      },
+      {
+        "case": "append_initial",
+        "first_wait_stage": 129,
+        "draws": 128,
+        "copy_records": 3,
+        "fifo": true,
+        "cleanup": true,
+        "timeout": false
+      },
+      {
+        "case": "shutdown_without_append",
+        "first_wait_stage": 129,
+        "draws": 128,
+        "copy_records": 0,
+        "fifo": true,
+        "cleanup": true,
+        "timeout": false
+      },
+      {
+        "case": "emplace_capacity_retry",
+        "first_wait_stage": 300,
+        "draws": 113,
+        "copy_records": 24576,
+        "fifo": true,
+        "cleanup": true,
+        "timeout": false
+      },
+      {
+        "case": "append_capacity_retry",
+        "first_wait_stage": 300,
+        "draws": 112,
+        "copy_records": 49152,
+        "fifo": true,
+        "cleanup": true,
+        "timeout": false
+      }
+    ],
+    "new_case_draws": 610,
+    "new_case_copy_records": 73731,
+    "baseline_witness": {
+      "actual_exit_code": 64,
+      "output": "[deferred-slot-gate] FAIL premature_acquire_after_publish draw=128 first_wait=128 fifo=1 cleanup=1 timeout=0",
+      "released_and_joined": true,
+      "timeout_used_as_oracle": false
+    },
+    "sanitizers": [
+      "AddressSanitizer",
+      "UndefinedBehaviorSanitizer",
+      "float-cast-overflow"
+    ],
+    "leak_detection": false,
+    "sanitizer_diagnostics": 0,
+    "compile_link_streams_empty": true,
+    "inputs_before_after_and_current_verified": 103,
+    "distinct_dependencies_rehashed_by_root": 1081,
+    "recorded_streams_rehashed_by_root": 14,
+    "full_receipt": {
+      "original": {
+        "path": ".tmp/native-c20-deferred-20261019/run/results.json",
+        "bytes": 862761,
+        "sha256": "acaa39cea0b8132886d7df2e1957e562748b07831869902a421d852e1c383407"
+      },
+      "archive": {
+        "path": "docs/report_performance/evidence/NATIVE_COMPLETION_2026-10-18/native-candidate20-host/results.json.gz",
+        "bytes": 174188,
+        "sha256": "6b173742a1295497321a1292e9276d183789cf7122aadae8dc4cdb82b7ea1656"
+      },
+      "decompression_preserves_original_bytes": true
+    },
+    "archived_runtime_streams": [
+      {
+        "path": "docs/report_performance/evidence/NATIVE_COMPLETION_2026-10-18/native-candidate20-host/candidate-full.stdout",
+        "bytes": 1077,
+        "sha256": "ee4ffa2380965593c884b6abe31971bc95caa4a549e5f802515a6929739d9e1c"
+      },
+      {
+        "path": "docs/report_performance/evidence/NATIVE_COMPLETION_2026-10-18/native-candidate20-host/candidate-full.stderr",
+        "bytes": 4686,
+        "sha256": "ba4ae5a2af9c9faca95a306f177b15b14b2a91c2ddc8aa93c4ec0308ea8af9d0"
+      },
+      {
+        "path": "docs/report_performance/evidence/NATIVE_COMPLETION_2026-10-18/native-candidate20-host/preimage-witness.stdout",
+        "bytes": 109,
+        "sha256": "42f4cdb00d715b3e4cfe2573fd82e99e4dc36f2f347d09e0ed09c64c0e3799d5"
+      },
+      {
+        "path": "docs/report_performance/evidence/NATIVE_COMPLETION_2026-10-18/native-candidate20-host/preimage-witness.stderr",
+        "bytes": 142,
+        "sha256": "9de4c6d578829ffa3c44abbb99dc7e369bee14876870ff7c001eb4e15f77c9bc"
+      }
+    ]
+  },
+  "unchanged_c19": {
+    "build_receipt": {
+      "path": "smstrikers-port/build-vita-gxm-latest/native-candidate19-build-result.json",
+      "bytes": 4749,
+      "sha256": "40c3f7db845f8ed008e6d4b32ab5649a401e4c5371528e35476772ae918404b7"
+    },
+    "recorded_source_pins_verified": 15,
+    "artifacts": {
+      "strikers": {
+        "bytes": 9510108,
+        "sha256": "a78b2a5a0bbc967fdfdde2deb2a0212a09c1395ab46bbcb10c9c153772e442ad"
+      },
+      "strikers.velf": {
+        "bytes": 11191158,
+        "sha256": "27c887d64c4df09d8d432654abb2206b84a680b1bda6bf538bd0e319b98eb783"
+      },
+      "strikers_vita.self": {
+        "bytes": 2645700,
+        "sha256": "90d5e6cc6f36ab0f472f65ffcf203c9973e60fabcf26fc7d6c040a88b4fe54a7"
+      },
+      "strikers_vita.vpk": {
+        "bytes": 3178301,
+        "sha256": "2772224662cfafcacc78d44fd751dca301243e2f65b63002d27dcfa0680d5b45"
+      },
+      "strikers.map": {
+        "bytes": 8547920,
+        "sha256": "0a63102b114d223ab13b1753f59a5372a9886e87b604d5a2e6f27ec2afc7f29b"
+      }
+    },
+    "sole_previous_c18": {
+      "strikers": {
+        "bytes": 9510288,
+        "sha256": "96f52996103554f266e7bbfafb9301f34a95714edbadf7d53be10b9d75b71c2f"
+      },
+      "strikers.velf": {
+        "bytes": 11191770,
+        "sha256": "1a72460ad4ff232e619f41dc45dee06a8a3c4c51041b513d94219dd9c82bb607"
+      },
+      "strikers_vita.self": {
+        "bytes": 2645642,
+        "sha256": "850cc77b6fac6fccdeaf478e484e79d93204d7d6f6ae80223cf9b3089f8cc339"
+      },
+      "strikers_vita.vpk": {
+        "bytes": 3177614,
+        "sha256": "902a47c42137685509cb926557e2690f4feb53b1147d6ab48d28880e1bab343f"
+      },
+      "strikers.map": {
+        "bytes": 8547112,
+        "sha256": "633fab9ffcc16df1b4675a5eaa600d889f1ab6767c968e6559de1c986c06cf42"
+      }
+    }
+  },
+  "historical_report_tails": {
+    "smstrikers-port/performance/NATIVE_COMPLETION_2026-10-18.md": {
+      "marker": "## Earlier C13 controls checkpoints",
+      "sha256": "b73513c884946f7fa370d8eaf78b8f58cc0b9556c90c4c6e99a7815a824e4828"
+    },
+    "smstrikers-port/performance/FUNCTIONAL_COVERAGE_2026-10-18.md": {
+      "marker": "## Evidence chronology",
+      "sha256": "30df5d7b8ccd004b98dca0a4ac8a6f22a8391d8742567a8b80d9bae7d18cd929"
+    }
+  },
+  "limits": [
+    "No Vita build or package was generated for C20; no target operation or deployment was performed in this continuation.",
+    "No GPU, Vita scheduler, target shader, FPS or stable-performance measurement is established.",
+    "Compiler system/SDK dependency identities were recorded after compilation and rechecked now; they are not a pre-build environment freeze.",
+    "ASan/UBSan and five deterministic cases do not prove absence of every possible race; ownership also relies on the reviewed single-producer/mutex contract.",
+    "The audio EOF mismatch remains a latent direct-call issue; normal game-path audio failure was not established and GCStream.cpp is unchanged.",
+    "Gameplay coverage and stable 60 FPS remain open; C19 is the last verified device checkpoint."
+  ]
+}

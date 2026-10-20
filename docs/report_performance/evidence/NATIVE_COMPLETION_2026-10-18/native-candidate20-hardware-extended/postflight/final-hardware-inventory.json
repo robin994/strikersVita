@@ -1,0 +1,45 @@
+{
+  "cardB_listing": [],
+  "console": "192.168.1.79",
+  "crash_dump_names": [
+    "psp2core-1791883756-0x00000521c5-eboot.bin.psp2dmp",
+    "psp2core-1791999337-0x00043f38d3-eboot.bin.psp2dmp",
+    "psp2core-1792001391-0x000c372671-eboot.bin.psp2dmp",
+    "psp2core-1792002100-0x00043d35f7-eboot.bin.psp2dmp",
+    "psp2core-1792002978-0x000450308d-eboot.bin.psp2dmp",
+    "psp2core-1792073568-0x0011d122e1-eboot.bin.psp2dmp",
+    "psp2core-1792088894-0x000ab93ead-eboot.bin.psp2dmp",
+    "psp2core-1792089110-0x0010992abd-eboot.bin.psp2dmp",
+    "psp2core-1792089210-0x000d5f37d5-eboot.bin.psp2dmp",
+    "psp2core-1792089452-0x000d643aaf-eboot.bin.psp2dmp",
+    "psp2core-1792103282-0x0010ba32b7-eboot.bin.psp2dmp",
+    "psp2core-1792104361-0x0010af363d-eboot.bin.psp2dmp",
+    "psp2core-1792105208-0x00172522f9-eboot.bin.psp2dmp",
+    "psp2core-1792331883-0x0000332e61-eboot.bin.psp2dmp",
+    "psp2core-1792342444-0x0001d226b9-eboot.bin.psp2dmp",
+    "psp2core-1792351328-0x000240247b-eboot.bin.psp2dmp"
+  ],
+  "dump_count": 16,
+  "files": {
+    "4d6172696f536f63636572.sav": {
+      "bytes": 40960,
+      "sha256": "34367251ec96e1adde5fa3f85eb05054ef66e84ea73ba08e5a95537c9e531800"
+    },
+    "4d6172696f536f63636572.stat": {
+      "bytes": 116,
+      "sha256": "4d04275d4e91cfc693e3a29989e17d70229ce6f26b79724c5edeaec42ef49c3f"
+    },
+    "eboot.bin": {
+      "bytes": 2651942,
+      "sha256": "a9ef59c940ba70097695cd514aa03483f07aaa2558ec133d717477ccafb53751"
+    },
+    "strikers.ini": {
+      "bytes": 760,
+      "sha256": "aac80bdf22392a11167a11dd9f713ffcff4088d3e9c898f9e6e50f5314620759"
+    }
+  },
+  "new_dump_names_after_1792440000": [],
+  "schema": "strikers-c20-device-hardware-final-identity-v1",
+  "status": "verified",
+  "time_unix": 1792446061.341314
+}

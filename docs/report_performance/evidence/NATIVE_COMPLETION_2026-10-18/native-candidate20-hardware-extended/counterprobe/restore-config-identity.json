@@ -1,0 +1,14 @@
+{
+  "host": "192.168.1.79",
+  "action": "restore-config",
+  "time_unix": 1792446011.415366,
+  "label": "native-c20-no-snapshot-1",
+  "kill": "Killed.",
+  "ini": {
+    "path": "ux0:/data/strikersVita/strikers.ini",
+    "sha256": "aac80bdf22392a11167a11dd9f713ffcff4088d3e9c898f9e6e50f5314620759",
+    "previous_sha256": "214e7c1f9b0058d5d0501e9a1812ff9c4a7c76b5ea4df7125fae9d9a81b29760",
+    "remote_backup": null,
+    "local_backup": "/Users/robin994/Documents/Code/strikersVita/.tmp/native-c20-hardware-tests-20261019/control_no_snapshot_restore/strikers.ini.before"
+  }
+}

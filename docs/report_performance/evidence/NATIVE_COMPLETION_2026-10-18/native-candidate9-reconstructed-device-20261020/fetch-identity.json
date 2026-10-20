@@ -1,0 +1,24 @@
+{
+  "host": "192.168.1.79",
+  "action": "fetch",
+  "time_unix": 1792519157.572125,
+  "label": "native-c9-restore-quiet600",
+  "native-c9-restore-quiet600.csv": {
+    "sha256": "bfdd256a9001bbcb1590494d86928c5c67ddba391b8d87187c000571a03d7ad3",
+    "bytes": 8823
+  },
+  "native-c9-restore-quiet600.log": {
+    "missing": "550 File not found."
+  },
+  "native-c9-restore-quiet600.csv.packets.csv": {
+    "missing": "550 File not found."
+  },
+  "native-c9-restore-quiet600.csv.views.csv": {
+    "missing": "550 File not found."
+  },
+  "strikers.ini": {
+    "sha256": "b9893363f7a79a7fe4ef1859d01e0f2c02ad5c454414e5f27616a766fafc6e80",
+    "bytes": 1297
+  },
+  "eboot_sha256": "7c8c6cd8d9f9857173cd51e22507654764e60d1c29b3d9d1b493be53225f3d6e"
+}

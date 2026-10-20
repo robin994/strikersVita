@@ -1,0 +1,29 @@
+{
+  "host": "192.168.1.79",
+  "action": "fetch",
+  "time_unix": 1792443235.4460511,
+  "label": "native-c20-visual120-retry",
+  "native-c20-visual120-retry.csv": {
+    "sha256": "463ec71a0a2d951b255a6d1271d1538a555053e7b40349a44d8c81e8694b41dc",
+    "bytes": 3621
+  },
+  "native-c20-visual120-retry.log": {
+    "sha256": "bdbbaa5dd92fe697d3e940ff71fed21d3f11fe2512de3a8abe325c7c0e16c1d7",
+    "bytes": 38704
+  },
+  "native-c20-visual120-retry.csv.packets.csv": {
+    "missing": "550 File not found."
+  },
+  "native-c20-visual120-retry.csv.views.csv": {
+    "missing": "550 File not found."
+  },
+  "strikers.ini": {
+    "sha256": "13e7450ca2b78eaed627aa7873b90f3f99591b122ade0a5c78770003eb8edfd8",
+    "bytes": 1815
+  },
+  "debug_frame_play_120.ppm": {
+    "sha256": "5dc7bc75ac6ec9929fcff56590ac6f466d827532103a6f4697d226e06b15674b",
+    "bytes": 1566735
+  },
+  "eboot_sha256": "a9ef59c940ba70097695cd514aa03483f07aaa2558ec133d717477ccafb53751"
+}

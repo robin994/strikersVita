@@ -6,6 +6,7 @@
 #include <string.h>
 #include <unistd.h>
 #include <sys/wait.h>
+#include "vita_config_test_io.h"
 static char directory[1024];
 int port_executable_dir(char* out, size_t n)
 {
@@ -56,11 +57,14 @@ int main()
             assert(strstr(text, "profile_revision = 2026-10-15-vitagl-unified"));
             assert(!strstr(text, "gxm_") && !strstr(text, "aurora"));
             assert(!strstr(text, "task_profile=1"));
+            config_assert_closed();
             exit(0);
         }
         int status;
         assert(waitpid(p, &status, 0) == p && WIFEXITED(status) && WEXITSTATUS(status) == 0);
     }
+    assert(!unlink(path));
+    snprintf(path, sizeof path, "%s/strikers.ini.vita-defaults.bak", directory);
     assert(!unlink(path));
     assert(!chdir("/tmp"));
     assert(!rmdir(directory));

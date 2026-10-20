@@ -1,0 +1,137 @@
+{
+  "active_head_unchanged": true,
+  "active_index_unchanged": true,
+  "added_or_modified_source_count": 19,
+  "checkout_changed": false,
+  "commit": "a5fe9b9422c49e50ef8f4fdf21cfde67329d7ab2",
+  "excluded_ephemera": [
+    "smstrikers-port/.DS_Store",
+    "smstrikers-port/assets/vita/sce_sys/livearea/contents/template.xml"
+  ],
+  "files": [
+    {
+      "mode": "100644",
+      "oid": "be045265c9b8a37eeeba7907429ce7eb84288e37",
+      "path": "smstrikers-port/extern/vitaGL/source/gxm.c",
+      "sha256": "15db9c60ae74bd1f2aecca2ab0e7fbc145fc26d29d25738500e8b8528c65bd10"
+    },
+    {
+      "mode": "100644",
+      "oid": "b0acbdfe44db5278279ce58ab53b94c70c985541",
+      "path": "smstrikers-port/include/port/benchmark.h",
+      "sha256": "1ae869922eb80746a673d92b91daefdb1b0526d31bd456b75e10ce2d37747d5b"
+    },
+    {
+      "mode": "100644",
+      "oid": "06220277b61904b9c80e8d2f91a1512ebb4245cc",
+      "path": "smstrikers-port/include/port/deferred_renderer.hpp",
+      "sha256": "c45d184f4746019e432316865dec7136c9fed68137a9a36d059ccf7d44043ed7"
+    },
+    {
+      "mode": "100644",
+      "oid": "821e6832b0a0d35e5e129e2c4b4a8c48d3294410",
+      "path": "smstrikers-port/include/port/loading_indicator.hpp",
+      "sha256": "60fcb5e17a19843b4dfff0235961413132f09bbe42b3de4143c996d72ddb1a29"
+    },
+    {
+      "mode": "100644",
+      "oid": "4bea4e0436e7cae146730aeeede99619043da3dc",
+      "path": "smstrikers-port/include/port/loading_indicator_shaders.hpp",
+      "sha256": "3c1d428da73b473caee6db77846b4f4686585409b9ed25672f40eee6904eaaf0"
+    },
+    {
+      "mode": "100644",
+      "oid": "afdda956858e2676577687179a5f8452d834800e",
+      "path": "smstrikers-port/include/port/loading_indicator_state.hpp",
+      "sha256": "0b362d6492c8f99859f0d0364871dbc1e70ff4db7c821e5b833165f2849f6857"
+    },
+    {
+      "mode": "100644",
+      "oid": "78a1c3622e507bb35ae8592333b569acb4f48e97",
+      "path": "smstrikers-port/include/port/native_match_runtime.hpp",
+      "sha256": "863ae3c7d4b219dc708d8abec52edc80088d747fa8a84625a22cd06d91c96862"
+    },
+    {
+      "mode": "100644",
+      "oid": "17c3aa950d4961d1da75371ae2d9232e44cd1098",
+      "path": "smstrikers-port/include/port/native_model_sources.hpp",
+      "sha256": "95f3e5ab4c5543d9c246438fadceb362300bb9ebd9c65e1110a99ea8a82fd7ec"
+    },
+    {
+      "mode": "100644",
+      "oid": "25ac15b3947de43d7ca82c45c97b23d261c50f72",
+      "path": "smstrikers-port/include/port/native_video_sps.hpp",
+      "sha256": "3d7820ac08a064f4241e96e6e3b8f0c7589996002114b008fd6f4541fe5be2d1"
+    },
+    {
+      "mode": "100644",
+      "oid": "80c3b668ecaaa6862ee909605e6c605efc8a78c8",
+      "path": "smstrikers-port/include/port/packet_profile.hpp",
+      "sha256": "3c34655105dd1643eaf379b631b1425d86e5daf4568ce56dbb4633ddd0ad141c"
+    },
+    {
+      "mode": "100644",
+      "oid": "e168f9f4ef74b4da0cf624ab7af993238662ea23",
+      "path": "smstrikers-port/include/port/scene_alpha_state.hpp",
+      "sha256": "bacd308277b9b4f877dffc101617f9f905c01a660e49a851f5a922580fb095db"
+    },
+    {
+      "mode": "100644",
+      "oid": "fddc99bdddf42587ba53893fd01bdc33de663ac9",
+      "path": "smstrikers-port/include/port/scene_material_alpha.hpp",
+      "sha256": "357dcbf4d63757fa8f20d4d7efc0374ac61829d9de3581cf5a8752cb0882f03a"
+    },
+    {
+      "mode": "100644",
+      "oid": "d883f9e9547c9dd068de40edb7662a63b91a29a8",
+      "path": "smstrikers-port/include/port/scene_skinning.hpp",
+      "sha256": "13c5c9ff28dc7596764bc14b4485299158a056e28701206a802926135c808cbb"
+    },
+    {
+      "mode": "100644",
+      "oid": "c72918f60ee1a9e87fedaf16be0ccbe1ed519777",
+      "path": "smstrikers-port/include/port/snapshot_request.hpp",
+      "sha256": "df4aaed474f7ab6064080893ff98bbbc94205c5647ca7293ba79ede6574906dc"
+    },
+    {
+      "mode": "100644",
+      "oid": "31e7de4fad885ad5cd75f7e28a279507f2c0ddb1",
+      "path": "smstrikers-port/include/port/task_profile.hpp",
+      "sha256": "7a28c7f977174c2b1fe4fa10bf733b3c8a99e97229a58cf585229471b1f4175d"
+    },
+    {
+      "mode": "100644",
+      "oid": "266659653964cf47939d5c627864f95ea92a7e1d",
+      "path": "smstrikers-port/src/platform/benchmark.c",
+      "sha256": "455cc98f8b42709663a3236c63a24a666cecdc2f17d969fe96bda71298fae5b3"
+    },
+    {
+      "mode": "100644",
+      "oid": "ccb5d91524c7d0a63cea0931b079fcd56a04296b",
+      "path": "smstrikers-port/src/platform/native_match_draw.cpp",
+      "sha256": "b4d4733b6c960e219c1ac584914e62f6d8a87f3711c2d1dd211efc567e2a58c9"
+    },
+    {
+      "mode": "100644",
+      "oid": "723aca6e84b3f517f8d0a0ff4e4b54c1fef3a648",
+      "path": "smstrikers-port/src/platform/native_match_runtime.cpp",
+      "sha256": "f398c636acab826532d67a886d5c831a38b7959ba98e1829e1f988d214bbe569"
+    },
+    {
+      "mode": "100644",
+      "oid": "f409b850335d05d023952defb605dd334c486174",
+      "path": "smstrikers-port/src/platform/task_profile.cpp",
+      "sha256": "d4ee415cfc3b743e45435dfd92fc0de37fb3d6d8e131a4eba85a80f625dd0f0d"
+    }
+  ],
+  "hardware_fps": 27.1143645938458,
+  "historical_pin_count": 83,
+  "parent": "596779b242de3733fc914df45732ce34f581e362",
+  "pushed": false,
+  "ref": "refs/heads/recovery/c9-hardware-27fps-20261020",
+  "schema": "strikers-c9-hardware-source-branch-v1",
+  "status": "hardware_c9_source_checkpoint_created",
+  "tested_self_sha256": "7c8c6cd8d9f9857173cd51e22507654764e60d1c29b3d9d1b493be53225f3d6e",
+  "time_unix": 1792519497.706054,
+  "tree": "76e906e7597e6789c182631f1c08e6840c8caf6e"
+}

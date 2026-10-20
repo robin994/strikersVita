@@ -1,0 +1,111 @@
+{
+  "cards_after": {
+    "4d6172696f536f63636572.sav": {
+      "bytes": 40960,
+      "sha256": "34367251ec96e1adde5fa3f85eb05054ef66e84ea73ba08e5a95537c9e531800"
+    },
+    "4d6172696f536f63636572.stat": {
+      "bytes": 116,
+      "sha256": "4d04275d4e91cfc693e3a29989e17d70229ce6f26b79724c5edeaec42ef49c3f"
+    }
+  },
+  "cards_before": {
+    "4d6172696f536f63636572.sav": {
+      "bytes": 40960,
+      "sha256": "34367251ec96e1adde5fa3f85eb05054ef66e84ea73ba08e5a95537c9e531800"
+    },
+    "4d6172696f536f63636572.stat": {
+      "bytes": 116,
+      "sha256": "4d04275d4e91cfc693e3a29989e17d70229ce6f26b79724c5edeaec42ef49c3f"
+    }
+  },
+  "cleanup_verified": true,
+  "command_history": [
+    {
+      "command": "release all",
+      "response": "Input released.",
+      "time_unix": 1792445871.894426
+    },
+    {
+      "command": "press cross",
+      "response": "Input pressed.",
+      "time_unix": 1792445889.8054311
+    },
+    {
+      "command": "release all",
+      "response": "Input released.",
+      "time_unix": 1792445890.222681
+    },
+    {
+      "command": "release all",
+      "response": "Input released.",
+      "time_unix": 1792446011.254581
+    }
+  ],
+  "finished_unix": 1792446013.425175,
+  "health_notice_confirmation": "single_cross_acknowledged",
+  "label": "native-c20-no-snapshot-1",
+  "launch_exit": 0,
+  "launch_identity_sha256": "2db402f0c9ffb789f28702a853822d61f7d0bc8ee87a5d7d80ee29092a712e1a",
+  "observations": [
+    {
+      "time_unix": 1792445890.641104,
+      "trace": {
+        "rows": 0
+      }
+    },
+    {
+      "time_unix": 1792445907.2039099,
+      "trace": {
+        "rows": 0
+      }
+    },
+    {
+      "time_unix": 1792445923.7595782,
+      "trace": {
+        "rows": 0
+      }
+    },
+    {
+      "time_unix": 1792445940.007453,
+      "trace": {
+        "rows": 0
+      }
+    },
+    {
+      "time_unix": 1792445956.4418418,
+      "trace": {
+        "rows": 0
+      }
+    },
+    {
+      "time_unix": 1792445972.857541,
+      "trace": {
+        "rows": 0
+      }
+    },
+    {
+      "time_unix": 1792445989.340575,
+      "trace": {
+        "rows": 0
+      }
+    },
+    {
+      "time_unix": 1792446005.799673,
+      "trace": {
+        "rows": 0
+      }
+    }
+  ],
+  "release_after": "Input released.",
+  "remote_final": {
+    "ini": "aac80bdf22392a11167a11dd9f713ffcff4088d3e9c898f9e6e50f5314620759",
+    "self": "a9ef59c940ba70097695cd514aa03483f07aaa2558ec133d717477ccafb53751"
+  },
+  "restore_exit": 0,
+  "schema": "strikers-c20-no-snapshot-input-1",
+  "self_sha256": "a9ef59c940ba70097695cd514aa03483f07aaa2558ec133d717477ccafb53751",
+  "start_unix": 1792445868.615999,
+  "status": "incomplete",
+  "updated_unix": 1792446013.425177
+}

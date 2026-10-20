@@ -1,0 +1,14 @@
+{
+  "host": "192.168.1.79",
+  "action": "restore-config",
+  "time_unix": 1792445785.53862,
+  "label": "native-c20-hardware-practice-1",
+  "kill": "Error: cannot kill the app. Is the TITLEID correct?",
+  "ini": {
+    "path": "ux0:/data/strikersVita/strikers.ini",
+    "sha256": "aac80bdf22392a11167a11dd9f713ffcff4088d3e9c898f9e6e50f5314620759",
+    "previous_sha256": "bfde751b02553d7aa3a3141a5ed71be17167b205476f2bd1c9080ba716a8c1b8",
+    "remote_backup": null,
+    "local_backup": "/Users/robin994/Documents/Code/strikersVita/.tmp/native-c20-hardware-tests-20261019/practice_restore/strikers.ini.before"
+  }
+}

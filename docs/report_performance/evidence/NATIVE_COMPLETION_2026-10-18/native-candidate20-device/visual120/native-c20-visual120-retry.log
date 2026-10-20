@@ -1,0 +1,295 @@
+[port] DVD: 1406 files in ux0:data/strikersVita/sms.psarc (PSARC 1.4)
+[dvd-fen] map path=art/fe/popup_menu.fen idx=600 off=0x258 len=14460 fnv=8447d462 source=PSARC
+[dvd-fen] map path=art/fe/saving_loading.fen idx=604 off=0x25c len=12948 fnv=dffa4a45 source=PSARC
+[port] DVD: disc G4QP01 (Europe)
+After nlInitMemory
+Free Memory: 50069504
+Largest Free Block: 50069504
+[native-audio] indexed_blocks=22977 budget=2097152 async_read=1 mixer_io=0 exact_frame_validation=1
+[port] ux0:data/strikersVita/strikers.ini: 49 setting(s)
+[port] config path=ux0:data/strikersVita/strikers.ini applied=49 fopen=1 setenv_rc=0 probe=1
+[vitagl-runtime] Thread topology frontend=CPU2 renderer=CPU1 jobs/audio=CPU0 affinity_rc=00070000
+[vitagl-runtime] clocks requested_cpu=500 actual_cpu=444 gpu=222 bus=222 xbar=166 MHz workers=1
+[gfxmem] CDRAM plan: free=111616 KB GLX=49152 KB reserve=49152 KB desired=49152 KB
+[gfxmem] early CDRAM resource reservation: 49152 KB contiguous at 0x61240000
+[vitagl-backend] GPU owner affinity=00020000 rc=00000000
+[vitagl] pools user=65536 cdram=49152 phycont=8192 KiB; available=130023424/63963136/27262976
+[vitagl] context viewport=960x544 resolution_fallback=0
+[vitagl-backend] Command ring: 8 x 2 MiB, immutable commands, publish every 16 draws
+[vitagl] scene programs=82 affine_uv=0 vertex_fog=0 fog_off_specialize=0 fog_curve4_specialize=0; Aurora=0 GX=0
+[gfxmem] bundle global.glt: +4 KB, used=434/49152 KB, free=48717 KB
+[audio] native stereo 48kHz, double buffer 512 frames, mixer/output on CPU0
+[audio] outputs=1 ticks=3 underruns=0 non_silent=0 error=00000000 mix=0 studios=0 voices=0 samples=0 env=0 vol=0 peak=0 mixer_us=16 max_us=12
+[port] language: UKEnglish
+[gfxmem] bundle transitions/transitions.glt: +0 KB, used=443/49152 KB, free=48708 KB
+[gfxmem] bundle transitions/in_spiral_ball.glg: +4 KB, used=448/49152 KB, free=48703 KB
+[gfxmem] bundle transitions/in_double_ball.glg: +9 KB, used=457/49152 KB, free=48694 KB
+[gfxmem] bundle transitions/out_flying_ball.glg: +4 KB, used=462/49152 KB, free=48689 KB
+[gfxmem] bundle transitions/in_flying_ball.glg: +4 KB, used=467/49152 KB, free=48684 KB
+[gfxmem] bundle transitions/broken_glass.glg: +18 KB, used=486/49152 KB, free=48665 KB
+pad0: err 0 buttons 0x0000 stick 0,0 held 0.00s
+[vitagl] loading resources pool_delta=4187984 bytes; wait=120 phase=19
+[gfxmem] bundle debug/debug.glg: +5 KB, used=756/49152 KB, free=48395 KB
+[gfxmem] bundle effects/meshes.glg: +136 KB, used=892/49152 KB, free=48259 KB
+[audio] outputs=100 ticks=214 underruns=0 non_silent=0 error=00000000 mix=1 studios=1 voices=0 samples=0 env=0 vol=0 peak=0 mixer_us=15198 max_us=234
+[gfxmem] bundle effects/effects.glt: +9 KB, used=902/49152 KB, free=48249 KB
+[shadow] native_a8_v1 projected=1 partitions=10
+[audio] outputs=200 ticks=427 underruns=0 non_silent=0 error=00000000 mix=1 studios=1 voices=0 samples=0 env=0 vol=0 peak=0 mixer_us=31142 max_us=234
+[gfxmem] bundle fe/fe.glt: +2 KB, used=904/49152 KB, free=48247 KB
+[audio] outputs=300 ticks=640 underruns=0 non_silent=0 error=00000000 mix=1 studios=1 voices=0 samples=0 env=0 vol=0 peak=0 mixer_us=47283 max_us=234
+[audio] outputs=400 ticks=854 underruns=0 non_silent=0 error=00000000 mix=1 studios=1 voices=0 samples=0 env=0 vol=0 peak=0 mixer_us=63004 max_us=234
+[gfxmem] bundle Environment/the_palace/the_palace.glt: +13 KB, used=917/49152 KB, free=48234 KB
+[gfxmem] bundle Environment/the_palace/the_palace.glg: +1421 KB, used=2338/49152 KB, free=46813 KB
+[gfxmem] bundle gameplay/ball.glt: +0 KB, used=2339/49152 KB, free=46812 KB
+[gfxmem] bundle gameplay/ball.glg: +5 KB, used=2344/49152 KB, free=46807 KB
+[gfxmem] bundle gameplay/powerups.glt: +0 KB, used=2345/49152 KB, free=46806 KB
+[gfxmem] bundle gameplay/powerups.glg: +43 KB, used=2388/49152 KB, free=46763 KB
+[gfxmem] bundle environment/Sideline_Objects/bench2_base.glt: +0 KB, used=2388/49152 KB, free=46763 KB
+[gfxmem] bundle environment/Sideline_Objects/bench2_base.glg: +9 KB, used=2398/49152 KB, free=46753 KB
+[gfxmem] bundle environment/Sideline_Objects/bench2_d.glt: +0 KB, used=2398/49152 KB, free=46753 KB
+[gfxmem] bundle environment/Sideline_Objects/bench2_d.glg: +5 KB, used=2403/49152 KB, free=46748 KB
+[gfxmem] bundle environment/Sideline_Objects/bench2.glt: +0 KB, used=2403/49152 KB, free=46748 KB
+[gfxmem] bundle environment/Sideline_Objects/bench2.glg: +14 KB, used=2418/49152 KB, free=46733 KB
+[invispoly] 1 objects, 1 packets
+[audio] outputs=500 ticks=1067 underruns=0 non_silent=0 error=00000000 mix=1 studios=1 voices=0 samples=0 env=0 vol=0 peak=0 mixer_us=79432 max_us=234
+[native-audio] async_loads=1 hits=0 misses=18 rejected=0 cache_bytes=41020 max_load_us=11465
+[audio] outputs=600 ticks=1280 underruns=0 non_silent=0 error=00000000 mix=1 studios=1 voices=3 samples=3 env=32767 vol=0 peak=0 mixer_us=110848 max_us=1046
+[native-audio] async_loads=2 hits=23 misses=64 rejected=0 cache_bytes=82040 max_load_us=14637
+[native-audio] async_loads=3 hits=109 misses=104 rejected=0 cache_bytes=123060 max_load_us=14637
+[gfxmem] bundle characters/standupcamera/standupcamera.glt: +0 KB, used=2419/49152 KB, free=46732 KB
+[gfxmem] bundle characters/standupcamera/standupcamera.glg: +10 KB, used=2429/49152 KB, free=46722 KB
+[gfxmem] bundle environment/Sideline_Objects/standupcamera_base.glt: +0 KB, used=2430/49152 KB, free=46721 KB
+[gfxmem] bundle environment/Sideline_Objects/standupcamera_base.glg: +1 KB, used=2431/49152 KB, free=46720 KB
+[gfxmem] bundle environment/Sideline_Objects/standupcamera_d.glt: +0 KB, used=2431/49152 KB, free=46720 KB
+[gfxmem] bundle environment/Sideline_Objects/standupcamera_d.glg: +7 KB, used=2438/49152 KB, free=46713 KB
+[gfxmem] bundle characters/chainchomp/chainchomp.glt: +0 KB, used=2439/49152 KB, free=46712 KB
+[gfxmem] bundle characters/chainchomp/chainchomp.glg: +17 KB, used=2456/49152 KB, free=46695 KB
+[gfxmem] bundle characters/bowser/bowser.glt: +0 KB, used=2456/49152 KB, free=46695 KB
+[gfxmem] bundle characters/bowser/bowser.glg: +53 KB, used=2510/49152 KB, free=46641 KB
+[native-audio] async_loads=4 hits=2968 misses=170 rejected=0 cache_bytes=164080 max_load_us=20992
+[audio] outputs=700 ticks=1494 underruns=0 non_silent=0 error=00000000 mix=1 studios=1 voices=3 samples=3 env=32767 vol=0 peak=0 mixer_us=214221 max_us=4518
+[gfxmem] bundle characters/luigi/luigi.glt: +0 KB, used=2510/49152 KB, free=46641 KB
+[gfxmem] bundle characters/luigi/luigi.glg: +70 KB, used=2581/49152 KB, free=46570 KB
+[gfxmem] bundle characters/luigi/luigi_blend.glg: +102 KB, used=2683/49152 KB, free=46468 KB
+[gfxmem] bundle characters/luigigoalie/luigigoalie.glt: +0 KB, used=2683/49152 KB, free=46468 KB
+[gfxmem] bundle characters/mariogoalie/mariogoalie.glg: +48 KB, used=2732/49152 KB, free=46419 KB
+[gfxmem] bundle characters/mariogoalie/mariogoalie_blend.glg: +78 KB, used=2810/49152 KB, free=46341 KB
+[native-audio] async_loads=8 hits=5894 misses=418 rejected=0 cache_bytes=328160 max_load_us=27937
+[audio] outputs=800 ticks=1707 underruns=0 non_silent=0 error=00000000 mix=1 studios=1 voices=3 samples=3 env=32767 vol=0 peak=0 mixer_us=313376 max_us=4518
+[gfxmem] bundle characters/mario/mario.glt: +0 KB, used=2811/49152 KB, free=46340 KB
+[gfxmem] bundle characters/mario/mario.glg: +68 KB, used=2879/49152 KB, free=46272 KB
+[gfxmem] bundle characters/mario/mario_blend.glg: +99 KB, used=2978/49152 KB, free=46173 KB
+[gfxmem] bundle characters/mariogoalie/mariogoalie.glt: +0 KB, used=2978/49152 KB, free=46173 KB
+[gfxmem] bundle characters/koopa/koopa.glt: +0 KB, used=2978/49152 KB, free=46173 KB
+[gfxmem] bundle characters/koopa/koopa.glg: +70 KB, used=3049/49152 KB, free=46102 KB
+[gfxmem] bundle characters/koopa/koopa_blend.glg: +100 KB, used=3149/49152 KB, free=46002 KB
+[audio] outputs=900 ticks=1920 underruns=0 non_silent=0 error=00000000 mix=1 studios=1 voices=3 samples=3 env=32767 vol=0 peak=0 mixer_us=418642 max_us=4518
+[gfxmem] bundle characters/koopa/koopa_luigi.glt: +0 KB, used=3149/49152 KB, free=46002 KB
+[gfxmem] bundle characters/toad/toad.glt: +0 KB, used=3149/49152 KB, free=46002 KB
+[gfxmem] bundle characters/toad/toad.glg: +53 KB, used=3203/49152 KB, free=45948 KB
+[gfxmem] bundle characters/toad/toad_blend.glg: +69 KB, used=3272/49152 KB, free=45879 KB
+[audio] outputs=1000 ticks=2134 underruns=0 non_silent=0 error=00000000 mix=1 studios=1 voices=3 samples=3 env=32767 vol=0 peak=0 mixer_us=530396 max_us=4518
+[gfxmem] bundle characters/toad/toad_mario.glt: +0 KB, used=3272/49152 KB, free=45879 KB
+[match] begin rematch=0 kickoff=0
+[native-audio] async_loads=16 hits=13865 misses=1549 rejected=0 cache_bytes=632800 max_load_us=245393
+[port] enter scene 68
+[port] enter scene 67
+[port] enter scene 72
+[port] enter scene 77
+[port] LoadPackage(art/fe/ingame_text.fen)
+[port] LoadPackage(art/fe/hud.fen)
+[port] LoadPackage(art/fe/goal_overlay.fen)
+[port] LoadPackage(art/fe/x2_sts.fen)
+[audio] outputs=1100 ticks=2347 underruns=0 non_silent=0 error=00000000 mix=1 studios=1 voices=3 samples=3 env=32767 vol=0 peak=0 mixer_us=630007 max_us=4518
+[port] enter scene 43
+[port] LoadPackage(art/fe/loadingtest.fen)
+-- Memory upon Exiting InitializeGameState
+Free Memory: 40178056
+Largest Free Block: 40178056
+Largest Virtual Free Block: 41082840
+-----------------------------------------
+
+[match] t=0.0/300.0 state=0 ot=0 score 0-0 ball=(0.00,0.00,0.18)
+[limiter] 63.00 Hz (display, +5% for vsync)
+[audio] outputs=1200 ticks=2560 underruns=0 non_silent=1 error=00000000 mix=1 studios=1 voices=4 samples=4 env=32767 vol=4802 peak=893 mixer_us=735631 max_us=4518
+[audio] outputs=1300 ticks=2774 underruns=0 non_silent=1 error=00000000 mix=1 studios=1 voices=4 samples=4 env=32767 vol=4802 peak=578 mixer_us=865490 max_us=4518
+[audio] outputs=1400 ticks=2987 underruns=0 non_silent=1 error=00000000 mix=1 studios=1 voices=3 samples=3 env=32767 vol=2377 peak=600 mixer_us=970794 max_us=4518
+[native-audio] async_loads=32 hits=30713 misses=2221 rejected=0 cache_bytes=1255880 max_load_us=245393
+[audio] outputs=1500 ticks=3200 underruns=0 non_silent=1 error=00000000 mix=1 studios=1 voices=5 samples=5 env=32767 vol=6782 peak=2924 mixer_us=1118841 max_us=4518
+[audio] outputs=1600 ticks=3414 underruns=0 non_silent=1 error=00000000 mix=1 studios=1 voices=5 samples=5 env=32767 vol=6782 peak=3029 mixer_us=1279946 max_us=8192
+[audio] outputs=1700 ticks=3627 underruns=0 non_silent=1 error=00000000 mix=1 studios=1 voices=5 samples=5 env=32767 vol=6782 peak=1823 mixer_us=1454171 max_us=8682
+[audio] outputs=1800 ticks=3840 underruns=0 non_silent=1 error=00000000 mix=1 studios=1 voices=6 samples=6 env=32767 vol=13509 peak=4043 mixer_us=1609789 max_us=8682
+[audio] outputs=1900 ticks=4054 underruns=0 non_silent=1 error=00000000 mix=1 studios=1 voices=5 samples=5 env=32767 vol=6782 peak=1767 mixer_us=1788809 max_us=9215
+[native-audio] async_loads=64 hits=72216 misses=4712 rejected=0 cache_bytes=2059600 max_load_us=245393
+[audio] outputs=2000 ticks=4267 underruns=0 non_silent=1 error=00000000 mix=1 studios=1 voices=5 samples=5 env=32767 vol=6782 peak=1627 mixer_us=1968925 max_us=9215
+[audio] outputs=2100 ticks=4480 underruns=0 non_silent=1 error=00000000 mix=1 studios=1 voices=5 samples=5 env=32767 vol=6782 peak=3873 mixer_us=2133495 max_us=9215
+[audio] outputs=2200 ticks=4694 underruns=0 non_silent=1 error=00000000 mix=1 studios=1 voices=5 samples=5 env=32767 vol=6782 peak=1600 mixer_us=2396969 max_us=101892
+[audio] outputs=2300 ticks=4907 underruns=0 non_silent=1 error=00000000 mix=1 studios=1 voices=5 samples=5 env=32767 vol=6782 peak=1737 mixer_us=2586304 max_us=101892
+[audio] outputs=2400 ticks=5120 underruns=0 non_silent=1 error=00000000 mix=1 studios=1 voices=5 samples=5 env=32767 vol=6782 peak=4072 mixer_us=2836166 max_us=101892
+[audio] outputs=2500 ticks=5334 underruns=0 non_silent=1 error=00000000 mix=1 studios=1 voices=6 samples=6 env=32767 vol=13509 peak=2810 mixer_us=2999869 max_us=101892
+[audio] outputs=2600 ticks=5547 underruns=0 non_silent=1 error=00000000 mix=1 studios=1 voices=5 samples=5 env=32767 vol=6782 peak=1838 mixer_us=3180799 max_us=101892
+[audio] outputs=2700 ticks=5760 underruns=0 non_silent=1 error=00000000 mix=1 studios=1 voices=5 samples=5 env=32767 vol=6782 peak=1393 mixer_us=3345574 max_us=101892
+[native-audio] async_loads=128 hits=136853 misses=10664 rejected=0 cache_bytes=2066800 max_load_us=245393
+[audio] outputs=2800 ticks=5974 underruns=0 non_silent=1 error=00000000 mix=1 studios=1 voices=5 samples=5 env=32767 vol=6782 peak=2818 mixer_us=3516400 max_us=101892
+[audio] outputs=2900 ticks=6187 underruns=0 non_silent=1 error=00000000 mix=1 studios=1 voices=6 samples=6 env=32767 vol=13509 peak=3045 mixer_us=3713308 max_us=101892
+[audio] outputs=3000 ticks=6400 underruns=0 non_silent=1 error=00000000 mix=1 studios=1 voices=5 samples=5 env=32767 vol=6782 peak=1815 mixer_us=3881827 max_us=101892
+[audio] outputs=3100 ticks=6614 underruns=0 non_silent=1 error=00000000 mix=1 studios=1 voices=5 samples=5 env=32767 vol=6782 peak=2852 mixer_us=4055393 max_us=101892
+[audio] outputs=3200 ticks=6827 underruns=0 non_silent=1 error=00000000 mix=1 studios=1 voices=5 samples=5 env=32767 vol=6782 peak=3816 mixer_us=4218790 max_us=101892
+[audio] outputs=3300 ticks=7040 underruns=0 non_silent=1 error=00000000 mix=1 studios=1 voices=5 samples=5 env=32767 vol=6782 peak=2219 mixer_us=4390357 max_us=101892
+[audio] outputs=3400 ticks=7254 underruns=0 non_silent=1 error=00000000 mix=1 studios=1 voices=5 samples=5 env=32767 vol=6782 peak=4938 mixer_us=4560370 max_us=101892
+[audio] outputs=3500 ticks=7467 underruns=0 non_silent=1 error=00000000 mix=1 studios=1 voices=5 samples=5 env=32767 vol=6782 peak=1463 mixer_us=4718755 max_us=101892
+[audio] outputs=3600 ticks=7680 underruns=0 non_silent=1 error=00000000 mix=1 studios=1 voices=5 samples=5 env=32767 vol=6782 peak=2406 mixer_us=4887766 max_us=101892
+[audio] outputs=3700 ticks=7894 underruns=0 non_silent=1 error=00000000 mix=1 studios=1 voices=5 samples=5 env=32767 vol=6782 peak=4205 mixer_us=5064855 max_us=101892
+[audio] outputs=3800 ticks=8107 underruns=0 non_silent=1 error=00000000 mix=1 studios=1 voices=5 samples=5 env=32767 vol=6782 peak=2360 mixer_us=5244563 max_us=101892
+[audio] outputs=3900 ticks=8320 underruns=0 non_silent=1 error=00000000 mix=1 studios=1 voices=5 samples=5 env=32767 vol=6782 peak=2279 mixer_us=5403150 max_us=101892
+[audio] outputs=4000 ticks=8534 underruns=0 non_silent=1 error=00000000 mix=1 studios=1 voices=5 samples=5 env=32767 vol=6782 peak=1933 mixer_us=5574259 max_us=101892
+[audio] outputs=4100 ticks=8747 underruns=0 non_silent=1 error=00000000 mix=1 studios=1 voices=5 samples=5 env=32767 vol=6782 peak=2339 mixer_us=5790742 max_us=101892
+[audio] outputs=4200 ticks=8960 underruns=0 non_silent=1 error=00000000 mix=1 studios=1 voices=5 samples=5 env=32767 vol=6782 peak=4343 mixer_us=5947645 max_us=101892
+[audio] outputs=4300 ticks=9174 underruns=0 non_silent=1 error=00000000 mix=1 studios=1 voices=5 samples=5 env=32767 vol=6782 peak=2262 mixer_us=6120118 max_us=101892
+[native-audio] async_loads=256 hits=264163 misses=21341 rejected=0 cache_bytes=2095880 max_load_us=245393
+[audio] outputs=4400 ticks=9387 underruns=0 non_silent=1 error=00000000 mix=1 studios=1 voices=8 samples=8 env=32767 vol=6782 peak=2568 mixer_us=6304035 max_us=101892
+[audio] outputs=4500 ticks=9600 underruns=0 non_silent=1 error=00000000 mix=1 studios=1 voices=8 samples=8 env=32767 vol=10200 peak=6409 mixer_us=6528972 max_us=101892
+[audio] outputs=4600 ticks=9814 underruns=0 non_silent=1 error=00000000 mix=1 studios=1 voices=8 samples=8 env=32767 vol=10200 peak=2198 mixer_us=6764205 max_us=101892
+[audio] outputs=4700 ticks=10027 underruns=0 non_silent=1 error=00000000 mix=1 studios=1 voices=9 samples=9 env=32767 vol=10200 peak=6334 mixer_us=7011057 max_us=101892
+[audio] outputs=4800 ticks=10240 underruns=0 non_silent=1 error=00000000 mix=1 studios=1 voices=8 samples=8 env=32767 vol=10200 peak=2894 mixer_us=7260533 max_us=101892
+[audio] outputs=4900 ticks=10454 underruns=0 non_silent=1 error=00000000 mix=1 studios=1 voices=8 samples=8 env=32767 vol=10200 peak=4265 mixer_us=7477838 max_us=101892
+[audio] outputs=5000 ticks=10667 underruns=0 non_silent=1 error=00000000 mix=1 studios=1 voices=7 samples=7 env=32767 vol=6782 peak=6545 mixer_us=7691286 max_us=101892
+[audio] outputs=5100 ticks=10880 underruns=0 non_silent=1 error=00000000 mix=1 studios=1 voices=8 samples=8 env=32767 vol=6782 peak=4480 mixer_us=7957914 max_us=101892
+[audio] outputs=5200 ticks=11094 underruns=0 non_silent=1 error=00000000 mix=1 studios=1 voices=9 samples=9 env=32767 vol=8720 peak=4870 mixer_us=8241937 max_us=101892
+[audio] outputs=5300 ticks=11307 underruns=0 non_silent=1 error=00000000 mix=1 studios=1 voices=8 samples=8 env=32767 vol=6782 peak=6100 mixer_us=8495827 max_us=101892
+[audio] outputs=5400 ticks=11520 underruns=0 non_silent=1 error=00000000 mix=1 studios=1 voices=5 samples=5 env=32767 vol=6782 peak=1647 mixer_us=8702014 max_us=101892
+[audio] outputs=5500 ticks=11734 underruns=0 non_silent=1 error=00000000 mix=1 studios=1 voices=6 samples=6 env=32767 vol=6782 peak=2550 mixer_us=8886894 max_us=101892
+[audio] outputs=5600 ticks=11947 underruns=0 non_silent=1 error=00000000 mix=1 studios=1 voices=5 samples=5 env=32767 vol=6782 peak=2865 mixer_us=9049704 max_us=101892
+[audio] outputs=5700 ticks=12160 underruns=0 non_silent=1 error=00000000 mix=1 studios=1 voices=5 samples=5 env=32767 vol=6782 peak=2333 mixer_us=9231882 max_us=101892
+[audio] outputs=5800 ticks=12374 underruns=0 non_silent=1 error=00000000 mix=1 studios=1 voices=5 samples=5 env=32767 vol=6782 peak=3218 mixer_us=9405418 max_us=101892
+[audio] outputs=5900 ticks=12587 underruns=0 non_silent=1 error=00000000 mix=1 studios=1 voices=5 samples=5 env=32767 vol=6782 peak=1652 mixer_us=9597488 max_us=101892
+[audio] outputs=6000 ticks=12800 underruns=0 non_silent=1 error=00000000 mix=1 studios=1 voices=6 samples=6 env=32767 vol=6782 peak=2286 mixer_us=9777489 max_us=101892
+[audio] outputs=6100 ticks=13014 underruns=0 non_silent=1 error=00000000 mix=1 studios=1 voices=5 samples=5 env=32767 vol=6782 peak=3433 mixer_us=9955997 max_us=101892
+[audio] outputs=6200 ticks=13227 underruns=0 non_silent=1 error=00000000 mix=1 studios=1 voices=5 samples=5 env=32767 vol=6782 peak=1112 mixer_us=10126423 max_us=101892
+[audio] outputs=6300 ticks=13440 underruns=0 non_silent=1 error=00000000 mix=1 studios=1 voices=5 samples=5 env=32767 vol=6782 peak=2964 mixer_us=10293727 max_us=101892
+[audio] outputs=6400 ticks=13654 underruns=0 non_silent=1 error=00000000 mix=1 studios=1 voices=5 samples=5 env=32767 vol=6782 peak=2489 mixer_us=10459517 max_us=101892
+[audio] outputs=6500 ticks=13867 underruns=0 non_silent=1 error=00000000 mix=1 studios=1 voices=5 samples=5 env=32767 vol=6782 peak=1690 mixer_us=10644537 max_us=101892
+[audio] outputs=6600 ticks=14080 underruns=0 non_silent=1 error=00000000 mix=1 studios=1 voices=5 samples=5 env=32767 vol=6782 peak=3801 mixer_us=10820450 max_us=101892
+[audio] outputs=6700 ticks=14294 underruns=0 non_silent=1 error=00000000 mix=1 studios=1 voices=5 samples=5 env=32767 vol=6782 peak=1038 mixer_us=11019830 max_us=101892
+[audio] outputs=6800 ticks=14507 underruns=0 non_silent=1 error=00000000 mix=1 studios=1 voices=5 samples=5 env=32767 vol=6782 peak=1565 mixer_us=11205514 max_us=101892
+[audio] outputs=6900 ticks=14720 underruns=0 non_silent=1 error=00000000 mix=1 studios=1 voices=5 samples=5 env=32767 vol=6782 peak=5397 mixer_us=11384038 max_us=101892
+[audio] outputs=7000 ticks=14934 underruns=0 non_silent=1 error=00000000 mix=1 studios=1 voices=8 samples=8 env=32767 vol=6782 peak=4611 mixer_us=11576786 max_us=101892
+[native-audio] async_loads=512 hits=507008 misses=54831 rejected=0 cache_bytes=2062240 max_load_us=556336
+[audio] outputs=7100 ticks=15147 underruns=0 non_silent=1 error=00000000 mix=1 studios=1 voices=8 samples=8 env=32767 vol=14111 peak=13327 mixer_us=11841943 max_us=101892
+[audio] outputs=7200 ticks=15360 underruns=0 non_silent=1 error=00000000 mix=1 studios=1 voices=8 samples=8 env=32767 vol=14111 peak=2868 mixer_us=12078329 max_us=101892
+[audio] outputs=7300 ticks=15574 underruns=0 non_silent=1 error=00000000 mix=1 studios=1 voices=8 samples=8 env=32767 vol=14111 peak=2601 mixer_us=12335174 max_us=101892
+[audio] outputs=7400 ticks=15787 underruns=0 non_silent=1 error=00000000 mix=1 studios=1 voices=8 samples=8 env=32767 vol=14111 peak=3605 mixer_us=12566802 max_us=101892
+[audio] outputs=7500 ticks=16000 underruns=0 non_silent=1 error=00000000 mix=1 studios=1 voices=9 samples=9 env=32767 vol=14111 peak=2562 mixer_us=12855286 max_us=101892
+[audio] outputs=7600 ticks=16214 underruns=0 non_silent=1 error=00000000 mix=1 studios=1 voices=6 samples=6 env=32767 vol=9317 peak=5182 mixer_us=13084886 max_us=101892
+[audio] outputs=7700 ticks=16427 underruns=0 non_silent=1 error=00000000 mix=1 studios=1 voices=9 samples=9 env=32767 vol=13527 peak=10373 mixer_us=13315200 max_us=101892
+[audio] outputs=7800 ticks=16640 underruns=0 non_silent=1 error=00000000 mix=1 studios=1 voices=8 samples=8 env=32767 vol=13441 peak=14507 mixer_us=13658202 max_us=101892
+[audio] outputs=7900 ticks=16854 underruns=0 non_silent=1 error=00000000 mix=1 studios=1 voices=8 samples=8 env=32767 vol=10897 peak=7288 mixer_us=13891407 max_us=101892
+[audio] outputs=8000 ticks=17067 underruns=0 non_silent=1 error=00000000 mix=1 studios=1 voices=7 samples=7 env=32767 vol=10844 peak=3108 mixer_us=14118097 max_us=101892
+[audio] outputs=8100 ticks=17280 underruns=0 non_silent=1 error=00000000 mix=1 studios=1 voices=6 samples=6 env=32767 vol=10738 peak=6211 mixer_us=14321810 max_us=101892
+[audio] outputs=8200 ticks=17494 underruns=0 non_silent=1 error=00000000 mix=1 studios=1 voices=6 samples=6 env=32767 vol=10686 peak=7571 mixer_us=14543948 max_us=101892
+[audio] outputs=8300 ticks=17707 underruns=0 non_silent=1 error=00000000 mix=1 studios=1 voices=7 samples=7 env=32767 vol=10633 peak=7783 mixer_us=14754460 max_us=101892
+[audio] outputs=8400 ticks=17920 underruns=0 non_silent=1 error=00000000 mix=1 studios=1 voices=8 samples=8 env=32767 vol=10633 peak=5516 mixer_us=14974954 max_us=101892
+[audio] outputs=8500 ticks=18134 underruns=0 non_silent=1 error=00000000 mix=1 studios=1 voices=5 samples=5 env=32767 vol=10400 peak=5078 mixer_us=15145915 max_us=101892
+[audio] outputs=8600 ticks=18347 underruns=0 non_silent=1 error=00000000 mix=1 studios=1 voices=4 samples=4 env=32767 vol=10400 peak=4695 mixer_us=15299034 max_us=101892
+[audio] outputs=8700 ticks=18560 underruns=0 non_silent=1 error=00000000 mix=1 studios=1 voices=1 samples=1 env=32767 vol=10400 peak=2354 mixer_us=15429314 max_us=101892
+[audio] outputs=8800 ticks=18774 underruns=0 non_silent=1 error=00000000 mix=1 studios=1 voices=1 samples=1 env=32767 vol=10400 peak=5498 mixer_us=15516772 max_us=101892
+[audio] outputs=8900 ticks=18987 underruns=0 non_silent=1 error=00000000 mix=1 studios=1 voices=2 samples=2 env=32767 vol=10400 peak=4700 mixer_us=15610726 max_us=101892
+[audio] outputs=9000 ticks=19200 underruns=0 non_silent=1 error=00000000 mix=1 studios=1 voices=1 samples=1 env=32767 vol=5561 peak=2954 mixer_us=15707765 max_us=101892
+[audio] outputs=9100 ticks=19414 underruns=0 non_silent=1 error=00000000 mix=1 studios=1 voices=0 samples=0 env=0 vol=0 peak=394 mixer_us=15783213 max_us=101892
+[audio] outputs=9200 ticks=19627 underruns=0 non_silent=1 error=00000000 mix=1 studios=1 voices=1 samples=1 env=32767 vol=3242 peak=2556 mixer_us=15852910 max_us=101892
+[audio] outputs=9300 ticks=19840 underruns=0 non_silent=1 error=00000000 mix=1 studios=1 voices=1 samples=1 env=32767 vol=3242 peak=1953 mixer_us=15938831 max_us=101892
+[audio] outputs=9400 ticks=20054 underruns=0 non_silent=1 error=00000000 mix=1 studios=1 voices=1 samples=1 env=32767 vol=3242 peak=993 mixer_us=16029096 max_us=101892
+[audio] outputs=9500 ticks=20267 underruns=0 non_silent=1 error=00000000 mix=1 studios=1 voices=2 samples=2 env=32767 vol=10082 peak=776 mixer_us=16130523 max_us=101892
+[audio] outputs=9600 ticks=20480 underruns=0 non_silent=1 error=00000000 mix=1 studios=1 voices=1 samples=1 env=32767 vol=12012 peak=269 mixer_us=16222515 max_us=101892
+[audio] outputs=9700 ticks=20694 underruns=0 non_silent=1 error=00000000 mix=1 studios=1 voices=3 samples=3 env=32767 vol=8947 peak=8369 mixer_us=16313866 max_us=101892
+[audio] outputs=9800 ticks=20907 underruns=0 non_silent=1 error=00000000 mix=1 studios=1 voices=2 samples=2 env=32767 vol=3242 peak=2346 mixer_us=16425402 max_us=101892
+[audio] outputs=9900 ticks=21120 underruns=0 non_silent=1 error=00000000 mix=1 studios=1 voices=2 samples=2 env=32767 vol=3242 peak=1376 mixer_us=16525687 max_us=101892
+[audio] outputs=10000 ticks=21334 underruns=0 non_silent=1 error=00000000 mix=1 studios=1 voices=1 samples=1 env=32767 vol=3242 peak=780 mixer_us=16622784 max_us=101892
+[audio] outputs=10100 ticks=21547 underruns=0 non_silent=1 error=00000000 mix=1 studios=1 voices=1 samples=1 env=32767 vol=3242 peak=319 mixer_us=16704641 max_us=101892
+[audio] outputs=10200 ticks=21760 underruns=0 non_silent=1 error=00000000 mix=1 studios=1 voices=0 samples=0 env=0 vol=0 peak=238 mixer_us=16777943 max_us=101892
+[audio] outputs=10300 ticks=21974 underruns=0 non_silent=1 error=00000000 mix=1 studios=1 voices=0 samples=0 env=0 vol=0 peak=236 mixer_us=16837716 max_us=101892
+[audio] outputs=10400 ticks=22187 underruns=0 non_silent=1 error=00000000 mix=1 studios=1 voices=0 samples=0 env=0 vol=0 peak=236 mixer_us=16897687 max_us=101892
+[audio] outputs=10500 ticks=22400 underruns=0 non_silent=1 error=00000000 mix=1 studios=1 voices=0 samples=0 env=0 vol=0 peak=236 mixer_us=16958158 max_us=101892
+[audio] outputs=10600 ticks=22614 underruns=0 non_silent=1 error=00000000 mix=1 studios=1 voices=0 samples=0 env=0 vol=0 peak=236 mixer_us=17018411 max_us=101892
+[audio] outputs=10700 ticks=22827 underruns=0 non_silent=1 error=00000000 mix=1 studios=1 voices=0 samples=0 env=0 vol=0 peak=236 mixer_us=17079000 max_us=101892
+[audio] outputs=10800 ticks=23040 underruns=0 non_silent=1 error=00000000 mix=1 studios=1 voices=0 samples=0 env=0 vol=0 peak=236 mixer_us=17138980 max_us=101892
+[audio] outputs=10900 ticks=23254 underruns=0 non_silent=1 error=00000000 mix=1 studios=1 voices=0 samples=0 env=0 vol=0 peak=236 mixer_us=17199171 max_us=101892
+[audio] outputs=11000 ticks=23467 underruns=0 non_silent=1 error=00000000 mix=1 studios=1 voices=0 samples=0 env=0 vol=0 peak=236 mixer_us=17259918 max_us=101892
+[audio] outputs=11100 ticks=23680 underruns=0 non_silent=1 error=00000000 mix=1 studios=1 voices=0 samples=0 env=0 vol=0 peak=236 mixer_us=17320398 max_us=101892
+[audio] outputs=11200 ticks=23894 underruns=0 non_silent=1 error=00000000 mix=1 studios=1 voices=0 samples=0 env=0 vol=0 peak=236 mixer_us=17380579 max_us=101892
+[audio] outputs=11300 ticks=24107 underruns=0 non_silent=1 error=00000000 mix=1 studios=1 voices=0 samples=0 env=0 vol=0 peak=236 mixer_us=17441350 max_us=101892
+[audio] outputs=11400 ticks=24320 underruns=0 non_silent=1 error=00000000 mix=1 studios=1 voices=0 samples=0 env=0 vol=0 peak=236 mixer_us=17501014 max_us=101892
+[audio] outputs=11500 ticks=24534 underruns=0 non_silent=1 error=00000000 mix=1 studios=1 voices=0 samples=0 env=0 vol=0 peak=236 mixer_us=17559253 max_us=101892
+[audio] outputs=11600 ticks=24747 underruns=0 non_silent=1 error=00000000 mix=1 studios=1 voices=0 samples=0 env=0 vol=0 peak=236 mixer_us=17619806 max_us=101892
+[audio] outputs=11700 ticks=24960 underruns=0 non_silent=1 error=00000000 mix=1 studios=1 voices=0 samples=0 env=0 vol=0 peak=236 mixer_us=17679371 max_us=101892
+[audio] outputs=11800 ticks=25174 underruns=0 non_silent=1 error=00000000 mix=1 studios=1 voices=0 samples=0 env=0 vol=0 peak=236 mixer_us=17739841 max_us=101892
+[audio] outputs=11900 ticks=25387 underruns=0 non_silent=1 error=00000000 mix=1 studios=1 voices=0 samples=0 env=0 vol=0 peak=236 mixer_us=17799387 max_us=101892
+[audio] outputs=12000 ticks=25600 underruns=0 non_silent=1 error=00000000 mix=1 studios=1 voices=0 samples=0 env=0 vol=0 peak=236 mixer_us=17859637 max_us=101892
+[audio] outputs=12100 ticks=25814 underruns=0 non_silent=1 error=00000000 mix=1 studios=1 voices=0 samples=0 env=0 vol=0 peak=236 mixer_us=17919620 max_us=101892
+[audio] outputs=12200 ticks=26027 underruns=0 non_silent=1 error=00000000 mix=1 studios=1 voices=0 samples=0 env=0 vol=0 peak=236 mixer_us=17980205 max_us=101892
+[audio] outputs=12300 ticks=26240 underruns=0 non_silent=1 error=00000000 mix=1 studios=1 voices=0 samples=0 env=0 vol=0 peak=236 mixer_us=18039683 max_us=101892
+[audio] outputs=12400 ticks=26454 underruns=0 non_silent=1 error=00000000 mix=1 studios=1 voices=0 samples=0 env=0 vol=0 peak=269 mixer_us=18110444 max_us=101892
+[audio] outputs=12500 ticks=26667 underruns=0 non_silent=1 error=00000000 mix=1 studios=1 voices=0 samples=0 env=0 vol=0 peak=237 mixer_us=18171204 max_us=101892
+[audio] outputs=12600 ticks=26880 underruns=0 non_silent=1 error=00000000 mix=1 studios=1 voices=0 samples=0 env=0 vol=0 peak=233 mixer_us=18230473 max_us=101892
+[audio] outputs=12700 ticks=27094 underruns=0 non_silent=1 error=00000000 mix=1 studios=1 voices=1 samples=1 env=32767 vol=10378 peak=468 mixer_us=18295862 max_us=101892
+[audio] outputs=12800 ticks=27307 underruns=0 non_silent=1 error=00000000 mix=1 studios=1 voices=1 samples=1 env=32767 vol=10513 peak=451 mixer_us=18381325 max_us=101892
+[audio] outputs=12900 ticks=27520 underruns=0 non_silent=1 error=00000000 mix=1 studios=1 voices=1 samples=1 env=32767 vol=10648 peak=1014 mixer_us=18468160 max_us=101892
+[audio] outputs=13000 ticks=27734 underruns=0 non_silent=1 error=00000000 mix=1 studios=1 voices=0 samples=0 env=0 vol=0 peak=289 mixer_us=18538124 max_us=101892
+[audio] outputs=13100 ticks=27947 underruns=0 non_silent=1 error=00000000 mix=1 studios=1 voices=0 samples=0 env=0 vol=0 peak=274 mixer_us=18597927 max_us=101892
+[audio] outputs=13200 ticks=28160 underruns=0 non_silent=1 error=00000000 mix=1 studios=1 voices=0 samples=0 env=0 vol=0 peak=263 mixer_us=18658706 max_us=101892
+[audio] outputs=13300 ticks=28374 underruns=0 non_silent=1 error=00000000 mix=1 studios=1 voices=0 samples=0 env=0 vol=0 peak=389 mixer_us=18722883 max_us=101892
+[audio] outputs=13400 ticks=28587 underruns=0 non_silent=1 error=00000000 mix=1 studios=1 voices=0 samples=0 env=0 vol=0 peak=336 mixer_us=18783905 max_us=101892
+[audio] outputs=13500 ticks=28800 underruns=0 non_silent=1 error=00000000 mix=1 studios=1 voices=0 samples=0 env=0 vol=0 peak=299 mixer_us=18841946 max_us=101892
+[audio] outputs=13600 ticks=29014 underruns=0 non_silent=1 error=00000000 mix=1 studios=1 voices=0 samples=0 env=0 vol=0 peak=295 mixer_us=18902835 max_us=101892
+[audio] outputs=13700 ticks=29227 underruns=0 non_silent=1 error=00000000 mix=1 studios=1 voices=0 samples=0 env=0 vol=0 peak=295 mixer_us=18963879 max_us=101892
+[audio] outputs=13800 ticks=29440 underruns=0 non_silent=1 error=00000000 mix=1 studios=1 voices=0 samples=0 env=0 vol=0 peak=295 mixer_us=19023773 max_us=101892
+[audio] outputs=13900 ticks=29654 underruns=0 non_silent=1 error=00000000 mix=1 studios=1 voices=0 samples=0 env=0 vol=0 peak=244 mixer_us=19088514 max_us=101892
+[audio] outputs=14000 ticks=29867 underruns=0 non_silent=1 error=00000000 mix=1 studios=1 voices=0 samples=0 env=0 vol=0 peak=163 mixer_us=19148951 max_us=101892
+[audio] outputs=14100 ticks=30080 underruns=0 non_silent=1 error=00000000 mix=1 studios=1 voices=0 samples=0 env=0 vol=0 peak=152 mixer_us=19208507 max_us=101892
+[audio] outputs=14200 ticks=30294 underruns=0 non_silent=1 error=00000000 mix=1 studios=1 voices=1 samples=1 env=32767 vol=8660 peak=1083 mixer_us=19272219 max_us=101892
+[audio] outputs=14300 ticks=30507 underruns=0 non_silent=1 error=00000000 mix=1 studios=1 voices=0 samples=0 env=0 vol=0 peak=198 mixer_us=19335261 max_us=101892
+[audio] outputs=14400 ticks=30720 underruns=0 non_silent=1 error=00000000 mix=1 studios=1 voices=0 samples=0 env=0 vol=0 peak=158 mixer_us=19395596 max_us=101892
+[audio] outputs=14500 ticks=30934 underruns=0 non_silent=1 error=00000000 mix=1 studios=1 voices=0 samples=0 env=0 vol=0 peak=151 mixer_us=19456316 max_us=101892
+[audio] outputs=14600 ticks=31147 underruns=0 non_silent=1 error=00000000 mix=1 studios=1 voices=0 samples=0 env=0 vol=0 peak=374 mixer_us=19537312 max_us=101892
+[audio] outputs=14700 ticks=31360 underruns=0 non_silent=1 error=00000000 mix=1 studios=1 voices=0 samples=0 env=0 vol=0 peak=174 mixer_us=19596466 max_us=101892
+[audio] outputs=14800 ticks=31574 underruns=0 non_silent=1 error=00000000 mix=1 studios=1 voices=0 samples=0 env=0 vol=0 peak=147 mixer_us=19654473 max_us=101892
+[audio] outputs=14900 ticks=31787 underruns=0 non_silent=1 error=00000000 mix=1 studios=1 voices=0 samples=0 env=0 vol=0 peak=145 mixer_us=19710419 max_us=101892
+[audio] outputs=15000 ticks=32000 underruns=0 non_silent=1 error=00000000 mix=1 studios=1 voices=0 samples=0 env=0 vol=0 peak=144 mixer_us=19766766 max_us=101892
+[audio] outputs=15100 ticks=32214 underruns=0 non_silent=1 error=00000000 mix=1 studios=1 voices=0 samples=0 env=0 vol=0 peak=144 mixer_us=19823368 max_us=101892
+[audio] outputs=15200 ticks=32427 underruns=0 non_silent=1 error=00000000 mix=1 studios=1 voices=0 samples=0 env=0 vol=0 peak=144 mixer_us=19879740 max_us=101892
+[audio] outputs=15300 ticks=32640 underruns=0 non_silent=1 error=00000000 mix=1 studios=1 voices=0 samples=0 env=0 vol=0 peak=144 mixer_us=19936001 max_us=101892
+[audio] outputs=15400 ticks=32854 underruns=0 non_silent=1 error=00000000 mix=1 studios=1 voices=0 samples=0 env=0 vol=0 peak=144 mixer_us=19992567 max_us=101892
+[audio] outputs=15500 ticks=33067 underruns=0 non_silent=1 error=00000000 mix=1 studios=1 voices=0 samples=0 env=0 vol=0 peak=144 mixer_us=20049709 max_us=101892
+[audio] outputs=15600 ticks=33280 underruns=0 non_silent=1 error=00000000 mix=1 studios=1 voices=0 samples=0 env=0 vol=0 peak=144 mixer_us=20105705 max_us=101892
+[audio] outputs=15700 ticks=33494 underruns=0 non_silent=1 error=00000000 mix=1 studios=1 voices=0 samples=0 env=0 vol=0 peak=144 mixer_us=20163371 max_us=101892
+[vitagl] loading resources pool_delta=4187984 bytes; wait=0 phase=19
+[audio] outputs=15800 ticks=33707 underruns=0 non_silent=1 error=00000000 mix=1 studios=1 voices=0 samples=0 env=0 vol=0 peak=144 mixer_us=20221588 max_us=101892
+[audio] outputs=15900 ticks=33920 underruns=0 non_silent=1 error=00000000 mix=1 studios=1 voices=0 samples=0 env=0 vol=0 peak=144 mixer_us=20282620 max_us=101892
+[audio] outputs=16000 ticks=34134 underruns=0 non_silent=1 error=00000000 mix=1 studios=1 voices=0 samples=0 env=0 vol=0 peak=144 mixer_us=20342117 max_us=101892
+[audio] outputs=16100 ticks=34347 underruns=0 non_silent=1 error=00000000 mix=1 studios=1 voices=0 samples=0 env=0 vol=0 peak=144 mixer_us=20402598 max_us=101892
+[audio] outputs=16200 ticks=34560 underruns=0 non_silent=1 error=00000000 mix=1 studios=1 voices=0 samples=0 env=0 vol=0 peak=144 mixer_us=20464468 max_us=101892
+[match] t=0.0/300.0 state=1 ot=0 score 0-0 ball=(-0.26,-0.10,0.18)
+[audio] outputs=16300 ticks=34774 underruns=0 non_silent=1 error=00000000 mix=1 studios=1 voices=0 samples=0 env=0 vol=0 peak=144 mixer_us=20525247 max_us=101892
+[audio] outputs=16400 ticks=34987 underruns=0 non_silent=1 error=00000000 mix=1 studios=1 voices=0 samples=0 env=0 vol=0 peak=144 mixer_us=20583887 max_us=101892
+[audio] outputs=16500 ticks=35200 underruns=0 non_silent=1 error=00000000 mix=1 studios=1 voices=0 samples=0 env=0 vol=0 peak=144 mixer_us=20645750 max_us=101892
+[audio] outputs=16600 ticks=35414 underruns=0 non_silent=1 error=00000000 mix=1 studios=1 voices=0 samples=0 env=0 vol=0 peak=326 mixer_us=20724171 max_us=101892
+[match] t=0.3/300.0 state=4 ot=0 score 0-0 ball=(-4.08,-2.11,0.18)
+[audio] outputs=16700 ticks=35627 underruns=0 non_silent=1 error=00000000 mix=1 studios=1 voices=1 samples=1 env=32767 vol=5514 peak=5245 mixer_us=20799880 max_us=101892
+[audio] outputs=16800 ticks=35840 underruns=0 non_silent=1 error=00000000 mix=1 studios=1 voices=1 samples=1 env=32767 vol=5514 peak=5164 mixer_us=20885686 max_us=101892
+[audio] outputs=16900 ticks=36054 underruns=0 non_silent=1 error=00000000 mix=1 studios=1 voices=3 samples=3 env=32767 vol=5514 peak=2439 mixer_us=20999441 max_us=101892
+[audio] outputs=17000 ticks=36267 underruns=0 non_silent=1 error=00000000 mix=1 studios=1 voices=1 samples=1 env=32767 vol=4861 peak=232 mixer_us=21128331 max_us=101892
+[audio] outputs=17100 ticks=36480 underruns=0 non_silent=1 error=00000000 mix=1 studios=1 voices=1 samples=1 env=32767 vol=4861 peak=459 mixer_us=21224707 max_us=101892
+[match] t=1.5/300.0 state=4 ot=0 score 0-0 ball=(-2.91,-5.90,0.18)
+[audio] outputs=17200 ticks=36694 underruns=0 non_silent=1 error=00000000 mix=1 studios=1 voices=2 samples=2 env=32767 vol=5002 peak=885 mixer_us=21334682 max_us=101892
+[audio] outputs=17300 ticks=36907 underruns=0 non_silent=1 error=00000000 mix=1 studios=1 voices=1 samples=1 env=32767 vol=4861 peak=461 mixer_us=21433771 max_us=101892
+[audio] outputs=17400 ticks=37120 underruns=0 non_silent=1 error=00000000 mix=1 studios=1 voices=1 samples=1 env=32767 vol=4861 peak=626 mixer_us=21512138 max_us=101892
+[audio] outputs=17500 ticks=37334 underruns=0 non_silent=1 error=00000000 mix=1 studios=1 voices=1 samples=1 env=32767 vol=4861 peak=174 mixer_us=21592065 max_us=101892
+[audio] outputs=17600 ticks=37547 underruns=0 non_silent=1 error=00000000 mix=1 studios=1 voices=1 samples=1 env=32767 vol=4861 peak=309 mixer_us=21670473 max_us=101892
+[vita] snapshot 3d_frame=0 renderer=VitaGL ok=1 path=ux0:data/strikersVita/debug_frame_play_120.ppm
+[audio] outputs=17700 ticks=37760 underruns=0 non_silent=1 error=00000000 mix=1 studios=1 voices=3 samples=3 env=32767 vol=4892 peak=3342 mixer_us=21772558 max_us=101892
+[audio] outputs=17800 ticks=37974 underruns=0 non_silent=1 error=00000000 mix=1 studios=1 voices=2 samples=2 env=32767 vol=4892 peak=2618 mixer_us=21889868 max_us=101892
+[match] t=2.7/300.0 state=4 ot=0 score 0-0 ball=(0.06,-1.99,0.18)
+[audio] outputs=17900 ticks=38187 underruns=0 non_silent=1 error=00000000 mix=1 studios=1 voices=3 samples=3 env=32767 vol=4753 peak=955 mixer_us=22017110 max_us=101892
+[audio] outputs=18000 ticks=38400 underruns=0 non_silent=1 error=00000000 mix=1 studios=1 voices=2 samples=2 env=32767 vol=4723 peak=459 mixer_us=22134970 max_us=101892
+[audio] outputs=18100 ticks=38614 underruns=0 non_silent=1 error=00000000 mix=1 studios=1 voices=2 samples=2 env=32767 vol=4723 peak=493 mixer_us=22241605 max_us=101892
+[audio] outputs=18200 ticks=38827 underruns=0 non_silent=1 error=00000000 mix=1 studios=1 voices=2 samples=2 env=32767 vol=4723 peak=689 mixer_us=22337011 max_us=101892

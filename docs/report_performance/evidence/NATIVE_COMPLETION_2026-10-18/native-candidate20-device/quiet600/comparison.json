@@ -1,0 +1,80 @@
+{
+  "c19": {
+    "bytes": 8850,
+    "fps": 16.51017497318335,
+    "frame_interval": [
+      600,
+      899
+    ],
+    "frame_us": {
+      "mean_us": 60568.71,
+      "median_us": 64383.5,
+      "p95_us": 66810,
+      "p99_us": 68897
+    },
+    "present_us": {
+      "mean_us": 5187.426666666666,
+      "median_us": 4189.0,
+      "p95_us": 11919,
+      "p99_us": 12937
+    },
+    "rows": 300,
+    "sha256": "1a48b532a038aeb57c1bc7df150514181b24292012a3e4ddbc511f7fd4c21f68",
+    "sleep_us": {
+      "mean_us": 0,
+      "median_us": 0.0,
+      "p95_us": 0,
+      "p99_us": 0
+    },
+    "tasks_us": {
+      "mean_us": 55381.28333333333,
+      "median_us": 55153.0,
+      "p95_us": 65066,
+      "p99_us": 66770
+    },
+    "under_30fps_budget": 0,
+    "under_60fps_budget": 0
+  },
+  "c20": {
+    "bytes": 8853,
+    "fps": 16.739271396429636,
+    "frame_interval": [
+      600,
+      899
+    ],
+    "frame_us": {
+      "mean_us": 59739.75666666667,
+      "median_us": 62547.5,
+      "p95_us": 66817,
+      "p99_us": 67542
+    },
+    "present_us": {
+      "mean_us": 5105.0233333333335,
+      "median_us": 3781.5,
+      "p95_us": 11410,
+      "p99_us": 12378
+    },
+    "rows": 300,
+    "sha256": "07f0b08e341250534eab1ee56000d64ab87fad78e696b330061201467eeddb99",
+    "sleep_us": {
+      "mean_us": 0,
+      "median_us": 0.0,
+      "p95_us": 0,
+      "p99_us": 0
+    },
+    "tasks_us": {
+      "mean_us": 54634.73333333333,
+      "median_us": 54315.5,
+      "p95_us": 64951,
+      "p99_us": 66465
+    },
+    "under_30fps_budget": 0,
+    "under_60fps_budget": 0
+  },
+  "configuration_equal_ignoring_unique_output_paths": true,
+  "observed_fps_difference": 0.2290964232462862,
+  "observed_fps_percent": 1.3876074821641549,
+  "single_run_causal_proof": false,
+  "status": "local_verified",
+  "time_unix": 1792443142.968717
+}

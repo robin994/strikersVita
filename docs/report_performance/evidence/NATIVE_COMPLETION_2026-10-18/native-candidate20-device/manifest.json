@@ -1,0 +1,114 @@
+{
+  "build_artifacts": {
+    "strikers_vita.self": {
+      "bytes": 2651942,
+      "sha256": "a9ef59c940ba70097695cd514aa03483f07aaa2558ec133d717477ccafb53751"
+    },
+    "strikers_vita.self.previous": {
+      "bytes": 2645642,
+      "sha256": "850cc77b6fac6fccdeaf478e484e79d93204d7d6f6ae80223cf9b3089f8cc339"
+    },
+    "strikers_vita.vpk": {
+      "bytes": 3184501,
+      "sha256": "40b73f8005b710749ced50254e36bee3b7d1c98338968af51e18c86a879fddcf"
+    }
+  },
+  "c19_reference_fps": 16.51017497318335,
+  "created_unix": 1792443325.868405,
+  "files": {
+    "install/backup-identity.json": {
+      "bytes": 278,
+      "sha256": "4e1b77a906eb1d52e6c6e9f2d9de6564c89eb23d92e33aaf16bfe234e9f378d0"
+    },
+    "install/install-identity.json": {
+      "bytes": 566,
+      "sha256": "067645a022ad3247e24219838f1a96abd601670b94ab20a808496a20151c2813"
+    },
+    "quiet600/comparison.json": {
+      "bytes": 1815,
+      "sha256": "156e5441794c9ad5889e0e6b3a19a8fc2b6c5452dc131b7e734a684d9ba2bb90"
+    },
+    "quiet600/fetch-identity.json": {
+      "bytes": 706,
+      "sha256": "e34a4b2dd2f407dcc5aef715ffe16c127fbf634aab1f4a753857469c770f492e"
+    },
+    "quiet600/native-c20-quiet600.csv": {
+      "bytes": 8853,
+      "sha256": "07f0b08e341250534eab1ee56000d64ab87fad78e696b330061201467eeddb99"
+    },
+    "quiet600/restore-config-identity.json": {
+      "bytes": 544,
+      "sha256": "6eebdb3d7046fc2f1238e0e51fc623756dfa75ed49fc132b5d05a70011a69b44"
+    },
+    "quiet600/run-identity.json": {
+      "bytes": 2532,
+      "sha256": "35903e825f703c7a70a8bf2b6f6fe9cc49144314243769c92e0483676131a6f0"
+    },
+    "quiet600/verified-result.json": {
+      "bytes": 1833,
+      "sha256": "c6350c8bc2bb7f97f066e76a572cdffe84311577cc787cfff5ef01b750e274c7"
+    },
+    "short-quiet/fetch-identity.json": {
+      "bytes": 692,
+      "sha256": "9544b19fa013c62d1b3dc5d25748dbd14cd85684643e00118b96617e5f73d8f8"
+    },
+    "short-quiet/native-c20-quiet.csv": {
+      "bytes": 8879,
+      "sha256": "9ea33bd58390bd5c89a04cd8602cdbb99d89685c42832702be25e21ecd45211b"
+    },
+    "short-quiet/restore-config-identity.json": {
+      "bytes": 533,
+      "sha256": "3b91e60abcf2f22d0484c1a2b64fbb0656e7cc5344c991f31cb2b91035f6a83e"
+    },
+    "short-quiet/run-identity.json": {
+      "bytes": 1729,
+      "sha256": "07c5a1ce25cb7be2780e45eb280d3c6f25c9fc1d0f354451dfb50149c0256b56"
+    },
+    "visual-timeout/verified-result.json": {
+      "bytes": 1170,
+      "sha256": "c5d45b113250c36607396c8181aed8a7f95cf58f44f38b61825c90e3c8c0b75c"
+    },
+    "visual120/debug_frame_play_120.png": {
+      "bytes": 784814,
+      "sha256": "c71fff18c69fe2ee4ade5358f73e8d7feb271e3b6ef6fe8ce1c68a5ff69e5031"
+    },
+    "visual120/fetch-identity.json": {
+      "bytes": 946,
+      "sha256": "2328e9b40d28e0f19621ae1d2f3f045cd8ad7b00814358f67a0b23d19718a4c4"
+    },
+    "visual120/native-c20-visual120-retry.csv": {
+      "bytes": 3621,
+      "sha256": "463ec71a0a2d951b255a6d1271d1538a555053e7b40349a44d8c81e8694b41dc"
+    },
+    "visual120/native-c20-visual120-retry.log": {
+      "bytes": 38704,
+      "sha256": "bdbbaa5dd92fe697d3e940ff71fed21d3f11fe2512de3a8abe325c7c0e16c1d7"
+    },
+    "visual120/restore-config-identity.json": {
+      "bytes": 560,
+      "sha256": "a82ac990741622a7d977323c25c75218f2c3068f678c9229d2b877c0d24fcd3d"
+    },
+    "visual120/run-identity.json": {
+      "bytes": 2572,
+      "sha256": "43687774b30da1f86337a8a79bda2d9bfe31a3d3e30256b53b921a86b0218eff"
+    },
+    "visual120/verified-result.json": {
+      "bytes": 1749,
+      "sha256": "cb74a1652968a001794f51708236f5b069c1e4ec42100bee12f7c9413f7f5c57"
+    }
+  },
+  "limitations": [
+    "one quiet window per version; different compilation/startup history",
+    "no 30 or 60 FPS reached",
+    "visual check is one frame only",
+    "no full-gameplay certification"
+  ],
+  "observed_fps_percent": 1.3876074821641549,
+  "original_cards_unchanged": true,
+  "quiet600_fps": 16.739271396429636,
+  "remote_final_verified": true,
+  "retention": "Small receipts/CSV/PNG/log only; no ELF/SELF/VPK/card bytes copied.",
+  "schema": "strikers-c20-device-evidence-v1",
+  "status": "complete_finite_quiet_and_visual",
+  "visual_pixel_identical": true
+}
