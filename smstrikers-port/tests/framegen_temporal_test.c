@@ -34,13 +34,25 @@ static void test_schedule(void)
     assert(!vgl_temporal_should_insert(37000, 1, 1, 0));
     assert(!vgl_temporal_should_insert(16667, 1, 1, 1));
     assert(!vgl_temporal_should_insert(22000, 1, 1, 1));
-    assert(vgl_temporal_should_insert(25000, 1, 1, 1));
-    assert(vgl_temporal_should_insert(33333, 1, 1, 1));
+    assert(!vgl_temporal_should_insert(25000, 1, 1, 1));
+    assert(!vgl_temporal_should_insert(33333, 1, 1, 1));
+    assert(!vgl_temporal_should_insert(34999, 1, 1, 1));
+    assert(vgl_temporal_should_insert(35000, 1, 1, 1));
     assert(vgl_temporal_should_insert(37000, 1, 1, 1));
     assert(vgl_temporal_should_insert(50000, 1, 1, 1));
     assert(!vgl_temporal_should_insert(50001, 1, 1, 1));
     assert(!vgl_temporal_should_insert(100000, 1, 1, 1));
     assert(!vgl_temporal_should_insert(UINT64_MAX, 1, 1, 1));
+    assert(!vgl_temporal_budget_ok(16667, 0));
+    assert(!vgl_temporal_budget_ok(33334, 0));
+    assert(!vgl_temporal_budget_ok(34000, 0));
+    assert(vgl_temporal_budget_ok(35000, 166));
+    assert(!vgl_temporal_budget_ok(35000, 167));
+    assert(vgl_temporal_budget_ok(37000, 2000));
+    assert(!vgl_temporal_budget_ok(37000, 3000));
+    assert(vgl_temporal_budget_ok(50000, 8000));
+    assert(!vgl_temporal_budget_ok(50000, 8001));
+    assert(!vgl_temporal_budget_ok(UINT64_MAX, UINT64_MAX));
 }
 
 static void test_scene_cut(void)
@@ -69,7 +81,9 @@ static void test_pixels(size_t n, size_t offset)
     uint8_t *a = malloc(allocated);
     uint8_t *b = malloc(allocated);
     uint8_t *out = malloc(allocated);
-    assert(a && b && out);
+    uint8_t *snapshot = malloc(allocated);
+    uint8_t *fused = malloc(allocated);
+    assert(a && b && out && snapshot && fused);
     memset(a, 0xAA, allocated);
     memset(b, 0xBB, allocated);
     memset(out, 0xDD, allocated);
@@ -83,18 +97,29 @@ static void test_pixels(size_t n, size_t offset)
         a[offset + 2] = 255; b[offset + 2] = 255;
         a[offset + 3] = 0; b[offset + 3] = 0;
     }
+    memcpy(snapshot, a, allocated);
+    memset(fused, 0xEE, allocated);
     vgl_temporal_blend_midpoint(out + offset, a + offset, b + offset, n);
+    vgl_temporal_blend_and_snapshot(fused + offset, snapshot + offset, b + offset, n);
     for (size_t i = 0; i < n; ++i) {
         unsigned avg = (unsigned)a[i + offset] + (unsigned)b[i + offset] + 1u;
         assert(out[i + offset] == (uint8_t)(avg >> 1));
+        assert(fused[i + offset] == out[i + offset]);
+        assert(snapshot[i + offset] == b[i + offset]);
     }
-    for (size_t i = 0; i < offset; ++i)
+    for (size_t i = 0; i < offset; ++i) {
         assert(out[i] == 0xDD);
-    for (size_t i = n + offset; i < allocated; ++i)
+        assert(fused[i] == 0xEE && snapshot[i] == a[i]);
+    }
+    for (size_t i = n + offset; i < allocated; ++i) {
         assert(out[i] == 0xDD);
+        assert(fused[i] == 0xEE && snapshot[i] == a[i]);
+    }
     free(a);
     free(b);
     free(out);
+    free(snapshot);
+    free(fused);
 }
 
 int main(void)

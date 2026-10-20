@@ -1157,6 +1157,7 @@ typedef struct vglTemporalFramegenStats {
 	uint32_t skipped_budget;
 	uint32_t allocation_failed;
 	uint32_t worst_blend_us;
+	uint32_t worst_work_us;
 } vglTemporalFramegenStats;
 GLboolean vglConfigureTemporalFramegen(GLboolean enabled);
 void vglSetNextTemporalFramegenEligible(GLboolean eligible);

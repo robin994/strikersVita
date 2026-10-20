@@ -33,14 +33,20 @@ same exact rounding is implemented in the host scalar fallback.
   ordinary C9 display surfaces. Allocation is attempted **only** with
   `vita_framegen=1` at renderer startup, and is rejected if less than the
   configured VRAM guard remains; missing memory fails closed.
-- Two successive suitable gameplay frames, 25–50 ms apart, are required.
-  Real frames faster than the interpolation window, long stalls, menus,
+- Two successive suitable gameplay frames, **35–50 ms** apart, are required.
+  Two 60 Hz scanouts cost at least **33.334 ms**; the conservative
+  **1.5 ms guard plus measured CPU work** must also fit within the observed
+  real-frame interval. Real frames faster than this window, long stalls, menus,
   loading/bitmap screens, black transitions and invalid/unsupported scanout
   modes never generate an intermediate image.
 - A sparse 64-pixel RGB scene-cut guard skips almost-global visual cuts.
-- If one blend exceeds **8 ms**, that attempt is skipped instead of adding a
-  vblank; after three consecutive slow attempts, interpolation is disabled
-  for the session. Buffer allocation errors are similarly fail-closed.
+- If total callback CPU work (scene-cut check, midpoint **and the previous
+  2 MiB snapshot copy**) exceeds **8 ms**, or does not fit the dynamic
+  33.334 ms + 1.5 ms presentation guard, that attempt is skipped. After
+  three consecutive overruns interpolation is disabled for the session.
+  Buffer allocation errors and failed display-queue draining during
+  resolution switches are similarly fail-closed, never releasing a
+  synthetic scanout surface still potentially in use.
 - All generated frames are display-only. The simulation, input polling,
   world state and audio remain driven by original game frames. An extra
   vblank can add roughly **16.7 ms of presentation latency**, plus CPU
@@ -68,7 +74,7 @@ vita_framegen_trace = 1
 `vita_framegen_trace=1` emits bounded **aggregate counters every 240
 rendered frames**, never logs each scanout frame:
 `real`, `intermediate`, `cadence_skip`, `cut_skip`,
-`budget_skip`, `max_blend_us`, `alloc_failed`.
+`budget_skip`, `max_blend_us`, `max_work_us`, `alloc_failed`.
 For quiet performance comparisons leave trace OFF.
 
 Turning the option back to `0` on the next launch returns to C9's normal
@@ -101,8 +107,10 @@ simulation steps were added.
   SHA pins verified before the new experiment was staged.
 - Host temporal interpolation tests: 8 alignment offsets, all byte lengths
   0–1023, 8 full 960×544 RGBA buffers, hard-cut detection and cadence
-  eligibility thresholds. **PASS** under Clang ASan/UBSan both native ARM NEON
-  and forced scalar fallback.
+  eligibility thresholds including 25/33/35/37/50 ms and overflow-safe
+  callback CPU budget. **PASS** under Clang ASan/UBSan on the native host
+  code path and forced scalar fallback (the Vita NEON path is compile-checked,
+  not dynamically exercised on the x86/ARM Mac host).
 - Existing VitaGL renderer driver suite, with extra default-OFF, gameplay
   eligibility, black-frame and discard-gate cases: **PASS** with ASan/UBSan.
 - SDK `arm-vita-eabi-gcc/g++ -fsyntax-only` for native

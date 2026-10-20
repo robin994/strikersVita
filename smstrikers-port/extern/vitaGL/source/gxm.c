@@ -187,6 +187,7 @@ void vglGetTemporalFramegenStats(vglTemporalFramegenStats *out) {
 	out->skipped_budget = __atomic_load_n(&temporal.stats.skipped_budget, __ATOMIC_RELAXED);
 	out->allocation_failed = __atomic_load_n(&temporal.stats.allocation_failed, __ATOMIC_RELAXED);
 	out->worst_blend_us = __atomic_load_n(&temporal.stats.worst_blend_us, __ATOMIC_RELAXED);
+	out->worst_work_us = __atomic_load_n(&temporal.stats.worst_work_us, __ATOMIC_RELAXED);
 }
 
 float *legacy_pool = NULL; // Mempool for GL1 immediate draw pipeline
@@ -352,46 +353,58 @@ static void display_queue_callback(const void *callbackData) {
 	if (temporal.previous && temporal.scanout && !temporal.disabled_slow &&
 	    cb_data->temporal_framegen_eligible && !system_app_mode && vsync_interval == 1) {
 		const uint64_t entered_us = (uint64_t)sceKernelGetSystemTimeWide();
-		const uint64_t elapsed_us = entered_us - temporal.last_real_callback_us;
+		const uint64_t elapsed_us = temporal.last_real_callback_us
+		    ? entered_us - temporal.last_real_callback_us : 0u;
+		const int candidate = vgl_temporal_should_insert(elapsed_us, temporal.previous_valid, 1, 1);
+		const int scene_cut = candidate &&
+		    vgl_temporal_scene_cut(temporal.previous, (const uint8_t *)cb_data->addr, temporal.bytes);
 		__atomic_fetch_add(&temporal.stats.real_frames, 1u, __ATOMIC_RELAXED);
-		if (vgl_temporal_should_insert(elapsed_us, temporal.previous_valid, 1, 1) &&
-		    vgl_temporal_scene_cut(temporal.previous, (const uint8_t *)cb_data->addr,
-		                           temporal.bytes)) {
+		if (scene_cut) {
 			__atomic_fetch_add(&temporal.stats.skipped_scene_cut, 1u, __ATOMIC_RELAXED);
-		} else if (vgl_temporal_should_insert(elapsed_us, temporal.previous_valid, 1, 1)) {
+		} else if (candidate) {
 			const uint64_t start_blend_us = (uint64_t)sceKernelGetSystemTimeWide();
-			vgl_temporal_blend_midpoint(temporal.scanout, temporal.previous,
-			                            (const uint8_t *)cb_data->addr, temporal.bytes);
+			vgl_temporal_blend_and_snapshot(temporal.scanout, temporal.previous,
+			                                (const uint8_t *)cb_data->addr, temporal.bytes);
 			const uint32_t blend_us = (uint32_t)((uint64_t)sceKernelGetSystemTimeWide() -
 			                                     start_blend_us);
 			const uint32_t old_max = __atomic_load_n(&temporal.stats.worst_blend_us, __ATOMIC_RELAXED);
 			if (blend_us > old_max)
 				__atomic_store_n(&temporal.stats.worst_blend_us, blend_us, __ATOMIC_RELAXED);
-			// Never insert another VBlank if CPU interpolation itself is slow.
-			if (blend_us > 8000u) {
-				__atomic_fetch_add(&temporal.stats.skipped_budget, 1u, __ATOMIC_RELAXED);
-				if (++temporal.consecutive_slow >= 3)
-					temporal.disabled_slow = GL_TRUE;
-			} else {
-				temporal.consecutive_slow = 0;
-				display_fb.base = temporal.scanout;
-				if (sceDisplaySetFrameBuf(&display_fb, SCE_DISPLAY_SETBUF_NEXTFRAME) >= 0) {
-					// Midpoint and real scanout are each held for one display period.
-					if (sceDisplayWaitVblankStartMulti(1) >= 0)
-						__atomic_fetch_add(&temporal.stats.generated_frames, 1u, __ATOMIC_RELAXED);
-					else
-						temporal.disabled_slow = GL_TRUE;
-				} else {
-					temporal.disabled_slow = GL_TRUE;
-				}
-			}
 		} else if (temporal.previous_valid) {
 			__atomic_fetch_add(&temporal.stats.skipped_cadence, 1u, __ATOMIC_RELAXED);
 		}
+		// The fused blend updated the previous snapshot in the same NEON pass.
+		// On skips, copy explicitly. All CPU work precedes the next VBlank.
+		// The producer may reuse its original GPU surface after this callback.
+		if (!candidate || scene_cut)
+			vgl_memcpy(temporal.previous, cb_data->addr, temporal.bytes);
+		const uint64_t work_us = (uint64_t)sceKernelGetSystemTimeWide() - entered_us;
+		const uint32_t measured_us = work_us > UINT32_MAX ? UINT32_MAX : (uint32_t)work_us;
+		const uint32_t old_work_max = __atomic_load_n(&temporal.stats.worst_work_us, __ATOMIC_RELAXED);
+		if (measured_us > old_work_max)
+			__atomic_store_n(&temporal.stats.worst_work_us, measured_us, __ATOMIC_RELAXED);
+		const int within_budget = vgl_temporal_budget_ok(elapsed_us, work_us);
+		if (candidate && !scene_cut && !within_budget)
+			__atomic_fetch_add(&temporal.stats.skipped_budget, 1u, __ATOMIC_RELAXED);
+		if (work_us > VGL_TEMPORAL_CPU_BUDGET_US || (candidate && !scene_cut && !within_budget)) {
+			if (++temporal.consecutive_slow >= 3)
+				temporal.disabled_slow = GL_TRUE;
+		} else {
+			temporal.consecutive_slow = 0;
+		}
+		if (candidate && !scene_cut && within_budget && !temporal.disabled_slow) {
+			display_fb.base = temporal.scanout;
+			if (sceDisplaySetFrameBuf(&display_fb, SCE_DISPLAY_SETBUF_NEXTFRAME) >= 0) {
+				// Midpoint and real scanout are each held for one display period.
+				if (sceDisplayWaitVblankStartMulti(1) >= 0)
+					__atomic_fetch_add(&temporal.stats.generated_frames, 1u, __ATOMIC_RELAXED);
+				else
+					temporal.disabled_slow = GL_TRUE;
+			} else {
+				temporal.disabled_slow = GL_TRUE;
+			}
+		}
 		temporal.last_real_callback_us = entered_us;
-		// This is a private copy: the producer may reuse the old surface as soon
-		// as the previous GXM callback returns.
-		vgl_memcpy(temporal.previous, cb_data->addr, temporal.bytes);
 		temporal.previous_valid = GL_TRUE;
 	} else {
 		temporal_clear_history();
@@ -1142,7 +1155,10 @@ void vglSwapBuffers(GLboolean has_commondialog) {
 	if (NEW_DISPLAY_WIDTH) {
 		if (temporal.previous || temporal.scanout) {
 			// The pending scanout callback may still be using the extra buffer.
-			sceGxmDisplayQueueFinish();
+			if (sceGxmDisplayQueueFinish() < 0) {
+				vgl_error = GL_INVALID_OPERATION;
+				return; // Never release a still-live scanout allocation.
+			}
 			temporal_release();
 		}
 		sceGxmFinish(gxm_context);

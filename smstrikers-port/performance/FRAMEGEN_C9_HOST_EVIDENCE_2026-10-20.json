@@ -7,11 +7,15 @@
   "host": {
     "asan_ubsan": true,
     "forced_scalar": true,
-    "midpoint_schedule_scene_cut_tests": "PASS",
+    "full_screen_cases": 8,
+    "midpoint_schedule_scene_cut_tests": "PASS including 35-50ms pacing, dynamic CPU slack and fused NEON snapshot",
     "neon_qualified": true,
+    "previous_benchmark_us_fps": "27.114365 FPS before framegen, not a candidate improvement",
     "renderer_eligibility_and_existing_regression_suite": "PASS",
     "run_log_bytes": 19100,
-    "run_log_sha256": "e3593f2f679f5c17728c1d525987137429a4d0c0717e32fc65c35d2bc6917c4c",
+    "run_log_sha256": "b6958eab026c55176bae666e534f642fd965d81c3942f653f016a02cd5d640e8",
+    "scalar_equivalence": "PASS",
+    "sdk_neon_path": "COMPILE_ONLY",
     "tool": "Clang"
   },
   "limits": [
@@ -19,18 +23,28 @@
     "Default OFF; simulator and hardware side effects not fully validated"
   ],
   "measured_framegen_fps": null,
-  "schema": "strikers-c9-framegen-host-evidence-v1",
+  "review": {
+    "cache_provenance": "native GXM CPU-accessible surface only; coherence requires hardware verification",
+    "cpu_budget_us": 8000,
+    "guard": "2*60Hz vblank plus 1500us plus measured CPU work must fit last interval",
+    "paired_device_comparison": false,
+    "real_fps_measured": false,
+    "source_only": true,
+    "target": "C9 experimental temporal scanout, default OFF"
+  },
+  "schema": "strikers-c9-framegen-host-evidence-v2",
   "status": "host_pass_vita_syntax_pass_device_unbuilt",
+  "updated_unix": 1792526037.086417,
   "vita_binary_built": false,
   "vita_syntax": [
     {
       "return_code": 0,
-      "sha256": "a576a4797661688314d0d4fcd3b900e267c762ae9b93a845d19236efe4612315",
+      "sha256": "73809dc786e7fc3883852811a3d41c3ba8caebaf47ff03422a57dab127087eab",
       "unit": "gxm.c"
     },
     {
       "return_code": 0,
-      "sha256": "5cd1d7027fbf2786541a75614aafb1644e825f28e0dd89eba60c4274ed508f5c",
+      "sha256": "059d8e9134737b714aaec189f95186c4a429e95f5c6c1d8b10f469f702553948",
       "unit": "vitagl_renderer.cpp"
     },
     {

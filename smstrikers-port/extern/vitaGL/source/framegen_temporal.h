@@ -27,14 +27,32 @@ static inline int vgl_temporal_frame_bytes(unsigned width, unsigned height,
     return 1;
 }
 
-/* VBlank insertion is pointless at 60 FPS and harmful during large stalls. */
+/* Two consecutive 60 Hz scanouts need 33.334 ms, plus some CPU headroom.
+ * Generating a midpoint for a 25-33 ms game frame would cap real FPS at 30.
+ */
+#define VGL_TEMPORAL_TWO_VBLANK_US 33334u
+#define VGL_TEMPORAL_GUARD_US 1500u
+#define VGL_TEMPORAL_CPU_BUDGET_US 8000u
+
 static inline int vgl_temporal_should_insert(uint64_t real_frame_delta_us,
                                               int previous_valid,
                                               int normal_60hz_vsync,
                                               int game_frame_eligible)
 {
     return previous_valid && normal_60hz_vsync && game_frame_eligible &&
-           real_frame_delta_us >= 25000u && real_frame_delta_us <= 50000u;
+           real_frame_delta_us >= 35000u && real_frame_delta_us <= 50000u;
+}
+
+/* Measured CPU work includes previous-frame snapshot copy as well as blending.
+ * Check the dynamic slack without unsigned overflow.
+ */
+static inline int vgl_temporal_budget_ok(uint64_t real_frame_delta_us,
+                                         uint64_t cpu_work_us)
+{
+    return cpu_work_us <= VGL_TEMPORAL_CPU_BUDGET_US &&
+           real_frame_delta_us >= VGL_TEMPORAL_TWO_VBLANK_US + VGL_TEMPORAL_GUARD_US &&
+           cpu_work_us <= real_frame_delta_us -
+               (VGL_TEMPORAL_TWO_VBLANK_US + VGL_TEMPORAL_GUARD_US);
 }
 
 /* Reject near-global hard cuts/black flashes; never blend across them. */
@@ -77,6 +95,32 @@ static inline void vgl_temporal_blend_midpoint(uint8_t *dst,
 #endif
     for (; i < bytes; ++i)
         dst[i] = (uint8_t)(((unsigned)previous[i] + (unsigned)current[i] + 1u) >> 1);
+}
+
+/* Fuse interpolation with the next-frame snapshot: only one read of current.
+ * previous is private CPU storage; dst is independent mapped scanout memory.
+ * Neither destination may alias current or each other.
+ */
+static inline void vgl_temporal_blend_and_snapshot(uint8_t *dst,
+                                                   uint8_t *previous,
+                                                   const uint8_t *current,
+                                                   size_t bytes)
+{
+    size_t i = 0;
+#if defined(__ARM_NEON) && !defined(VGL_TEMPORAL_FORCE_SCALAR)
+    for (; bytes - i >= 16u; i += 16u) {
+        const uint8x16_t prev = vld1q_u8(previous + i);
+        const uint8x16_t curr = vld1q_u8(current + i);
+        vst1q_u8(dst + i, vrhaddq_u8(prev, curr));
+        vst1q_u8(previous + i, curr);
+    }
+#endif
+    for (; i < bytes; ++i) {
+        const unsigned prev = previous[i];
+        const unsigned curr = current[i];
+        dst[i] = (uint8_t)((prev + curr + 1u) >> 1);
+        previous[i] = (uint8_t)curr;
+    }
 }
 
 #endif /* VGL_TEMPORAL_FRAMEGEN_H */

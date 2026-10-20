@@ -1786,9 +1786,9 @@ bool Renderer::end_frame(bool present) noexcept
         vglTemporalFramegenStats s{};
         vglGetTemporalFramegenStats(&s);
         std::fprintf(stderr, "[framegen] real=%u intermediate=%u cadence_skip=%u cut_skip=%u "
-                     "budget_skip=%u max_blend_us=%u alloc_failed=%u\n",
+                     "budget_skip=%u max_blend_us=%u max_work_us=%u alloc_failed=%u\n",
                      s.real_frames, s.generated_frames, s.skipped_cadence, s.skipped_scene_cut,
-                     s.skipped_budget, s.worst_blend_us, s.allocation_failed);
+                     s.skipped_budget, s.worst_blend_us, s.worst_work_us, s.allocation_failed);
     }
     return true;
 }
