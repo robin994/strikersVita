@@ -4,6 +4,7 @@
 #include "port/framerate.h"
 #include "port/config.h"
 #include "port/host.h"
+#include "port/loading_indicator.hpp"
 #include <cstdlib>
 #include <cstring>
 
@@ -12,17 +13,24 @@ namespace port::directmatch::detail
 bool MatchRuntime::active = false, MatchRuntime::started = false;
 Renderer MatchRuntime::gpu;
 ModelSourceRegistry MatchRuntime::sources;
+ModelVertices MatchRuntime::modelScratch;
+ModelVertexScratch MatchRuntime::vertexScratch;
 bool MatchRuntime::frameDiscarded = false;
 uint64_t MatchRuntime::frameDrawStart = 0, MatchRuntime::frameStartNs = 0;
 uint32_t MatchRuntime::shadowAtlas = 0;
+std::array<uint32_t, 4> MatchRuntime::viewTargets{};
 std::unordered_map<uint64_t, MatchRuntime::Geometry> MatchRuntime::geometry;
 std::unordered_map<const PlatTexture*, MatchRuntime::Texture> MatchRuntime::textures;
+MatchRuntime::RangeBounds MatchRuntime::geometryBounds, MatchRuntime::mutableTextureBounds;
 std::mutex MatchRuntime::writeMutex;
 std::array<MatchRuntime::Range, 4096> MatchRuntime::writes{};
 unsigned MatchRuntime::writeCount = 0;
 bool MatchRuntime::invalidateAll = false;
 std::array<float, 4> MatchRuntime::viewFog{}, MatchRuntime::viewFogColor{};
+std::array<float, 4> MatchRuntime::copyClearColor{ 0, 0, 0, 64.f / 255.f };
+render::SceneAlphaState MatchRuntime::alphaState;
 Renderer::FrameTiming MatchRuntime::timings{};
+render::PacketProfile MatchRuntime::packetProfile;
 uint64_t MatchRuntime::timingFrames = 0;
 uint64_t MatchRuntime::draws = 0, MatchRuntime::textured = 0, MatchRuntime::hud = 0,
          MatchRuntime::characters = 0, MatchRuntime::invalid = 0, MatchRuntime::decoded = 0,
@@ -42,7 +50,15 @@ bool MatchRuntime::preload() noexcept
     if (started)
         return true;
     const auto* profile = std::getenv("STRIKERS_VITAGL_TIMING");
-    started = gpu.initialize(profile && *profile == '1') && gpu.initialize_scene_program();
+    const auto* packets = std::getenv("STRIKERS_VITAGL_PACKET_PROFILE");
+    if (packets && std::strcmp(packets, "1") == 0 && !packetProfile.enabled())
+    {
+        PortBenchCaptureStatus status{};
+        PortBenchGetCaptureStatus(&status);
+        if (!packetProfile.configure(std::getenv("STRIKERS_FRAME_CAPTURE"), status.requested))
+            std::fprintf(stderr, "[packet-profile] requires a finite frame_capture (1..8192 frames)\n");
+    }
+    started = gpu.initialize((profile && *profile == '1') || packetProfile.enabled()) && gpu.initialize_scene_program();
     if (!started)
     {
         failure = "initialize";
@@ -57,7 +73,25 @@ bool MatchRuntime::begin_frame() noexcept
     frameDrawStart = draws;
     frameStartNs = PortDiagnosticsEnabled() ? port_monotonic_ns() : 0;
     consume_writes();
-    return preload() && gpu.begin_frame();
+    if (!preload()) return false;
+    if (packetProfile.enabled())
+    {
+        PortBenchCaptureStatus status{};
+        PortBenchGetCaptureStatus(&status);
+        packetProfile.begin_frame(status);
+    }
+    return gpu.begin_frame();
+}
+
+void MatchRuntime::finish_packet_profile_frame() noexcept
+{
+    if (!packetProfile.enabled()) return;
+    PortBenchCaptureStatus status{};
+    PortBenchGetCaptureStatus(&status);
+    const auto before = packetProfile.samples().size();
+    packetProfile.end_frame(status, glGetCurrentFrame(), frameDiscarded, gpu.completed_timing());
+    if (before < status.requested && packetProfile.samples().size() == status.requested)
+        report();
 }
 
 bool MatchRuntime::end_frame() noexcept
@@ -83,14 +117,80 @@ bool MatchRuntime::end_frame() noexcept
         timings.projectiveUvDraws += t.projectiveUvDraws;
         timings.vertexFogDraws += t.vertexFogDraws;
     }
-    if (!result || ((PortDiagnosticsEnabled() || timingFrames) && glGetCurrentFrame() % 60 == 0))
+    if (!result || (!packetProfile.enabled() && (PortDiagnosticsEnabled() || timingFrames) && glGetCurrentFrame() % 60 == 0))
         report();
     return result;
 }
 
 void MatchRuntime::discard_present() noexcept { frameDiscarded = true; }
 
-void MatchRuntime::clear_depth() noexcept { gpu.clear_depth(); }
+void MatchRuntime::set_black(bool black) noexcept
+{
+    if (!preload()) return;
+    if (!gpu.set_black(black))
+    {
+        failure = "present_black";
+        ++invalid;
+        frameDiscarded = true;
+    }
+}
+
+bool MatchRuntime::set_loading(const loading::Request& request) noexcept
+{
+    if (!request.submit || (!request.begin && !started))
+        return true;
+    const auto reject = [&](const char* reason) {
+        // A failed re-arm must not leave a previous indicator service alive.
+        if (started)
+            gpu.set_loading(false, {});
+        failure = reason;
+        ++invalid;
+        frameDiscarded = true;
+        return false;
+    };
+    if (request.begin && request.targetFps != 50 && request.targetFps != 60)
+        return reject("loading_dimensions");
+    if (request.begin && !preload())
+        return reject("loading_initialize");
+    try
+    {
+        render::LoadingIndicator indicator;
+        if (request.begin)
+        {
+            for (unsigned i = 0; i < indicator.images.size(); ++i)
+            {
+                auto& image = indicator.images[i];
+                image.width = image.height = 32;
+                image.stride = 32;
+                image.mipCount = 1;
+                image.storage = TextureStorage::Rgba8;
+                const auto& operations = i ? loading::selectedOperations : loading::normalOperations;
+                image.pixels.assign(operations.begin(), operations.end());
+            }
+            indicator.rectangles = loading::rectangles(request);
+            indicator.waitRetraces = request.waitRetraces;
+            indicator.phaseRetraces = loading::phase_retraces(request.targetFps);
+            indicator.blackBackground = request.blackBackground;
+        }
+        if (!gpu.set_loading(request.begin, indicator))
+            return reject("loading_indicator");
+    }
+    catch (...)
+    {
+        return reject("loading_allocation");
+    }
+    return true;
+}
+
+void MatchRuntime::clear_depth() noexcept
+{
+    if (!gpu.clear_depth())
+    {
+        failure = "depth_clear";
+        ++invalid;
+        frameDiscarded = true;
+    }
+}
 
 void MatchRuntime::set_fog(float start, float end, bool enabled, unsigned type,
                            std::array<float, 4> color) noexcept
@@ -105,7 +205,14 @@ void MatchRuntime::shutdown() noexcept
     sources.clear();
     geometry.clear();
     textures.clear();
+    geometryBounds = {};
+    mutableTextureBounds = {};
+    modelScratch = {};
+    vertexScratch = {};
     shadowAtlas = 0;
+    viewTargets.fill(0);
+    copyClearColor = { 0, 0, 0, 64.f / 255.f };
+    alphaState = {};
     started = false;
 }
 
@@ -116,42 +223,72 @@ bool MatchRuntime::readback_presented_rgba8(std::vector<uint8_t>& p) noexcept
 
 void MatchRuntime::begin_view(eGLView view) noexcept
 {
-    static std::array<uint32_t, 4> targets{};
     const auto* state = glViewGetState(view);
+    if (!state || unsigned(state->target) >= viewTargets.size())
+    {
+        failure = "view_target_index";
+        ++invalid;
+        frameDiscarded = true;
+        return;
+    }
     uint32_t target = 0;
     if (state->target >= GLTG_Staging)
     {
-        auto& t = targets[state->target];
+        auto& t = viewTargets[state->target];
         if (!t)
             t = gpu.create_target(960, 544);
+        if (!t)
+        {
+            failure = "view_target_allocation";
+            ++invalid;
+            frameDiscarded = true;
+            return;
+        }
         target = t;
     }
     if (!gpu.select_target(target, state->bClearColour, state->bClearDepth))
     {
         failure = "view_target";
         ++invalid;
+        frameDiscarded = true;
     }
 }
 
 void MatchRuntime::clear_scene(std::array<float, 4> color) noexcept
 {
+    copyClearColor = color;
     if (!gpu.clear_color(color))
     {
         failure = "view_clear";
         ++invalid;
+        frameDiscarded = true;
     }
 }
 
 void MatchRuntime::draw_message_bitmap(unsigned width, unsigned height, const uint8_t* bits,
                                        uint32_t color, bool centered) noexcept
 {
+    const auto reject = [](const char* reason) {
+        failure = reason;
+        ++invalid;
+        frameDiscarded = true;
+    };
     try
     {
-        if (!bits || !width || !height || width > 960 || height > 448 || !preload())
+        // Retail bitmap rows are byte aligned; rejecting a partial byte avoids
+        // indexing a differently packed source as width/8 bytes per row.
+        if (!bits || !width || !height || width > 960 || height > 448 || (width & 7u))
+        {
+            reject("message_bitmap_dimensions");
             return;
-        bool own = !gpu.frame_active();
-        if (own && !gpu.begin_frame())
+        }
+        const float logical = PortLogicalFrameWidth();
+        if (!(logical > 0))
+        {
+            reject("message_bitmap_dimensions");
             return;
+        }
+        if (!preload()) return;
         TextureUpload image;
         image.width = width;
         image.height = height;
@@ -171,39 +308,18 @@ void MatchRuntime::draw_message_bitmap(unsigned width, unsigned height, const ui
                     p[3] = color >> 24;
                 }
             }
-        unsigned texture = gpu.create_texture(image);
-        if (!texture)
-            return;
-        SceneMaterial m;
-        m.textures[0] = texture;
-        m.wrapU[0] = m.wrapV[0] = 1;
-        m.controls[0] = 1;
-        const float logical = PortLogicalFrameWidth();
-        float x = (logical - width) * .5f, y = centered ? (448 - height) * .5f : 416.f - height;
-        ModelVertex v[4];
-        float l = x / logical * 2 - 1, r = (x + width) / logical * 2 - 1, t = 1 - y / 448 * 2,
-              b = 1 - (y + height) / 448 * 2;
-        v[0].position = { l, t, 0, 1 };
-        v[1].position = { r, t, 0, 1 };
-        v[2].position = { r, b, 0, 1 };
-        v[3].position = { l, b, 0, 1 };
-        v[0].uv = { 0, 0, 1 };
-        v[1].uv = { 1, 0, 1 };
-        v[2].uv = { 1, 1, 1 };
-        v[3].uv = { 0, 1, 1 };
-        uint16_t indices[]{ 0, 1, 2, 0, 2, 3 };
-        Raster raster;
-        raster.depthTest = raster.depthWrite = false;
-        raster.blend = 1;
-        std::array<float, 16> identity{ 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1 };
-        gpu.draw_scene(0, v, indices, identity, raster, m);
-        gpu.release_texture(texture);
-        if (own)
-            gpu.end_frame();
+        const float x = (logical - width) * .5f;
+        const float y = centered ? (448 - height) * .5f : 416.f - height;
+        // This operation targets only the display surface and waits for the
+        // swap, preserving any in-progress scene/target. In particular, the
+        // loading message is visible before a synchronous FE load can block.
+        if (!gpu.present_bitmap(image, { x / logical * 960.f, y / 448.f * 544.f,
+                                         width / logical * 960.f, height / 448.f * 544.f }))
+            reject("message_bitmap_present");
     }
     catch (...)
     {
-        failure = "message_bitmap";
+        reject("message_bitmap_allocation");
     }
 }
 }   // namespace port::directmatch::detail
@@ -227,7 +343,12 @@ bool begin_frame() noexcept { return detail::MatchRuntime::begin_frame(); }
 
 bool end_frame() noexcept { return detail::MatchRuntime::end_frame(); }
 
+void finish_packet_profile_frame() noexcept { detail::MatchRuntime::finish_packet_profile_frame(); }
+
 void discard_present() noexcept { detail::MatchRuntime::discard_present(); }
+
+void set_black(bool black) noexcept { detail::MatchRuntime::set_black(black); }
+bool set_loading(const loading::Request& request) noexcept { return detail::MatchRuntime::set_loading(request); }
 
 bool readback_presented_rgba8(std::vector<uint8_t>& pixels) noexcept
 {
@@ -261,9 +382,11 @@ void shutdown() noexcept { detail::MatchRuntime::shutdown(); }
 void begin_view(eGLView view) noexcept { detail::MatchRuntime::begin_view(view); }
 
 void capture_texture(uintptr_t handle, unsigned x, unsigned y, unsigned width, unsigned height,
-                     bool intensity) noexcept
+                     bool intensity, unsigned destinationWidth, unsigned destinationHeight,
+                     bool clearSource) noexcept
 {
-    detail::MatchRuntime::capture_texture(handle, x, y, width, height, intensity);
+    detail::MatchRuntime::capture_texture(handle, x, y, width, height, intensity,
+                                         destinationWidth, destinationHeight, clearSource);
 }
 
 void capture_shadow_atlas() noexcept { detail::MatchRuntime::capture_shadow_atlas(); }
