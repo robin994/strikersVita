@@ -6,6 +6,7 @@
 #include "port/native_boot_screen.hpp"
 #include "port/loading_indicator_state.hpp"
 #include "port/loading_indicator_shaders.hpp"
+#include "port/benchmark.h"
 #include <vitaGL.h>
 #include <psp2/display.h>
 #include <psp2/gxm.h>
@@ -129,6 +130,8 @@ struct Renderer::Impl
     bool initialized = false, contextInitialized = false, sceneInitialized = false, active = false,
          presented = false, timed = false, startupRetired = false;
     bool affineUv = false, vertexFog = false;
+    bool temporalFramegen = false, temporalFramegenTrace = false;
+    unsigned temporalTraceFrames = 0;
     bool stagedBlack = false;
     unsigned firstFrames = 0;
     SceUID owner = -1;
@@ -653,12 +656,16 @@ bool Renderer::initialize(bool timed) noexcept
                      unsigned(uniformConfig.enabled), unsigned(d.uniformProfile), unsigned(d.uniformVerify));
     d.affineUv = enabled("STRIKERS_VITAGL_AFFINE_UV");
     d.vertexFog = enabled("STRIKERS_VITAGL_VERTEX_FOG");
+    d.temporalFramegen = enabled("STRIKERS_VITA_FRAMEGEN");
+    d.temporalFramegenTrace = d.temporalFramegen && enabled("STRIKERS_VITA_FRAMEGEN_TRACE");
     const char* cull = std::getenv("STRIKERS_VITAGL_CULL_TEST");
     d.cullTest = cull ? unsigned(std::clamp(std::atoi(cull), 0, 2)) : 0;
     if (d.cullTest)
         std::fprintf(stderr, "[vitagl] diagnostic cull mode=%u\n", d.cullTest);
     if (!d.contextInitialized)
     {
+        if (!vglConfigureTemporalFramegen(d.temporalFramegen ? GL_TRUE : GL_FALSE))
+            return d.fail("framegen_configuration");
         // Explicit pools leave the existing game/resource heaps intact.
         SceKernelFreeMemorySizeInfo mem{};
         mem.size = sizeof mem;
@@ -1757,6 +1764,9 @@ bool Renderer::end_frame(bool present) noexcept
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
     if (!d.check(black ? "present_black" : "present_blit"))
         return false;
+    if (d.temporalFramegen)
+        vglSetNextTemporalFramegenEligible(
+            !black && PortBenchIsPlayActive() ? GL_TRUE : GL_FALSE);
     vglSwapBuffers(GL_FALSE);
     const bool result = d.check("present");
     d.current.queueUs += d.now() - start;
@@ -1771,6 +1781,15 @@ bool Renderer::end_frame(bool present) noexcept
         d.startupRetired = port::startup::retire_if_replaced();
     d.presented = true;
     d.report_uniform_verification();
+    if (d.temporalFramegenTrace && ++d.temporalTraceFrames % 240u == 0)
+    {
+        vglTemporalFramegenStats s{};
+        vglGetTemporalFramegenStats(&s);
+        std::fprintf(stderr, "[framegen] real=%u intermediate=%u cadence_skip=%u cut_skip=%u "
+                     "budget_skip=%u max_blend_us=%u alloc_failed=%u\n",
+                     s.real_frames, s.generated_frames, s.skipped_cadence, s.skipped_scene_cut,
+                     s.skipped_budget, s.worst_blend_us, s.allocation_failed);
+    }
     return true;
 }
 bool Renderer::frame_active() const noexcept { return impl_ && impl_->active; }

@@ -307,7 +307,12 @@ void PortBenchInit(void)
 
 void PortBenchSetPlayActive(int active)
 {
-    s_playActive = active != 0;
+    __atomic_store_n(&s_playActive, active != 0, __ATOMIC_RELAXED);
+}
+
+int PortBenchIsPlayActive(void)
+{
+    return __atomic_load_n(&s_playActive, __ATOMIC_RELAXED);
 }
 
 void PortBenchFrameBegin(void)
@@ -380,7 +385,7 @@ void PortBenchGetLive(PortBenchLive* out)
     out->worstFrame = s_worstFrame;
     out->frames = s_matchFrameCounter;
     out->matchActive = s_matchActive;
-    out->playActive = s_playActive;
+    out->playActive = PortBenchIsPlayActive();
     out->playFrames = s_playFrameCounter;
 
     n = s_liveFilled;
@@ -416,7 +421,7 @@ void PortBenchFrameEnd(void)
         // Logical frame selection also serves one-shot screenshots with the
         // diagnostics gate off. It needs no timing or renderer collection.
         if (s_matchActive) ++s_matchFrameCounter;
-        if (s_playActive) ++s_playFrameCounter;
+        if (PortBenchIsPlayActive()) ++s_playFrameCounter;
         return;
     }
     const unsigned long long end = port_monotonic_ns();
@@ -450,8 +455,8 @@ void PortBenchFrameEnd(void)
         }
         ++s_matchFrameCounter;
     }
-    if(s_playActive) ++s_playFrameCounter;
-    const int captureEligible=(!s_captureMatchOnly||s_matchActive)&&(!s_capturePlayOnly||s_playActive);
+    if(PortBenchIsPlayActive()) ++s_playFrameCounter;
+    const int captureEligible=(!s_captureMatchOnly||s_matchActive)&&(!s_capturePlayOnly||PortBenchIsPlayActive());
     if(capture_active() && captureEligible && s_captureSkip) {
         --s_captureSkip;
     } else if(capture_active() && captureEligible) {

@@ -110,7 +110,10 @@ extern void *fragment_ring_buffer_addr[GXM_CONTEXTS_NUM]; // fragment ring buffe
 extern void *fragment_usse_ring_buffer_addr[GXM_CONTEXTS_NUM]; // fragment USSE ring buffer memblock starting address
 
 // sceDisplay callback data struct
-struct display_queue_callback_data { void *addr; };
+struct display_queue_callback_data {
+	void *addr;
+	uint32_t temporal_framegen_eligible;
+};
 
 // Texture object status enum
 enum {

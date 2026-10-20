@@ -28,6 +28,8 @@ unsigned contextInitializations = 0, bufferUploads = 0;
 unsigned uniformConfigurations = 0, uniformSnapshots = 0;
 bool failUniformConfigure = false;
 vglUniformCacheStats uniformStats{};
+bool framegenConfigured = false, framegenNextEligible = false, gamePlayActive = false;
+std::vector<bool> framegenPresentEligible;
 unsigned framebufferBinds = 0, clears = 0;
 unsigned attributeEnables = 0, attributePointers = 0;
 unsigned completionWaits = 0, startupRetireCalls = 0;
@@ -265,6 +267,7 @@ bool retire_if_replaced() noexcept { ++startupRetireCalls; return true; }
 void shutdown() noexcept {}
 }
 extern "C" {
+int PortBenchIsPlayActive(void) { return gamePlayActive; }
 SceUID sceKernelGetThreadId() { return thread; }
 int sceDisplayGetVcount() { ++retraceQueries; return int(retrace); }
 size_t vglMemFree(vglMemType type) { assert(type == VGL_MEM_ALL); ++memoryQueries; return 32u * 1024 * 1024; }
@@ -314,6 +317,20 @@ void vglGetUniformCacheStats(vglUniformCacheStats* stats)
 {
     ++uniformSnapshots;
     *stats = uniformStats;
+}
+GLboolean vglConfigureTemporalFramegen(GLboolean enabled)
+{
+    assert(programs.empty()); // New swap behavior is fixed before GL init.
+    framegenConfigured = enabled != GL_FALSE;
+    return GL_TRUE;
+}
+void vglSetNextTemporalFramegenEligible(GLboolean eligible)
+{
+    framegenNextEligible = eligible != GL_FALSE;
+}
+void vglGetTemporalFramegenStats(vglTemporalFramegenStats* stats)
+{
+    if (stats) *stats = {};
 }
 GLboolean vglInitWithCustomSizes(int, int w, int h, int ram, int cdram, int, int,
                                  SceGxmMultisampleMode)
@@ -684,6 +701,8 @@ void glBlitFramebuffer(GLint sx0, GLint sy0, GLint sx1, GLint sy1, GLint x0, GLi
 void vglSwapBuffers(GLboolean)
 {
     assert(drawFb == 0);
+    framegenPresentEligible.push_back(framegenNextEligible);
+    framegenNextEligible = false;
     ++swaps;
     displayContents.push_back(backContent);
     backContent = DisplayContent::None;
@@ -717,6 +736,8 @@ void glReadPixels(GLint, GLint, GLsizei w, GLsizei h, GLenum, GLenum, GLvoid* ds
 }
 int main()
 {
+    unsetenv("STRIKERS_VITA_FRAMEGEN");
+    unsetenv("STRIKERS_VITA_FRAMEGEN_TRACE");
     unsetenv("STRIKERS_VITAGL_UNIFORM_CACHE");
     unsetenv("STRIKERS_VITAGL_PACKET_PROFILE");
     unsetenv("STRIKERS_VITAGL_UNIFORM_VERIFY");
@@ -2233,4 +2254,28 @@ int main()
     failUniformConfigure = false;
     empty();
     std::puts("Uniform cache configuration and finite owner counter deltas passed");
+
+    // Experimental present eligibility is per-swap, never persistent across
+    // black frames, disabled settings, or aborted render transactions.
+    for (const char* value : {"0", "yes", "1"}) {
+        setenv("STRIKERS_VITA_FRAMEGEN", value, 1);
+        gamePlayActive = false;
+        Renderer r;
+        assert(r.initialize() && r.initialize_scene_program());
+        assert(framegenConfigured == (std::strcmp(value, "1") == 0));
+        assert(r.begin_frame() && r.end_frame());
+        assert(!framegenPresentEligible.back());
+        gamePlayActive = true;
+        assert(r.begin_frame() && r.end_frame());
+        assert(framegenPresentEligible.back() == framegenConfigured);
+        assert(r.set_black(true) && r.begin_frame() && r.end_frame());
+        assert(!framegenPresentEligible.back());
+        assert(r.begin_frame() && r.end_frame(false));
+        assert(!framegenNextEligible);
+        gamePlayActive = false;
+        r.shutdown();
+        empty();
+    }
+    unsetenv("STRIKERS_VITA_FRAMEGEN");
+    std::puts("Temporal framegen: default-off, gameplay-only, black/discard gates passed");
 }

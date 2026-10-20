@@ -36,6 +36,8 @@ void PortBenchFrameEnd(void);
 // Game state, separate from renderer loading/scene boundaries. Only live play
 // and overtime qualify; intros, replays and post-goal scenes do not.
 void PortBenchSetPlayActive(int active);
+// Cheap relaxed-atomic state query for the optional display-queue interpolator.
+int PortBenchIsPlayActive(void);
 
 void PortBenchAddSleep(unsigned long long ns);
 

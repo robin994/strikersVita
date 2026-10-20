@@ -22,6 +22,9 @@
  */
 
 #include "shared.h"
+#include "framegen_temporal.h"
+#include <stdlib.h>
+#include <string.h>
 
 #define MAX_SCENES_PER_FRAME 8 // Maximum amount of scenes per frame allowed by sceGxm per render target
 
@@ -93,6 +96,98 @@ float DISPLAY_HEIGHT_FLOAT; // Display height in pixels (float)
 GLboolean system_app_mode = GL_FALSE; // Flag for system app mode usage
 static GLboolean gxm_initialized = GL_FALSE; // Current sceGxm state
 GLboolean is_rendering_display = GL_TRUE; // Flag for when drawing without fbo is being performed
+
+/*
+ * Optional CPU midpoint image generated after GXM completes the real frame.
+ * The old swapchain surface MUST NOT be reused here: the render thread can
+ * already be overwriting it. A dedicated RAM snapshot and a separate scanout
+ * surface keep the display callback independent of GPU buffer ownership.
+ */
+static GLboolean temporal_requested = GL_FALSE;
+static GLboolean temporal_next_eligible = GL_FALSE;
+static struct {
+	uint8_t *previous;
+	uint8_t *scanout;
+	size_t bytes;
+	uint64_t last_real_callback_us;
+	GLboolean previous_valid;
+	GLboolean disabled_slow;
+	uint32_t consecutive_slow;
+	vglTemporalFramegenStats stats;
+} temporal;
+
+static void temporal_clear_history(void) {
+	temporal.previous_valid = GL_FALSE;
+	temporal.last_real_callback_us = 0;
+}
+
+static void temporal_release(void) {
+	if (temporal.scanout)
+		vgl_free(temporal.scanout);
+	if (temporal.previous)
+		free(temporal.previous);
+	temporal.scanout = temporal.previous = NULL;
+	temporal.bytes = 0;
+	temporal.disabled_slow = GL_FALSE;
+	temporal.consecutive_slow = 0;
+	temporal_clear_history();
+}
+
+static void temporal_allocate(void) {
+	size_t bytes;
+	if (!temporal_requested || system_app_mode ||
+	    gxm_display_buffer_count != 3 || DISPLAY_WIDTH != 960 ||
+	    DISPLAY_HEIGHT != 544 ||
+	    !vgl_temporal_frame_bytes((unsigned)DISPLAY_WIDTH, (unsigned)DISPLAY_HEIGHT,
+	                               (unsigned)DISPLAY_STRIDE, &bytes))
+		return;
+	const size_t allocation = VGL_ALIGN(bytes, 1024 * 1024);
+	// Do not cannibalize textures/shader pools at low free CDRAM.
+	if (vglMemFree(VGL_MEM_VRAM) <= allocation + 4 * 1024 * 1024) {
+		__atomic_store_n(&temporal.stats.allocation_failed, 1u, __ATOMIC_RELAXED);
+		return;
+	}
+	temporal.previous = (uint8_t *)malloc(bytes);
+	if (!temporal.previous) {
+		__atomic_store_n(&temporal.stats.allocation_failed, 1u, __ATOMIC_RELAXED);
+		return;
+	}
+	// This scanout must be CDRAM-backed. Do not fall through to a random
+	// pageable host-memory pool if the preferred allocation fails.
+	temporal.scanout = (uint8_t *)vgl_memalign(4096, allocation, VGL_MEM_VRAM);
+	if (!temporal.scanout) {
+		__atomic_store_n(&temporal.stats.allocation_failed, 1u, __ATOMIC_RELAXED);
+		temporal_release();
+		return;
+	}
+	temporal.bytes = bytes;
+	temporal_clear_history();
+}
+
+GLboolean vglConfigureTemporalFramegen(GLboolean enabled) {
+	// Idempotent renderer reinitialization is allowed; live mode switches aren't.
+	if (gxm_initialized)
+		return (temporal_requested != GL_FALSE) == (enabled != GL_FALSE);
+	temporal_requested = enabled ? GL_TRUE : GL_FALSE;
+	return GL_TRUE;
+}
+
+void vglSetNextTemporalFramegenEligible(GLboolean eligible) {
+	// Single-use producer flag copied into the GXM display queue entry.
+	temporal_next_eligible = temporal_requested && eligible;
+}
+
+void vglGetTemporalFramegenStats(vglTemporalFramegenStats *out) {
+	if (!out)
+		return;
+	out->real_frames = __atomic_load_n(&temporal.stats.real_frames, __ATOMIC_RELAXED);
+	out->generated_frames = __atomic_load_n(&temporal.stats.generated_frames, __ATOMIC_RELAXED);
+	out->skipped_cadence = __atomic_load_n(&temporal.stats.skipped_cadence, __ATOMIC_RELAXED);
+	out->skipped_scene_cut = __atomic_load_n(&temporal.stats.skipped_scene_cut, __ATOMIC_RELAXED);
+	out->skipped_budget = __atomic_load_n(&temporal.stats.skipped_budget, __ATOMIC_RELAXED);
+	out->allocation_failed = __atomic_load_n(&temporal.stats.allocation_failed, __ATOMIC_RELAXED);
+	out->worst_blend_us = __atomic_load_n(&temporal.stats.worst_blend_us, __ATOMIC_RELAXED);
+}
 
 float *legacy_pool = NULL; // Mempool for GL1 immediate draw pipeline
 float *legacy_pool_ptr = NULL; // Current address for vertices population for GL1 immediate draw pipeline
@@ -254,6 +349,54 @@ static void display_queue_callback(const void *callbackData) {
 	if (vgl_display_cb)
 		vgl_display_cb(cb_data->addr);
 
+	if (temporal.previous && temporal.scanout && !temporal.disabled_slow &&
+	    cb_data->temporal_framegen_eligible && !system_app_mode && vsync_interval == 1) {
+		const uint64_t entered_us = (uint64_t)sceKernelGetSystemTimeWide();
+		const uint64_t elapsed_us = entered_us - temporal.last_real_callback_us;
+		__atomic_fetch_add(&temporal.stats.real_frames, 1u, __ATOMIC_RELAXED);
+		if (vgl_temporal_should_insert(elapsed_us, temporal.previous_valid, 1, 1) &&
+		    vgl_temporal_scene_cut(temporal.previous, (const uint8_t *)cb_data->addr,
+		                           temporal.bytes)) {
+			__atomic_fetch_add(&temporal.stats.skipped_scene_cut, 1u, __ATOMIC_RELAXED);
+		} else if (vgl_temporal_should_insert(elapsed_us, temporal.previous_valid, 1, 1)) {
+			const uint64_t start_blend_us = (uint64_t)sceKernelGetSystemTimeWide();
+			vgl_temporal_blend_midpoint(temporal.scanout, temporal.previous,
+			                            (const uint8_t *)cb_data->addr, temporal.bytes);
+			const uint32_t blend_us = (uint32_t)((uint64_t)sceKernelGetSystemTimeWide() -
+			                                     start_blend_us);
+			const uint32_t old_max = __atomic_load_n(&temporal.stats.worst_blend_us, __ATOMIC_RELAXED);
+			if (blend_us > old_max)
+				__atomic_store_n(&temporal.stats.worst_blend_us, blend_us, __ATOMIC_RELAXED);
+			// Never insert another VBlank if CPU interpolation itself is slow.
+			if (blend_us > 8000u) {
+				__atomic_fetch_add(&temporal.stats.skipped_budget, 1u, __ATOMIC_RELAXED);
+				if (++temporal.consecutive_slow >= 3)
+					temporal.disabled_slow = GL_TRUE;
+			} else {
+				temporal.consecutive_slow = 0;
+				display_fb.base = temporal.scanout;
+				if (sceDisplaySetFrameBuf(&display_fb, SCE_DISPLAY_SETBUF_NEXTFRAME) >= 0) {
+					// Midpoint and real scanout are each held for one display period.
+					if (sceDisplayWaitVblankStartMulti(1) >= 0)
+						__atomic_fetch_add(&temporal.stats.generated_frames, 1u, __ATOMIC_RELAXED);
+					else
+						temporal.disabled_slow = GL_TRUE;
+				} else {
+					temporal.disabled_slow = GL_TRUE;
+				}
+			}
+		} else if (temporal.previous_valid) {
+			__atomic_fetch_add(&temporal.stats.skipped_cadence, 1u, __ATOMIC_RELAXED);
+		}
+		temporal.last_real_callback_us = entered_us;
+		// This is a private copy: the producer may reuse the old surface as soon
+		// as the previous GXM callback returns.
+		vgl_memcpy(temporal.previous, cb_data->addr, temporal.bytes);
+		temporal.previous_valid = GL_TRUE;
+	} else {
+		temporal_clear_history();
+	}
+	display_fb.base = cb_data->addr;
 	// Setting sceDisplay framebuffer
 	sceDisplaySetFrameBuf(&display_fb, SCE_DISPLAY_SETBUF_NEXTFRAME);
 
@@ -491,6 +634,8 @@ void init_display_color_surfaces(GLboolean is_swap) {
 		if (!is_swap)
 			sceGxmSyncObjectCreate(&gxm_sync_objects[i]);
 	}
+	if (!is_swap)
+		temporal_allocate();
 }
 
 GLboolean init_depth_stencil_buffer(uint32_t w, uint32_t h, SceGxmDepthStencilSurface *surface, GLboolean has_stencil) {
@@ -813,8 +958,10 @@ void vglSetDisplayBufferCount(int count) {
 void vglSwapBuffers(GLboolean has_commondialog) {
 #ifndef SKIP_SPLASHSCREEN
 	// Ignore display swaps during splashscreen since we handle them in the splashscreen thread
-	if (is_splashscreen_active)
+	if (is_splashscreen_active) {
+		temporal_next_eligible = GL_FALSE;
 		return;
+	}
 #endif
 
 #ifdef HAVE_PROFILING
@@ -972,8 +1119,10 @@ void vglSwapBuffers(GLboolean has_commondialog) {
 		}
 #endif
 #endif
-		struct display_queue_callback_data queue_cb_data;
-		queue_cb_data.addr = gxm_color_surfaces_addr[gxm_back_buffer_index];
+			struct display_queue_callback_data queue_cb_data;
+			queue_cb_data.addr = gxm_color_surfaces_addr[gxm_back_buffer_index];
+			queue_cb_data.temporal_framegen_eligible = temporal_next_eligible ? 1u : 0u;
+			temporal_next_eligible = GL_FALSE;
 #ifdef HAVE_PROFILING
 		tick = sceKernelGetProcessTimeLow();
 #endif
@@ -991,6 +1140,11 @@ void vglSwapBuffers(GLboolean has_commondialog) {
 	
 	// Perform resolution change if there's one pending
 	if (NEW_DISPLAY_WIDTH) {
+		if (temporal.previous || temporal.scanout) {
+			// The pending scanout callback may still be using the extra buffer.
+			sceGxmDisplayQueueFinish();
+			temporal_release();
+		}
 		sceGxmFinish(gxm_context);
 		sceGxmDestroyRenderTarget(gxm_render_target);
 		if (!system_app_mode) {

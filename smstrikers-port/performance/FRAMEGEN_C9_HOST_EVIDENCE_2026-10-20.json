@@ -1,0 +1,42 @@
+{
+  "base_source_branch": "recovery/c9-hardware-27fps-20261020",
+  "base_source_commit": "512e9cc5a2fc044ba6ab5447d5cc4eb520631caa",
+  "created_unix": 1792523767.1799612,
+  "device_baseline_fps_before_feature": 27.1143645938458,
+  "device_installed_or_tested": false,
+  "host": {
+    "asan_ubsan": true,
+    "forced_scalar": true,
+    "midpoint_schedule_scene_cut_tests": "PASS",
+    "neon_qualified": true,
+    "renderer_eligibility_and_existing_regression_suite": "PASS",
+    "run_log_bytes": 19100,
+    "run_log_sha256": "e3593f2f679f5c17728c1d525987137429a4d0c0717e32fc65c35d2bc6917c4c",
+    "tool": "Clang"
+  },
+  "limits": [
+    "No device framegen cadence/latency/ghosting or real FPS measurements",
+    "Default OFF; simulator and hardware side effects not fully validated"
+  ],
+  "measured_framegen_fps": null,
+  "schema": "strikers-c9-framegen-host-evidence-v1",
+  "status": "host_pass_vita_syntax_pass_device_unbuilt",
+  "vita_binary_built": false,
+  "vita_syntax": [
+    {
+      "return_code": 0,
+      "sha256": "a576a4797661688314d0d4fcd3b900e267c762ae9b93a845d19236efe4612315",
+      "unit": "gxm.c"
+    },
+    {
+      "return_code": 0,
+      "sha256": "5cd1d7027fbf2786541a75614aafb1644e825f28e0dd89eba60c4274ed508f5c",
+      "unit": "vitagl_renderer.cpp"
+    },
+    {
+      "return_code": 0,
+      "sha256": "c92bde395b70ed21caa5f89649eca3ec5be2a81c11ed636a0ecaafcc59c28fb0",
+      "unit": "benchmark.c"
+    }
+  ]
+}

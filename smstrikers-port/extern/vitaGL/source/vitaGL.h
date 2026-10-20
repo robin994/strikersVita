@@ -1147,6 +1147,21 @@ void vglSetDisplayBufferCount(int count);
 // Setup a callback executed everytime a new frame is sent to the display. Useful to setup a CPU rendered overlay on-screen.
 void vglSetDisplayCallback(void (*cb)(void *framebuf));
 
+// Experimental opt-in 2x temporal midpoint scanout. Configure before vglInit;
+// each eligible swap explicitly marks a real gameplay frame, never a UI frame.
+typedef struct vglTemporalFramegenStats {
+	uint32_t real_frames;
+	uint32_t generated_frames;
+	uint32_t skipped_cadence;
+	uint32_t skipped_scene_cut;
+	uint32_t skipped_budget;
+	uint32_t allocation_failed;
+	uint32_t worst_blend_us;
+} vglTemporalFramegenStats;
+GLboolean vglConfigureTemporalFramegen(GLboolean enabled);
+void vglSetNextTemporalFramegenEligible(GLboolean eligible);
+void vglGetTemporalFramegenStats(vglTemporalFramegenStats *out);
+
 // Setup the fragment ring buffer size of sceGxm. Must be called before vglInit*. Default value: SCE_GXM_DEFAULT_FRAGMENT_RING_BUFFER_SIZE.
 void vglSetFragmentBufferSize(uint32_t size);
 

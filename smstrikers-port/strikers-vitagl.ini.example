@@ -29,3 +29,8 @@ vitagl_timing = 0
 vitagl_affine_uv = 0
 # Move affine fog distance to vertices; keep clamp/curves per fragment.
 vitagl_vertex_fog = 0
+# Experimental scanout-only temporal midpoint generation, OFF by default.
+# Doubles some displayed images, not simulation FPS; can ghost or add latency.
+vita_framegen = 0
+# Print aggregated display callback counters every 240 submitted gameplay frames.
+vita_framegen_trace = 0
