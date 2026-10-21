@@ -31,7 +31,7 @@ vitagl_affine_uv = 0
 vitagl_vertex_fog = 0
 # CPU0 worker overlaps character snapshot grabs/blends with independent
 # CPU2 power-up interpolation. No added threads or off-thread GL/GXM.
-vita_async_snapshot = 0
+vita_async_snapshot = 1
 # Fixed 256-entry marker lookup cache on the frontend only; generations
 # invalidate on registration, marker changes, replacements and release.
 vita_glx_cache = 0

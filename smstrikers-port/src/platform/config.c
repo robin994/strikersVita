@@ -26,7 +26,7 @@
 #if defined(PORT_VITA)
 #define PORT_VITA_DEFAULTS_BEGIN "# --- STRIKERS VALIDATED DEFAULTS BEGIN ---"
 #define PORT_VITA_DEFAULTS_END "# --- STRIKERS VALIDATED DEFAULTS END ---"
-#define PORT_VITA_DEFAULTS_REVISION "2026-10-15-vitagl-unified"
+#define PORT_VITA_DEFAULTS_REVISION "2026-10-21-c9-async-snapshot-only"
 
 typedef struct VitaDefaultConfigEntry
 {
@@ -42,6 +42,10 @@ static const VitaDefaultConfigEntry s_vita_defaults[] = {
     { "fps_overlay", "0" },
     { "vita_test_match", "0" },
     { "vita_frameskip", "0" },
+    // C9 checkpoint: overlap CPU-only snapshot work; leave GLX lookup
+    // caching and other experimental render paths disabled.
+    { "vita_async_snapshot", "1" },
+    { "vita_glx_cache", "0" },
     { "vita_debug_menu", "0" },
     { "seed", "0x53545249" },
     { "fixed_dt", "0" },
