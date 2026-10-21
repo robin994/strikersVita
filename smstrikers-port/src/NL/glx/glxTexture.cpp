@@ -9,6 +9,7 @@
 #if defined(STRIKERS_VITA_NATIVE_RUNTIME)
 #include "port/native_match_runtime.hpp"
 #include "port/native_graphics.hpp"
+#include "port/glx_marker_lookup_cache.hpp"
 #include <algorithm>
 #endif
 #include "dolphin/os.h"
@@ -43,6 +44,23 @@ static unsigned long nGridMemory;
 static PlatTexture texobj;
 
 static PlatTexture* glx_MakeGridTexture(int width, int height);
+#if defined(STRIKERS_VITA_NATIVE_RUNTIME)
+namespace
+{
+// Only the frontend game thread owns the mutable GLX texture registry.
+// The async snapshot worker must never touch it or any GPU resource.
+port::glx::MarkerLookupCache<PlatTexture*> markerLookup;
+bool markerCacheEnabled()
+{
+    static const bool enabled = [] {
+        const char* setting = getenv("STRIKERS_VITA_GLX_CACHE");
+        return setting && setting[0] == '1' && setting[1] == '\0';
+    }();
+    return enabled;
+}
+void invalidateMarkerLookup() noexcept { markerLookup.invalidate(); }
+}
+#endif
 
 static inline void (TexDestructor::* glx_GetTexDestructorCallback())(const unsigned long&, PlatTexture**)
 {
@@ -100,6 +118,9 @@ static bool glxLoadNativeBundle(nlFile* file,unsigned size)
  */
 glxTextureLoadCallback_t glx_SetLoadCallback(glxTextureLoadCallback_t callback)
 {
+#if defined(STRIKERS_VITA_NATIVE_RUNTIME)
+    invalidateMarkerLookup();
+#endif
     unsigned long (*oldCallback)(unsigned long) = glxTextureLoad_cb;
     glxTextureLoad_cb = callback;
     return oldCallback;
@@ -118,6 +139,9 @@ int glx_GetTexMarkerLevel()
  */
 void glx_AdvanceTexMarkerLevel()
 {
+#if defined(STRIKERS_VITA_NATIVE_RUNTIME)
+    invalidateMarkerLookup();
+#endif
     currentMarkerLevel += 1;
 }
 
@@ -148,6 +172,7 @@ inline void TexDestructor::CallDestructor(const unsigned long& index, PlatTextur
 void glx_BackupTexMarkerLevel(int level)
 {
     #if defined(STRIKERS_VITA_NATIVE_RUNTIME)
+    invalidateMarkerLookup();
     port::directmatch::on_texture_release(level);
     #endif
     while (currentMarkerLevel != level)
@@ -164,6 +189,9 @@ void glx_BackupTexMarkerLevel(int level)
  */
 void glxInitTex()
 {
+#if defined(STRIKERS_VITA_NATIVE_RUNTIME)
+    invalidateMarkerLookup();
+#endif
     currentMarkerLevel = -1;
     for (int level = 0; level < 16; level++)
     {
@@ -177,6 +205,10 @@ void glxInitTex()
  */
 bool glx_SetGridMode(bool bGrid)
 {
+#if defined(STRIKERS_VITA_NATIVE_RUNTIME)
+    if (glx_bGridMode != bGrid)
+        invalidateMarkerLookup();
+#endif
     bool prevGridMode = glx_bGridMode;
     glx_bGridMode = bGrid;
     return prevGridMode;
@@ -309,10 +341,22 @@ PlatTexture* glx_GetTex(uintptr_t handle, bool bMissingFatal, bool bAllowGrids)
         handle = pAnim->GetTexture(-1)->textureHandle;
     }
 
+#if defined(STRIKERS_VITA_NATIVE_RUNTIME)
+    // Direct pointers have already been tested above. Animated handles are
+    // resolved on every call, and grid substitutions must never be cached.
+    const bool cacheable = markerCacheEnabled() && !pAnim && !bAllowGrids && !bMissingFatal;
+    PlatTexture* cached = NULL;
+    if (cacheable && markerLookup.find(handle, cached))
+        return cached;
+#endif
     for (index = currentMarkerLevel; index >= 0; index--)
     {
         if (textures[index]->FindGet(handle, &tex))
         {
+#if defined(STRIKERS_VITA_NATIVE_RUNTIME)
+            if (cacheable)
+                markerLookup.remember(handle, *tex);
+#endif
             if (bAllowGrids && glx_bGridMode)
             {
                 index = (u32)(u16)(*tex)->m_Height >> 2;
@@ -347,6 +391,9 @@ bool glx_AddTex(uintptr_t handle, PlatTexture* pTex)
     }
     textureTree = textures[currentMarkerLevel];
 
+#if defined(STRIKERS_VITA_NATIVE_RUNTIME)
+    invalidateMarkerLookup();
+#endif
     textureTree->Add(handle, pTex);
     return true;
 }
@@ -1025,6 +1072,9 @@ void glplatTextureAdd(uintptr_t handle, const void* textureData, unsigned long s
     {
         textureTree = textures[currentMarkerLevel];
 
+#if defined(STRIKERS_VITA_NATIVE_RUNTIME)
+        invalidateMarkerLookup();
+#endif
         textureTree->Add(handleCopy, pTex);
     }
 }
@@ -1037,6 +1087,9 @@ void glplatTextureAdd(uintptr_t handle, const void* textureData, unsigned long s
 void glplatTextureReplace(uintptr_t handle, const void* textureData, unsigned long size)
 {
 #if defined(STRIKERS_VITA_NATIVE_RUNTIME)
+    // The replacement may overwrite the native texture's live fields. The
+    // next lookup must re-resolve through the registry, never reuse its ID.
+    invalidateMarkerLookup();
     if(!glxApplyNativeTexture(glx_GetTex(handle,false,false),textureData,size))
         OSReport("[native-texture] invalid native replacement: %08lx\n",(unsigned long)handle);
 #else

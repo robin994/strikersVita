@@ -16,6 +16,7 @@ bool started = false;
 pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
 pthread_cond_t ready = PTHREAD_COND_INITIALIZER, done = PTHREAD_COND_INITIALIZER;
 bool stopping = false, pending = false, completed = true;
+bool asyncOutstanding = false;
 Task function = nullptr;
 void* context = nullptr;
 size_t count = 0, grain = 0;
@@ -78,6 +79,7 @@ bool initialize() noexcept
     error = pthread_attr_setstacksize(&attr, 0x80000);
     stopping = pending = false;
     completed = true;
+    asyncOutstanding = false;
     if (!error)
         error = pthread_create(&worker, &attr, worker_main, nullptr);
     pthread_attr_destroy(&attr);
@@ -94,6 +96,10 @@ void shutdown() noexcept
     if (!started)
         return;
     pthread_mutex_lock(&mutex);
+    // A shutdown between begin_async and the caller's scoped join must not
+    // discard a queued job while its context still belongs to the caller.
+    while (asyncOutstanding && !completed)
+        pthread_cond_wait(&done, &mutex);
     stopping = true;
     pthread_cond_signal(&ready);
     pthread_mutex_unlock(&mutex);
@@ -102,6 +108,50 @@ void shutdown() noexcept
 }
 unsigned worker_threads() noexcept { return started ? 1 : 0; }
 unsigned game_execution_lanes() noexcept { return started ? 2 : 1; }
+AsyncWork::~AsyncWork()
+{
+    if (active)
+        (void)finish_async(*this);
+}
+bool begin_async(AsyncWork& job, size_t n, size_t step, Task task, void* opaque) noexcept
+{
+    if (job.active || !task || !step || !started || n <= step)
+        return false;
+    pthread_mutex_lock(&mutex);
+    if (asyncOutstanding || !completed || pending || stopping)
+    {
+        pthread_mutex_unlock(&mutex);
+        return false;
+    }
+    function = task;
+    context = opaque;
+    count = n;
+    grain = step;
+    next.store(0, std::memory_order_relaxed);
+    success.store(true, std::memory_order_relaxed);
+    completed = false;
+    asyncOutstanding = true;
+    job.active = true;
+    job.result = true;
+    pending = true;
+    pthread_cond_signal(&ready);
+    pthread_mutex_unlock(&mutex);
+    return true;
+}
+bool finish_async(AsyncWork& job) noexcept
+{
+    if (!job.active)
+        return job.result;
+    watchdog::Scope watchdogJoin(watchdog::Role::Frontend, watchdog::Stage::JobsJoin);
+    pthread_mutex_lock(&mutex);
+    while (!completed)
+        pthread_cond_wait(&done, &mutex);
+    job.result = success.load(std::memory_order_acquire);
+    job.active = false;
+    asyncOutstanding = false;
+    pthread_mutex_unlock(&mutex);
+    return job.result;
+}
 bool parallel_for(size_t n, size_t step, Task task, void* opaque) noexcept
 {
     if (!task || !step)
@@ -111,6 +161,13 @@ bool parallel_for(size_t n, size_t step, Task task, void* opaque) noexcept
     if (!started || n <= step)
         return task(opaque, 0, n, 0);
     pthread_mutex_lock(&mutex);
+    if (asyncOutstanding)
+    {
+        // Nested work cannot replace the worker's in-flight stack context.
+        // Run it on the caller without altering the async job's publication.
+        pthread_mutex_unlock(&mutex);
+        return task(opaque, 0, n, 0);
+    }
     function = task;
     context = opaque;
     count = n;

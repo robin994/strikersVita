@@ -35,6 +35,15 @@ bool VitaGameParallelEnabled()
     }();
     return enabled;
 }
+bool VitaAsyncSnapshotEnabled()
+{
+    // Keep the C9 scheduling unchanged until two hardware A/B pairs pass.
+    static const bool enabled = [] {
+        const char* value = std::getenv("STRIKERS_VITA_ASYNC_SNAPSHOT");
+        return value != nullptr && value[0] == '1' && value[1] == '\0';
+    }();
+    return enabled;
+}
 
 struct CharacterBlendJob
 {
@@ -175,6 +184,9 @@ void RenderSnapshot::Grab()
 {
     mNumNisExtraBalls = 0;
 #if defined(PORT_VITA)
+    CharacterGrabJob grabJob{};
+    port::jobs::AsyncWork pendingGrab;
+    bool overlapGrab = false;
     if (VitaGameParallelEnabled() && port::jobs::worker_threads() != 0)
     {
         unsigned int serialMask = 0;
@@ -188,8 +200,14 @@ void RenderSnapshot::Grab()
                 serialMask |= 1u << i;
             }
         }
-        CharacterGrabJob job = { this, serialMask };
-        (void)port::jobs::parallel_for(10, port::jobs::game_execution_lanes()>=4 ? 2 : 3, GrabCharacters, &job);
+        grabJob = { this, serialMask };
+        // Character snapshots use disjoint storage. Copy powerups and
+        // fragments on the frontend while CPU0 snapshots characters.
+        overlapGrab = VitaAsyncSnapshotEnabled() &&
+                      port::jobs::begin_async(pendingGrab, 10, 2, GrabCharacters, &grabJob);
+        if (!overlapGrab)
+            (void)port::jobs::parallel_for(10, port::jobs::game_execution_lanes()>=4 ? 2 : 3,
+                                           GrabCharacters, &grabJob);
     }
     else
     {
@@ -211,6 +229,12 @@ void RenderSnapshot::Grab()
     {
         mExplosionFragments[i].Grab();
     }
+#if defined(PORT_VITA)
+    // All character data must be committed before other snapshot state or
+    // rendering can read it. AsyncWork also joins on early unwinding.
+    if (overlapGrab)
+        (void)port::jobs::finish_async(pendingGrab);
+#endif
 
     if (mpExplodableVisibilityRecords != nullptr)
     {
@@ -493,13 +517,22 @@ void RenderSnapshot::Blend(const float* blendFactors, const RenderSnapshot& lhs,
         }
 
         CharacterBlendJob characterJob = { this, &lhs, &rhs, blendFactors, serialCharacterMask };
-        (void)port::jobs::parallel_for(10, port::jobs::game_execution_lanes()>=4 ? 2 : 3, BlendCharacters, &characterJob);
-
-        // Powerups and explosion fragments are pure value interpolation with
-        // disjoint destinations. Batch them into one job so the barrier cost is
-        // amortized over 170 objects.
         SnapshotObjectBlendJob objectJob = { this, &lhs, &rhs, blendFactors };
-        (void)port::jobs::parallel_for(170, 48, BlendSnapshotObjects, &objectJob);
+        port::jobs::AsyncWork pendingBlend;
+        if (VitaAsyncSnapshotEnabled() &&
+            port::jobs::begin_async(pendingBlend, 10, 2, BlendCharacters, &characterJob))
+        {
+            // Read-only lhs/rhs; characters and 170 objects have separate
+            // destinations. The existing job lane is reused (no extra thread).
+            (void)BlendSnapshotObjects(&objectJob, 0, 170, 0);
+            (void)port::jobs::finish_async(pendingBlend);
+        }
+        else
+        {
+            (void)port::jobs::parallel_for(10, port::jobs::game_execution_lanes()>=4 ? 2 : 3,
+                                           BlendCharacters, &characterJob);
+            (void)port::jobs::parallel_for(170, 48, BlendSnapshotObjects, &objectJob);
+        }
     }
     else
     {
