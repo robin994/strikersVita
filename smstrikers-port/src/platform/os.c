@@ -197,6 +197,47 @@ u32 OSGetConsoleType(void) { return 0x00000001u; } // retail production unit
 int PortSwitchLanguage(void);
 #endif
 
+#if defined(PORT_VITA)
+#include <psp2/apputil.h>
+#include <psp2/system_param.h>
+
+// The language picked in the Vita's system settings, for when strikers.ini names none.
+static int PortVitaLanguage(void)
+{
+    static int s_checked;
+    static int s_language = PORT_LANGUAGE_UNSET;
+    SceAppUtilInitParam init;
+    SceAppUtilBootParam boot;
+    int lang;
+
+    if (s_checked)
+        return s_language;
+    s_checked = 1;
+    if (port_region() == PORT_REGION_USA)
+        return s_language;
+    memset(&init, 0, sizeof init);
+    memset(&boot, 0, sizeof boot);
+    sceAppUtilInit(&init, &boot); // Already initialised is fine; the query below still works.
+    if (sceAppUtilSystemParamGetInt(SCE_SYSTEM_PARAM_ID_LANG, &lang) < 0)
+        return s_language;
+    switch (lang)
+    {
+    case SCE_SYSTEM_PARAM_LANG_ENGLISH_US:
+    case SCE_SYSTEM_PARAM_LANG_ENGLISH_GB: s_language = PORT_LANGUAGE_ENGLISH; break;
+    case SCE_SYSTEM_PARAM_LANG_GERMAN:     s_language = PORT_LANGUAGE_GERMAN; break;
+    case SCE_SYSTEM_PARAM_LANG_FRENCH:     s_language = PORT_LANGUAGE_FRENCH; break;
+    case SCE_SYSTEM_PARAM_LANG_SPANISH:    s_language = PORT_LANGUAGE_SPANISH; break;
+    case SCE_SYSTEM_PARAM_LANG_ITALIAN:    s_language = PORT_LANGUAGE_ITALIAN; break;
+    case SCE_SYSTEM_PARAM_LANG_JAPANESE:
+        if (port_region() == PORT_REGION_JAPAN)
+            s_language = PORT_LANGUAGE_JAPANESE;
+        break;
+    default: break;
+    }
+    return s_language;
+}
+#endif
+
 int port_language(void)
 {
     static const struct { const char* name; int value; } kLanguages[] = {
@@ -220,6 +261,8 @@ int port_language(void)
     if (v == NULL || *v == '\0')
 #if defined(__SWITCH__)
         return PortSwitchLanguage();
+#elif defined(PORT_VITA)
+        return PortVitaLanguage();
 #else
         return PORT_LANGUAGE_UNSET;
 #endif

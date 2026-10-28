@@ -934,7 +934,7 @@ if(STRIKERS_VITA)
         strikers_vitagl vitashark SceShaccCgExt taihen_stub SceShaccCg_stub mathneon
         SceCommonDialog_stub SceKernelDmacMgr_stub SceKernelThreadMgr_stub SceSysmem_stub SceProcessmgr_stub
         SceCtrl_stub SceAudio_stub SceAudioIn_stub ScePower_stub SceRtc_stub
-        SceIofilemgr_stub SceAppMgr_stub SceDisplay_stub SceGxm_stub
+        SceIofilemgr_stub SceAppMgr_stub SceAppUtil_stub SceDisplay_stub SceGxm_stub
         SceSysmodule_stub SceVideodec_stub SceAvPlayer_stub SceSblSsMgr_stub SceLibKernel_stub pthread m)
     if(STRIKERS_VITA_PROFILER)
         target_link_libraries(strikers PRIVATE

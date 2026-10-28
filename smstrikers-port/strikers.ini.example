@@ -188,7 +188,8 @@
 # log = console
 
 # Menu language: english, german, french, spanish or italian, and japanese on the Japanese disc.
-# Unset keeps the disc's own language. The American disc ignores this.
+# Unset keeps the disc's own language (on the Vita, the system language if the disc has it).
+# The American disc ignores this.
 # language = german
 
 # Texture packs load from mods/textures/ beside the game and mods/textures/ in the user folder. A
