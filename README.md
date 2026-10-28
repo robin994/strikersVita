@@ -3,9 +3,11 @@
 An unofficial port of **Super Mario Strikers / Mario Smash Football** for
 PlayStation Vita. The current runtime uses VitaGL, PC-prepared native graphics,
 PCM audio, and **H.264/AAC MP4 movies streamed from PSARC through SceAvPlayer**.
-This project is still under development. The next performance milestone is
-**stable 30 FPS in rendered cutscenes**, followed by 60 FPS. Neither target
-has been achieved or certified yet.
+This project is still under development. Version 1.4 runs live gameplay at
+**about 58-59 FPS** on a retail Vita (measured at 444/222 MHz with vsync, in
+a test match), up from about 16-20 FPS. Stadium intros and replays are
+presented at an even 30 FPS by design. Stable 60 FPS in every scene is not
+certified yet.
 
 **For the best possible performance, installing
 [CapUnlocker](https://github.com/GrapheneCt/CapUnlocker) is strongly recommended.**
@@ -14,6 +16,7 @@ game applications. See the [CapUnlocker setup](#capunlocker-for-best-performance
 below. The plugin is not included in the VPK.
 
 - [PSARC asset preparation and PS Vita installation](ASSET_SETUP.md)
+- [1.4 performance changes](smstrikers-port/performance/new_coke_vita_optimisations.md)
 - [Performance measurements, MP4 playback and the 30 FPS milestone](smstrikers-port/performance/MIDTERM_30FPS_MP4_2026-10-22.md)
 - [Local release candidate and tester instructions](TESTING_RC.md)
 - [Example runtime configuration](smstrikers-port/strikers-vitagl.ini.example)

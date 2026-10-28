@@ -11,7 +11,7 @@ PROFILE_ARGS=(-USTRIKERS_VERSION -DSTRIKERS_VITA_NO_LOGS=OFF)
 if [[ "${MODE}" == "--release-candidate" ]]; then
   # Rebind the shared cache to this checkout and remove stale experiment flags.
   PROFILE_ARGS=(--fresh -DSTRIKERS_VITA_NO_LOGS=ON
-    -DSTRIKERS_VERSION="${STRIKERS_RELEASE_VERSION:-1.3.0-rc.20261022.1}")
+    -DSTRIKERS_VERSION="${STRIKERS_RELEASE_VERSION:-1.4.0}")
 elif [[ "${MODE}" != "normal" || "$#" -gt 1 ]]; then
   echo "Usage: $0 [--release-candidate]" >&2
   exit 2
