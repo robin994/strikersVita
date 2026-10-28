@@ -14,7 +14,7 @@ Install the complete VPK with VitaShell and copy the supplied INI to
 The new pipeline requires `ux0:data/strikersVita/sms.psarc`.
 Before updating, also back up `cardA/` and `cardB/` from that directory.
 
-This 1.4 profile uses the normal game flow, PlayStation button glyphs,
+This 1.5 profile uses the normal game flow, PlayStation button glyphs,
 444 MHz CPU / 222 MHz GPU, vsync, asynchronous rendering and no render
 skipping. The 3D scene renders at 72% of 960x544 (64% for two seconds after a
 late frame) and is filtered up on presentation; intros and replays present at
@@ -22,6 +22,17 @@ late frame) and is filtered up on presentation; intros and replays present at
 disabled. To restore GameCube glyphs, set `vita_playstation_glyphs = 0` and
 restart. `vitagl_render_scale = 100` restores native-resolution rendering at a
 large performance cost.
+
+`language` selects the menu language: `english`, `german`, `french`, `spanish`
+or `italian` on the European disc, `japanese` on the Japanese disc. Left empty,
+the game uses the Vita's system language when the disc has it; the American disc
+is English only. Local multiplayer on PS TV, or on a Vita running MiniVitaTV,
+assigns paired DualShock 3/4 controllers to players 1-4. It has not been tested
+on hardware yet; please report results.
+
+1.5 comments out settings from older release INIs that disabled the 1.4
+performance profile (for example `vitagl_vertex_fog = 0`), once, the first time
+it starts. The original lines stay in the file, commented, with a note.
 
 Test startup and save loading, menus and controls, one full match, stadium
 entrance, goals/replays, trophy presentations and movies. Include movie
@@ -33,8 +44,9 @@ Do not enable profiling during normal-performance tests.
 
 Measured on a retail Vita (test match, 300 live gameplay frames after 600
 frames of warm-up, real-time simulation): 58.4-58.9 FPS, mean frame 17.0-17.1 ms,
-p95 20.5-21.7 ms, every frame within 33.3 ms. The previous build measured about
-16.4 FPS in the same scene. Stable 60 FPS in every scene is not certified;
+p95 20.5-21.7 ms, every frame within 33.3 ms, in The Palace. Pipeline Central
+measured 48.9 FPS (mean 20.5 ms, p95 28.4 ms). The previous build measured about
+16.4 FPS in The Palace. Stable 60 FPS in every scene is not certified;
 please report scenes that stutter or drop.
 
 To rebuild from a clean checkout with VitaSDK configured:

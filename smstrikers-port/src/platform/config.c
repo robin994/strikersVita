@@ -6,6 +6,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 
 #if defined(PORT_VITA)
 #include <errno.h>
@@ -67,7 +68,7 @@ int port_config_test_rename(const char*, const char*);
 #endif
 #define PORT_VITA_DEFAULTS_BEGIN "# --- STRIKERS VALIDATED DEFAULTS BEGIN ---"
 #define PORT_VITA_DEFAULTS_END "# --- STRIKERS VALIDATED DEFAULTS END ---"
-#define PORT_VITA_DEFAULTS_REVISION "2026-10-27-vita-performance-10"
+#define PORT_VITA_DEFAULTS_REVISION "2026-10-29-vita-performance-11"
 
 typedef struct VitaDefaultConfigEntry
 {
@@ -225,6 +226,55 @@ static int write_vita_default_block(FILE* f)
     return vita_config_printf(f, "%s\n", PORT_VITA_DEFAULTS_END) < 0 ? -1 : 0;
 }
 
+// Values that release INIs before 1.4 set explicitly. Above the managed block they win over the
+// defaults, and on a 1.4 binary they cost most of the frame rate (Pipeline Central fell to 6 FPS).
+// A refresh comments them out once; a player who wants one back can write it again.
+static const VitaDefaultConfigEntry s_vita_retired[] = {
+    { "vita_async_renderer", "0" },
+    { "vita_async_models", "0" },
+    { "vitagl_affine_uv", "0" },
+    { "vitagl_vertex_fog", "0" },
+    { "vitagl_bc1_direct", "0" },
+    { "vitagl_render_scale", "100" },
+};
+
+static int vita_config_retired_line(const char* line)
+{
+    char copy[1024];
+    char* key;
+    char* val;
+    char* eq;
+    size_t n;
+
+    while (*line == ' ' || *line == '\t')
+        line++;
+    if (*line == '#' || *line == ';' || *line == '[' || *line == '\0')
+        return 0;
+    n = strlen(line);
+    if (n >= sizeof copy)
+        return 0;
+    memcpy(copy, line, n + 1);
+    eq = strchr(copy, '=');
+    if (eq == NULL)
+        return 0;
+    *eq = '\0';
+    key = copy;
+    val = eq + 1;
+    for (n = strlen(key); n > 0 && (key[n - 1] == ' ' || key[n - 1] == '\t'); --n)
+        key[n - 1] = '\0';
+    while (*val == ' ' || *val == '\t')
+        val++;
+    for (n = strlen(val); n > 0 && (val[n - 1] == ' ' || val[n - 1] == '\t' ||
+                                    val[n - 1] == '\r' || val[n - 1] == '\n'); --n)
+        val[n - 1] = '\0';
+    for (size_t i = 0; i < sizeof s_vita_retired / sizeof s_vita_retired[0]; ++i)
+    {
+        if (strcasecmp(key, s_vita_retired[i].key) == 0 && strcmp(val, s_vita_retired[i].value) == 0)
+            return 1;
+    }
+    return 0;
+}
+
 static int vita_config_exists(const char* path)
 {
     struct stat status;
@@ -359,6 +409,15 @@ static int refresh_vita_default_config(char* path, size_t pathSize)
                 if (line_is_marker(line, PORT_VITA_DEFAULTS_END))
                     managed = 0;
                 continue;
+            }
+            if (vita_config_retired_line(line))
+            {
+                fprintf(stderr, "[port] strikers.ini: disabled an outdated setting: %s", line);
+                if (vita_config_puts("# Turned off by Strikers 1.5: outdated and slow. Remove the '# ' below to force it.\n# ", out) == EOF)
+                {
+                    failed = 1;
+                    break;
+                }
             }
             if (vita_config_puts(line, out) == EOF)
             {

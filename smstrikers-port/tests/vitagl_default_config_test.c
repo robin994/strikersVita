@@ -35,7 +35,9 @@ int main()
                 FILE* f = fopen(path, "w");
                 assert(f);
                 fputs(
-                    "vita_test_match=1\nvita_playstation_glyphs=0\nframe_capture_frames=30\n# --- STRIKERS VALIDATED DEFAULTS "
+                    "vita_test_match=1\nvita_playstation_glyphs=0\nframe_capture_frames=30\n"
+                    "vita_async_renderer = 0\nvitagl_vertex_fog=0\nvitagl_render_scale = 100\nvitagl_render_scale_note = 100\n"
+                    "# --- STRIKERS VALIDATED DEFAULTS "
                     "BEGIN ---\n# profile_revision = stale\ntask_profile=1\ngxm_disable=0x8\n# --- "
                     "STRIKERS VALIDATED DEFAULTS END ---\n",
                     f);
@@ -75,9 +77,17 @@ int main()
             size_t n = fread(text, 1, sizeof text - 1, f);
             assert(!fclose(f));
             text[n] = 0;
-            assert(strstr(text, "profile_revision = 2026-10-27-vita-performance-10"));
+            assert(strstr(text, "profile_revision = 2026-10-29-vita-performance-11"));
             assert(!strstr(text, "gxm_") && !strstr(text, "aurora"));
             assert(!strstr(text, "task_profile=1"));
+            if (mode)
+            {
+                // Pre-1.4 release values are kept, commented out, ahead of the defaults.
+                assert(strstr(text, "\n# vita_async_renderer = 0\n"));
+                assert(strstr(text, "\n# vitagl_vertex_fog=0\n"));
+                assert(strstr(text, "\n# vitagl_render_scale = 100\n"));
+                assert(strstr(text, "\nvitagl_render_scale_note = 100\n"));
+            }
             config_assert_closed();
             exit(0);
         }
@@ -89,6 +99,6 @@ int main()
     assert(!unlink(path));
     assert(!chdir("/tmp"));
     assert(!rmdir(directory));
-    puts("VitaGL config: profiling/capture off, INI-controlled test match, managed-block migration "
+    puts("VitaGL config: profiling/capture off, INI-controlled test match, managed-block migration, outdated-value retirement "
          "and repeated load passed");
 }

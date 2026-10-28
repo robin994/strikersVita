@@ -3,9 +3,10 @@
 An unofficial port of **Super Mario Strikers / Mario Smash Football** for
 PlayStation Vita. The current runtime uses VitaGL, PC-prepared native graphics,
 PCM audio, and **H.264/AAC MP4 movies streamed from PSARC through SceAvPlayer**.
-This project is still under development. Version 1.4 runs live gameplay at
-**about 58-59 FPS** on a retail Vita (measured at 444/222 MHz with vsync, in
-a test match), up from about 16-20 FPS. Stadium intros and replays are
+This project is still under development. Since version 1.4, live gameplay runs
+at **about 58-59 FPS** on a retail Vita in The Palace and about 48 FPS in
+Pipeline Central (measured at 444/222 MHz with vsync, in a test match), up from
+about 16-20 FPS. Stadium intros and replays are
 presented at an even 30 FPS by design. Stable 60 FPS in every scene is not
 certified yet.
 
