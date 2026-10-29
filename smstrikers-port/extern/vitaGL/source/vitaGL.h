@@ -1092,6 +1092,16 @@ typedef enum {
 	VGL_MODE_POSTPONED // Moves shaders compilation into glLinkProgram. Best results since will always have correct shader couples for the translation for accurate semantic bindings resolution.
 } vglSemanticMode;
 
+typedef struct {
+	SceGxmContext *context; // Usable gxm context during a custom splashscreen rendering (NULL in the init callback)
+	SceGxmShaderPatcher *patcher; // Usable gxm shader patcher during a custom splashscreen rendering
+	float elapsed_seconds; // Elapsed time since splashscreen start in seconds
+	float delta_seconds; // Elapsed time since previous splahscreen frame in seconds
+	GLboolean must_stop; // Flag whether splashscreen is supposed to end
+} vglSplashDetails;
+
+typedef GLboolean (*vglSplashCallback)(const vglSplashDetails *details);
+
 // vgl*
 // Add a new global custom semantic binding for the GLSL translator.
 void vglAddSemanticBinding(const GLchar *const *varying, GLint index, GLenum type);
@@ -1252,6 +1262,16 @@ void vglUseExtraMem(GLboolean usage);
 // Simplified function to enable or disable V-Sync. For more fine granularity on the swap interval use eglSwapInterval.
 void vglWaitVblankStart(GLboolean enable);
 void vglStrikersDisplayDepthTransient(void);
+
+// Overloads the default vitaGL boot splashscreen with a custom one. Call before vglInit*.
+// Strikers fork: the init callback runs on the vglInit thread, before the splashscreen thread starts,
+// so its shader patcher calls cannot race the application's; the main callback returns GL_TRUE once
+// it is safe to hand the display back after must_stop. With VGL_CUSTOM_SPLASHSCREEN_ONLY, no
+// splashscreen runs unless one is set up here and its init callback succeeds.
+void vglSetupCustomSplashscreen(vglSplashCallback init_callback, vglSplashCallback term_callback, vglSplashCallback main_callback, GLboolean clear_screen);
+
+// Whether a splashscreen is still on screen.
+GLboolean vglIsSplashscreenActive(void);
 
 #ifdef __cplusplus
 }

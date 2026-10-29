@@ -1,0 +1,4 @@
+float4 main(float3 cube_dir : TEXCOORD3, uniform samplerCUBE image : TEXUNIT0,
+            uniform float4 tint) : COLOR {
+    return texCUBE(image, normalize(cube_dir)) * tint;
+}

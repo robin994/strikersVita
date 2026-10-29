@@ -30,6 +30,9 @@ is English only. Local multiplayer on PS TV, or on a Vita running MiniVitaTV,
 assigns paired DualShock 3/4 controllers to players 1-4. It has not been tested
 on hardware yet; please report results.
 
+The GameCube boot animation plays while the game starts; X, O or Start skips
+the rest once the game is ready, and `vita_gc_intro = 0` turns it off.
+
 1.5 comments out settings from older release INIs that disabled the 1.4
 performance profile (for example `vitagl_vertex_fog = 0`), once, the first time
 it starts. The original lines stay in the file, commented, with a note.

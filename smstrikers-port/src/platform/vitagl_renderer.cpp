@@ -5,6 +5,7 @@
 #include "port/scene_material_alpha.hpp"
 #include "port/vitagl_texture.hpp"
 #include "port/native_boot_screen.hpp"
+#include "port/gc_intro.h"
 #include "port/loading_indicator_state.hpp"
 #include "port/loading_indicator_shaders.hpp"
 #include <vitaGL.h>
@@ -842,9 +843,16 @@ bool Renderer::initialize(bool timed) noexcept
         vglSetupDisplayRenderTarget(1);
         vglSetupShaderPatcher(2 * MB, 512 * 1024, 4 * MB);
         vglSetParamBufferSize(8 * MB);
+        const bool intro = PortGcIntroSetup() != 0;
         // VitaGL returns whether it selected a smaller resolution, not success.
         const bool fallback =
             vglInitWithCustomSizes(0, W, H, ram, cdram, slow, 0, SCE_GXM_MULTISAMPLE_NONE);
+        // The intro owns scanout until the first scene; the boot bitmap must not flash over it.
+        if (intro && vglIsSplashscreenActive())
+        {
+            std::fprintf(stderr, "[vitagl] GameCube intro playing\n");
+            d.startupRetired = port::startup::retire_if_replaced();
+        }
         GLint viewport[4]{};
         glGetIntegerv(GL_VIEWPORT, viewport);
         if (!d.check("initialize") || viewport[2] != int(W) || viewport[3] != int(H))

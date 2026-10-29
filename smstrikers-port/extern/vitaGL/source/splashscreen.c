@@ -20,9 +20,9 @@
  * splashscreen.c:
  * Implementation for the optional aniamted splashscreen
  */
-#ifndef SKIP_SPLASHSCREEN
 #include "shared.h"
 #include "vitaGL.h"
+#ifndef SKIP_SPLASHSCREEN
 
 #define SPLASH_FADE_SEC 1.0f
 #define SPLASH_VTX_COUNT 12084
@@ -48,9 +48,14 @@ const SceGxmProgramParameter *splash_ambient;
 
 static SceGxmContext *splash_gxm_context;
 
+static vglSplashCallback vgl_splash_init_cb, vgl_splash_term_cb, vgl_splash_main_cb;
+static GLboolean splash_clear_screen = GL_TRUE;
+static vglSplashDetails splash_details;
+
 extern SceGxmRenderTarget *gxm_render_target;
 extern SceGxmSyncObject *gxm_sync_objects[DISPLAY_MAX_BUFFER_COUNT];
 
+#ifndef VGL_CUSTOM_SPLASHSCREEN_ONLY
 static const unsigned char vgl_splash_compressed[] __attribute__((aligned(16))) = {
 	0x00, 0x4a, 0xd1, 0x9d, 0xc1, 0x83, 0xb9, 0xa5, 0xc1, 0x00, 0x00, 0x5e, 0x5e, 0x9b, 0xc1, 0x4a,
 	0x09, 0xa6, 0x00, 0xc1, 0x00, 0x2f, 0xed, 0x9a, 0xc1, 0x3c, 0x11, 0x81, 0x08, 0x00, 0x1c, 0x23,
@@ -6210,7 +6215,9 @@ static unsigned char splash_f[] __attribute__((aligned(16))) = {
 	0x01, 0xe4, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x61, 0x6d, 0x62, 0x69, 
 	0x65, 0x6e, 0x74, 0x00, 
 };
+#endif
 
+#ifndef VGL_CUSTOM_SPLASHSCREEN_ONLY
 static void lz77_decompress(const uint8_t *src, uint8_t *dst, size_t dst_len) {
 	size_t di = 0;
 	size_t si = 0;
@@ -6233,112 +6240,109 @@ static void lz77_decompress(const uint8_t *src, uint8_t *dst, size_t dst_len) {
 	}
 }
 
+#endif
+
 int splashscreen_thread(unsigned int args, void *arg) {
 	GLboolean must_terminate = GL_FALSE;
-	
-	// Decompress the splashscreen data
-	uint8_t *tmp = (uint8_t*)vglMalloc(SPLASH_VTX_PACKED + SPLASH_IDX_COUNT * 2);
-	void *gpu_splash_vtxs = gpu_alloc_mapped(sizeof(float) * SPLASH_VTX_COUNT * 6, VGL_MEM_RAM);
-	void *gpu_splash_idxs = gpu_alloc_mapped(sizeof(uint16_t) * SPLASH_IDX_COUNT, VGL_MEM_RAM);
-	lz77_decompress(vgl_splash_compressed, tmp, SPLASH_VTX_PACKED + SPLASH_IDX_COUNT * 2);
-	uint8_t *p = tmp;
-	float *v_out = (float*)gpu_splash_vtxs;
-	uint16_t* i_out = (uint16_t *)gpu_splash_idxs;
-	for (int i = 0; i < SPLASH_VTX_COUNT; i++) {
-		v_out[0] = *(float*)p;
-		v_out[1] = *(float*)&p[4];
-		uint8_t type = p[8];
-		switch (type) {
-		case 0:
-			v_out[2] = SPLASH_Z_FRONT;
-			v_out[3] = 0.f;
-			v_out[4] = 0.f;
-			v_out[5] = 1.f;
-			break;
-		case 1:
-			v_out[2] = SPLASH_Z_BACK;
-			v_out[3] = 0.f;
-			v_out[4] = 0.f;
-			v_out[5] = -1.f;
-			break;
-		default:
-			v_out[2] = (type & 1) ? SPLASH_Z_BACK : SPLASH_Z_FRONT;
-			v_out[3] = (float)(*(int16_t*)&p[9]) * (1.0f / 32767.0f);
-			v_out[4] = (float)(*(int16_t*)&p[11]) * (1.0f / 32767.0f);
-			v_out[5] = 0.f;
-			p += 4;
-			break;
+	void *gpu_splash_vtxs = NULL, *gpu_splash_idxs = NULL;
+#ifndef VGL_CUSTOM_SPLASHSCREEN_ONLY
+	if (!vgl_splash_main_cb) {
+		// Decompress the splashscreen data
+		uint8_t *tmp = (uint8_t*)vglMalloc(SPLASH_VTX_PACKED + SPLASH_IDX_COUNT * 2);
+		gpu_splash_vtxs = gpu_alloc_mapped(sizeof(float) * SPLASH_VTX_COUNT * 6, VGL_MEM_RAM);
+		gpu_splash_idxs = gpu_alloc_mapped(sizeof(uint16_t) * SPLASH_IDX_COUNT, VGL_MEM_RAM);
+		lz77_decompress(vgl_splash_compressed, tmp, SPLASH_VTX_PACKED + SPLASH_IDX_COUNT * 2);
+		uint8_t *p = tmp;
+		float *v_out = (float*)gpu_splash_vtxs;
+		uint16_t* i_out = (uint16_t *)gpu_splash_idxs;
+		for (int i = 0; i < SPLASH_VTX_COUNT; i++) {
+			v_out[0] = *(float*)p;
+			v_out[1] = *(float*)&p[4];
+			uint8_t type = p[8];
+			switch (type) {
+			case 0:
+				v_out[2] = SPLASH_Z_FRONT;
+				v_out[3] = 0.f;
+				v_out[4] = 0.f;
+				v_out[5] = 1.f;
+				break;
+			case 1:
+				v_out[2] = SPLASH_Z_BACK;
+				v_out[3] = 0.f;
+				v_out[4] = 0.f;
+				v_out[5] = -1.f;
+				break;
+			default:
+				v_out[2] = (type & 1) ? SPLASH_Z_BACK : SPLASH_Z_FRONT;
+				v_out[3] = (float)(*(int16_t*)&p[9]) * (1.0f / 32767.0f);
+				v_out[4] = (float)(*(int16_t*)&p[11]) * (1.0f / 32767.0f);
+				v_out[5] = 0.f;
+				p += 4;
+				break;
+			}
+			v_out += 6;
+			p += 9;
 		}
-		v_out += 6;
-		p += 9;
+		uint16_t *p2 = (uint16_t*)p;
+		uint16_t prev = 0;
+		for (int i = 0; i < SPLASH_IDX_COUNT; i++) {
+			prev += p2[i];
+			i_out[i] = prev;
+		}
+		vgl_free(tmp);
 	}
-	uint16_t *p2 = (uint16_t*)p;
-	uint16_t prev = 0;
-	for (int i = 0; i < SPLASH_IDX_COUNT; i++) {
-		prev += p2[i];
-		i_out[i] = prev;
-	}
-	vgl_free(tmp);
-	
+#endif
+
 	// Setup required resources
 	const GLfloat clear_depth_value = 1.f;
 	vector4f splash_clear_vertices;
 	vector4f_convert_to_local_space(&splash_clear_vertices, 0, 0, DISPLAY_WIDTH, DISPLAY_HEIGHT);
 	float clear_rgba_val[4] = {0.0f, 0.0f, 0.0f, 1.0f};
-	
+
 	// Initializing an alternate sceGxm context
 	init_gxm_context(&splash_gxm_context, VGL_CONTEXT_SPLASHSCREEN);
-	
+	splash_details.context = splash_gxm_context;
+
 	// Setup any immutable state
 	sceGxmSetCullMode(splash_gxm_context, SCE_GXM_CULL_NONE);
 	sceGxmSetFrontDepthWriteEnable(splash_gxm_context, SCE_GXM_DEPTH_WRITE_ENABLED);
-	
+
 	// Initing any immutable resource
 	matrix4x4 proj;
 	matrix4x4_init_perspective(proj, 42.f, 960.f / 544.f, 0.1f, 100.f);
 	float angle_y = 0.f, scale = 0.5f, t = 0.f, t_end_start = 0.f;
 	float ambient[4] = {0.1059f, 0.2353f, 0.7686f, 0.f};
-
 	uint32_t start  = sceKernelGetProcessTimeLow();
+	uint32_t previous = start;
 	for (;;) {
-		t = (float)(sceKernelGetProcessTimeLow() - start) / 1000000.0f;
-		
+		uint32_t now = sceKernelGetProcessTimeLow();
+		t = (float)(now - start) / 1000000.0f;
+		splash_details.elapsed_seconds = t;
+		splash_details.delta_seconds = (float)(now - previous) / 1000000.0f;
+		previous = now;
+
 		// Check if a termination request arrived
 		if (!must_terminate) {
 			uint32_t timeout = 10000;
 			if (!sceKernelWaitSema(splash_mutex[0], 1, &timeout)) {
-				must_terminate = GL_TRUE;
+				splash_details.must_stop = must_terminate = GL_TRUE;
 				t_end_start = t;
 			}
 		}
-		
-		if (t < SPLASH_FADE_SEC) {
-			ambient[3] = t;
-		} else if (must_terminate) {
-			float ft = (t - t_end_start);
-			ambient[3] = 1.f - ft;
-			if (ambient[3] <= 0.f) {
-				break;
+		if (!vgl_splash_main_cb) {
+			if (t < SPLASH_FADE_SEC) {
+				ambient[3] = t;
+			} else if (must_terminate) {
+				float ft = (t - t_end_start);
+				ambient[3] = 1.f - ft;
+				if (ambient[3] <= 0.f) {
+					break;
+				}
+			} else {
+				ambient[3] = 1.f;
 			}
-		} else {
-			ambient[3] = 1.f;
 		}
-		
-		matrix4x4 mv, mvp;
-		matrix3x3 nm;
-		matrix4x4_identity(mv);
-		matrix4x4_translate(mv, 0.f, 0.f, -50.f);
-		matrix4x4_rotate(mv, angle_y, 0.f, 1.f, 0.f);
-		matrix4x4_scale(mv, scale, scale, scale);
-		matrix4x4_multiply(mvp, proj, mv);
-		angle_y -= 0.016f;
 
-		for (int i = 0; i < 3; i++) {
-			for (int j = 0; j < 3; j++) {
-				nm[i][j] = mv[i][j];
-			}
-		}
-			
 		sceGxmBeginScene(splash_gxm_context, 0, gxm_render_target,
 			NULL, NULL,
 			gxm_sync_objects[gxm_back_buffer_index],
@@ -6347,31 +6351,53 @@ int splashscreen_thread(unsigned int args, void *arg) {
 
 		// Clear the screen
 		void *fbuffer, *vbuffer;
-		sceGxmSetFrontDepthFunc(splash_gxm_context, SCE_GXM_DEPTH_FUNC_ALWAYS);
-		sceGxmSetVertexProgram(splash_gxm_context, clear_vertex_program_patched);
-		sceGxmSetFragmentProgram(splash_gxm_context, clear_fragment_program_patched);
-		sceGxmReserveVertexDefaultUniformBuffer(splash_gxm_context, &vbuffer);
-		sceGxmSetUniformDataF(vbuffer, clear_position, 0, 4, &splash_clear_vertices.x);
-		sceGxmSetUniformDataF(vbuffer, clear_depth, 0, 1, &clear_depth_value);
-		sceGxmReserveFragmentDefaultUniformBuffer(splash_gxm_context, &fbuffer);
-		sceGxmSetUniformDataF(fbuffer, clear_color, 0, 4, clear_rgba_val);
-		sceGxmDraw(splash_gxm_context, SCE_GXM_PRIMITIVE_TRIANGLE_FAN, SCE_GXM_INDEX_FORMAT_U16, depth_clear_indices, 4);
-		
-		// Draw the rotating splashscreen
-		sceGxmSetFrontDepthFunc(splash_gxm_context, SCE_GXM_DEPTH_FUNC_LESS_EQUAL);
-		sceGxmSetVertexProgram(splash_gxm_context, splash_vertex_program_patched);
-		sceGxmSetFragmentProgram(splash_gxm_context, splash_fragment_program_patched);
-		sceGxmSetVertexStream(splash_gxm_context, 0, gpu_splash_vtxs);
-		sceGxmReserveVertexDefaultUniformBuffer(splash_gxm_context, &vbuffer);
-		sceGxmSetUniformDataF(vbuffer, splash_wvp, 0, 16, (const float *)mvp);
-		sceGxmSetUniformDataF(vbuffer, splash_wv, 0, 16, (const float *)mv);
-		sceGxmSetUniformDataF(vbuffer, splash_normal_mat, 0,  9, (const float *)nm);
-		sceGxmReserveFragmentDefaultUniformBuffer(splash_gxm_context, &fbuffer);
-		sceGxmSetUniformDataF(fbuffer, splash_ambient, 0, 4, ambient);
-		sceGxmDraw(splash_gxm_context, SCE_GXM_PRIMITIVE_TRIANGLES, SCE_GXM_INDEX_FORMAT_U16, gpu_splash_idxs, SPLASH_IDX_COUNT);
-		
+		if (!vgl_splash_main_cb || splash_clear_screen) {
+			sceGxmSetFrontDepthFunc(splash_gxm_context, SCE_GXM_DEPTH_FUNC_ALWAYS);
+			sceGxmSetVertexProgram(splash_gxm_context, clear_vertex_program_patched);
+			sceGxmSetFragmentProgram(splash_gxm_context, clear_fragment_program_patched);
+			sceGxmReserveVertexDefaultUniformBuffer(splash_gxm_context, &vbuffer);
+			sceGxmSetUniformDataF(vbuffer, clear_position, 0, 4, &splash_clear_vertices.x);
+			sceGxmSetUniformDataF(vbuffer, clear_depth, 0, 1, &clear_depth_value);
+			sceGxmReserveFragmentDefaultUniformBuffer(splash_gxm_context, &fbuffer);
+			sceGxmSetUniformDataF(fbuffer, clear_color, 0, 4, clear_rgba_val);
+			sceGxmDraw(splash_gxm_context, SCE_GXM_PRIMITIVE_TRIANGLE_FAN, SCE_GXM_INDEX_FORMAT_U16, depth_clear_indices, 4);
+		}
+
+		GLboolean finished = GL_FALSE;
+		if (vgl_splash_main_cb) {
+			finished = vgl_splash_main_cb(&splash_details);
+		}
+#ifndef VGL_CUSTOM_SPLASHSCREEN_ONLY
+		else {
+			matrix4x4 mv, mvp;
+			matrix3x3 nm;
+			matrix4x4_identity(mv);
+			matrix4x4_translate(mv, 0.f, 0.f, -50.f);
+			matrix4x4_rotate(mv, angle_y, 0.f, 1.f, 0.f);
+			matrix4x4_scale(mv, scale, scale, scale);
+			matrix4x4_multiply(mvp, proj, mv);
+			angle_y -= 0.016f;
+			for (int i = 0; i < 3; i++) {
+				for (int j = 0; j < 3; j++) {
+					nm[i][j] = mv[i][j];
+				}
+			}
+			// Draw the rotating splashscreen
+			sceGxmSetFrontDepthFunc(splash_gxm_context, SCE_GXM_DEPTH_FUNC_LESS_EQUAL);
+			sceGxmSetVertexProgram(splash_gxm_context, splash_vertex_program_patched);
+			sceGxmSetFragmentProgram(splash_gxm_context, splash_fragment_program_patched);
+			sceGxmSetVertexStream(splash_gxm_context, 0, gpu_splash_vtxs);
+			sceGxmReserveVertexDefaultUniformBuffer(splash_gxm_context, &vbuffer);
+			sceGxmSetUniformDataF(vbuffer, splash_wvp, 0, 16, (const float *)mvp);
+			sceGxmSetUniformDataF(vbuffer, splash_wv, 0, 16, (const float *)mv);
+			sceGxmSetUniformDataF(vbuffer, splash_normal_mat, 0,  9, (const float *)nm);
+			sceGxmReserveFragmentDefaultUniformBuffer(splash_gxm_context, &fbuffer);
+			sceGxmSetUniformDataF(fbuffer, splash_ambient, 0, 4, ambient);
+			sceGxmDraw(splash_gxm_context, SCE_GXM_PRIMITIVE_TRIANGLES, SCE_GXM_INDEX_FORMAT_U16, gpu_splash_idxs, SPLASH_IDX_COUNT);
+		}
+#endif
 		sceGxmEndScene(splash_gxm_context, NULL, NULL);
-		
+
 		// Performing commondialog update just in case
 		SceCommonDialogUpdateParam updateParam;
 		vgl_memset(&updateParam, 0, sizeof(updateParam));
@@ -6384,66 +6410,92 @@ int splashscreen_thread(unsigned int args, void *arg) {
 		updateParam.renderTarget.depthSurfaceData = gxm_depth_stencil_surface.depthData;
 		updateParam.displaySyncObject = gxm_sync_objects[gxm_back_buffer_index];
 		sceCommonDialogUpdate(&updateParam);
-		
+
 		// Sending new frame to display queue
 		struct display_queue_callback_data queue_cb_data;
 		queue_cb_data.addr = gxm_color_surfaces_addr[gxm_back_buffer_index];
 		sceGxmDisplayQueueAddEntry(gxm_sync_objects[gxm_front_buffer_index], gxm_sync_objects[gxm_back_buffer_index], &queue_cb_data);
 		gxm_front_buffer_index = gxm_back_buffer_index;
 		gxm_back_buffer_index = (gxm_back_buffer_index + 1) % gxm_display_buffer_count;
+
+		// A custom splashscreen ends only when it reports it is done after the stop request
+		if (vgl_splash_main_cb && must_terminate && finished) {
+			break;
+		}
 	}
+	(void)proj; (void)angle_y; (void)scale; (void)t_end_start;
 
 	// Notify main renderer thread that splashscreen is over
 	sceGxmFinish(splash_gxm_context);
 	sceKernelSignalSema(splash_mutex[1], 1);
-	
+
 	// Cleanup any resource used for the splashscreen
-	vgl_free(gpu_splash_idxs);
-	vgl_free(gpu_splash_vtxs);
+	if (gpu_splash_idxs)
+		vgl_free(gpu_splash_idxs);
+	if (gpu_splash_vtxs)
+		vgl_free(gpu_splash_vtxs);
 	sceGxmDestroyContext(splash_gxm_context);
 	vgl_free(vdm_ring_buffer_addr[VGL_CONTEXT_SPLASHSCREEN]);
 	vgl_free(vertex_ring_buffer_addr[VGL_CONTEXT_SPLASHSCREEN]);
 	vgl_free(fragment_ring_buffer_addr[VGL_CONTEXT_SPLASHSCREEN]);
 	vgl_free(context_host_mem[VGL_CONTEXT_SPLASHSCREEN]);
 	gpu_fragment_usse_free_mapped(fragment_usse_ring_buffer_addr[VGL_CONTEXT_SPLASHSCREEN]);
-	
 	return sceKernelExitDeleteThread(0);
 }
 
 void invoke_splashscreen() {
-	// Load up splashscreen shaders
-	SceGxmProgram *gxm_program_splash_v = (SceGxmProgram *)&splash_v;
-	SceGxmProgram *gxm_program_splash_f = (SceGxmProgram *)&splash_f;
-	sceGxmShaderPatcherRegisterProgram(gxm_shader_patcher, gxm_program_splash_v, &splash_vertex_id);
-	sceGxmShaderPatcherRegisterProgram(gxm_shader_patcher, gxm_program_splash_f, &splash_fragment_id);
-	splash_position = sceGxmProgramFindParameterByName(gxm_program_splash_v, "aPos");
-	splash_normal = sceGxmProgramFindParameterByName(gxm_program_splash_v, "aNormal");
-	splash_wv = sceGxmProgramFindParameterByName(gxm_program_splash_v, "wv");
-	splash_wvp = sceGxmProgramFindParameterByName(gxm_program_splash_v, "wvp");
-	splash_normal_mat = sceGxmProgramFindParameterByName(gxm_program_splash_v, "normal");
-	splash_ambient = sceGxmProgramFindParameterByName(gxm_program_splash_f, "ambient");
-	SceGxmVertexAttribute splash_attrs[2];
-	SceGxmVertexStream splash_streams[1];
-	splash_attrs[0].offset = 0;
-	splash_attrs[1].offset = 3 * sizeof(float);
-	splash_attrs[0].format = splash_attrs[1].format = SCE_GXM_ATTRIBUTE_FORMAT_F32;
-	splash_attrs[0].componentCount = splash_attrs[1].componentCount = 3;
-	splash_streams[0].stride = 6 * sizeof(float);
-	splash_attrs[0].regIndex = sceGxmProgramParameterGetResourceIndex(splash_position);
-	splash_attrs[1].regIndex = sceGxmProgramParameterGetResourceIndex(splash_normal);
-	splash_attrs[0].streamIndex = 0;
-	splash_attrs[1].streamIndex = 0;
-	splash_streams[0].indexSource = SCE_GXM_INDEX_SOURCE_INDEX_16BIT;
-	{ patch_vertex_program(gxm_shader_patcher, splash_vertex_id, splash_attrs, 2, splash_streams, 1, &splash_vertex_program_patched); }
-	SceGxmBlendInfo blend_config;
-	blend_config.colorMask = SCE_GXM_COLOR_MASK_ALL;
-	blend_config.colorFunc = SCE_GXM_BLEND_FUNC_ADD;
-	blend_config.alphaFunc = SCE_GXM_BLEND_FUNC_ADD;
-	blend_config.colorSrc = SCE_GXM_BLEND_FACTOR_SRC_ALPHA;
-	blend_config.colorDst = SCE_GXM_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
-	blend_config.alphaSrc = SCE_GXM_BLEND_FACTOR_ONE;
-	blend_config.alphaDst = SCE_GXM_BLEND_FACTOR_ZERO;
-	{ patch_fragment_program(gxm_shader_patcher, splash_fragment_id, SCE_GXM_OUTPUT_REGISTER_FORMAT_UCHAR4, msaa_mode, &blend_config, gxm_program_splash_v, &splash_fragment_program_patched); }
+	if (vgl_splash_main_cb) {
+		// Strikers fork: on this thread, so that the callback's shader patcher work cannot race the
+		// application's once vglInit returns.
+		vgl_memset(&splash_details, 0, sizeof(splash_details));
+		splash_details.patcher = gxm_shader_patcher;
+		if (vgl_splash_init_cb && !vgl_splash_init_cb(&splash_details)) {
+			vgl_splash_init_cb = vgl_splash_term_cb = vgl_splash_main_cb = NULL;
+#ifdef VGL_CUSTOM_SPLASHSCREEN_ONLY
+			return;
+#endif
+		}
+	}
+#ifdef VGL_CUSTOM_SPLASHSCREEN_ONLY
+	if (!vgl_splash_main_cb)
+		return;
+#else
+	if (!vgl_splash_main_cb) {
+		// Load up splashscreen shaders
+		SceGxmProgram *gxm_program_splash_v = (SceGxmProgram *)&splash_v;
+		SceGxmProgram *gxm_program_splash_f = (SceGxmProgram *)&splash_f;
+		sceGxmShaderPatcherRegisterProgram(gxm_shader_patcher, gxm_program_splash_v, &splash_vertex_id);
+		sceGxmShaderPatcherRegisterProgram(gxm_shader_patcher, gxm_program_splash_f, &splash_fragment_id);
+		splash_position = sceGxmProgramFindParameterByName(gxm_program_splash_v, "aPos");
+		splash_normal = sceGxmProgramFindParameterByName(gxm_program_splash_v, "aNormal");
+		splash_wv = sceGxmProgramFindParameterByName(gxm_program_splash_v, "wv");
+		splash_wvp = sceGxmProgramFindParameterByName(gxm_program_splash_v, "wvp");
+		splash_normal_mat = sceGxmProgramFindParameterByName(gxm_program_splash_v, "normal");
+		splash_ambient = sceGxmProgramFindParameterByName(gxm_program_splash_f, "ambient");
+		SceGxmVertexAttribute splash_attrs[2];
+		SceGxmVertexStream splash_streams[1];
+		splash_attrs[0].offset = 0;
+		splash_attrs[1].offset = 3 * sizeof(float);
+		splash_attrs[0].format = splash_attrs[1].format = SCE_GXM_ATTRIBUTE_FORMAT_F32;
+		splash_attrs[0].componentCount = splash_attrs[1].componentCount = 3;
+		splash_streams[0].stride = 6 * sizeof(float);
+		splash_attrs[0].regIndex = sceGxmProgramParameterGetResourceIndex(splash_position);
+		splash_attrs[1].regIndex = sceGxmProgramParameterGetResourceIndex(splash_normal);
+		splash_attrs[0].streamIndex = 0;
+		splash_attrs[1].streamIndex = 0;
+		splash_streams[0].indexSource = SCE_GXM_INDEX_SOURCE_INDEX_16BIT;
+		{ patch_vertex_program(gxm_shader_patcher, splash_vertex_id, splash_attrs, 2, splash_streams, 1, &splash_vertex_program_patched); }
+		SceGxmBlendInfo blend_config;
+		blend_config.colorMask = SCE_GXM_COLOR_MASK_ALL;
+		blend_config.colorFunc = SCE_GXM_BLEND_FUNC_ADD;
+		blend_config.alphaFunc = SCE_GXM_BLEND_FUNC_ADD;
+		blend_config.colorSrc = SCE_GXM_BLEND_FACTOR_SRC_ALPHA;
+		blend_config.colorDst = SCE_GXM_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+		blend_config.alphaSrc = SCE_GXM_BLEND_FACTOR_ONE;
+		blend_config.alphaDst = SCE_GXM_BLEND_FACTOR_ZERO;
+		{ patch_fragment_program(gxm_shader_patcher, splash_fragment_id, SCE_GXM_OUTPUT_REGISTER_FORMAT_UCHAR4, msaa_mode, &blend_config, gxm_program_splash_v, &splash_fragment_program_patched); }
+	}
+#endif
 
 	// Starting dedicated thread for splashscreen rendering
 	splash_mutex[0] = sceKernelCreateSema("vitaGL Splashscreen Sema Push", 0, 0, 1, NULL);
@@ -6454,7 +6506,32 @@ void invoke_splashscreen() {
 }
 
 void clear_splashscreen() {
+	if (vgl_splash_main_cb) {
+		if (vgl_splash_term_cb)
+			vgl_splash_term_cb(&splash_details);
+		vgl_splash_init_cb = vgl_splash_term_cb = vgl_splash_main_cb = NULL;
+		return;
+	}
+#ifndef VGL_CUSTOM_SPLASHSCREEN_ONLY
 	sceGxmShaderPatcherForceUnregisterProgram(gxm_shader_patcher, splash_vertex_id);
 	sceGxmShaderPatcherForceUnregisterProgram(gxm_shader_patcher, splash_fragment_id);
+#endif
 }
 #endif
+
+void vglSetupCustomSplashscreen(vglSplashCallback init_callback, vglSplashCallback term_callback, vglSplashCallback main_callback, GLboolean clear_screen) {
+#ifndef SKIP_SPLASHSCREEN
+	vgl_splash_init_cb = init_callback;
+	vgl_splash_term_cb = term_callback;
+	vgl_splash_main_cb = main_callback;
+	splash_clear_screen = clear_screen;
+#endif
+}
+
+GLboolean vglIsSplashscreenActive(void) {
+#ifndef SKIP_SPLASHSCREEN
+	return is_splashscreen_active;
+#else
+	return GL_FALSE;
+#endif
+}

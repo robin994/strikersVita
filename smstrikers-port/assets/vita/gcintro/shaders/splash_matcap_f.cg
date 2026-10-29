@@ -1,0 +1,9 @@
+float4 main(float3 normal : TEXCOORD1, uniform sampler2D image : TEXUNIT0,
+            uniform float4 tint) : COLOR {
+    float2 uv = normal.xy * 0.5 + float2(-0.21, 0.38);
+    float env = tex2D(image, uv).r;
+    float3 lo = float3(30.0 / 255.0, 20.0 / 255.0, 60.0 / 255.0);
+    float3 hi = float3(95.0 / 255.0, 80.0 / 255.0, 190.0 / 255.0);
+    float3 color = saturate(lerp(lo, hi, env) * 2.0);
+    return float4(color * tint.rgb, tint.a);
+}

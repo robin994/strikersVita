@@ -1,0 +1,23 @@
+struct VertexOut {
+    float4 position : POSITION;
+    float2 uv : TEXCOORD0;
+    float3 normal : TEXCOORD1;
+    float3 view_pos : TEXCOORD2;
+    float3 cube_dir : TEXCOORD3;
+};
+
+VertexOut main(float3 position : POSITION, float3 normal : NORMAL,
+               float2 uv : TEXCOORD0, uniform float4x4 mvp,
+               uniform float4x4 mv, uniform float4x4 camera_world) {
+    VertexOut output;
+    output.position = mul(float4(position, 1.0), mvp);
+    output.view_pos = mul(float4(position, 1.0), mv).xyz;
+    output.normal = normalize(mul(float4(normal, 0.0), mv).xyz);
+    output.uv = uv;
+    // MeshBasicMaterial uses a world-space reflection vector for cube env maps.
+    // The original camera is orthographic; the view direction is constant.
+    float3 reflected = reflect(float3(0.0, 0.0, -1.0), output.normal);
+    float3 world_reflected = mul(float4(reflected, 0.0), camera_world).xyz;
+    output.cube_dir = float3(-world_reflected.x, world_reflected.yz);
+    return output;
+}

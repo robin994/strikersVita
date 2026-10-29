@@ -897,7 +897,8 @@ if(STRIKERS_AURORA AND NOT STRIKERS_VITA)
 endif()
 
 if(STRIKERS_VITA)
-    # Build the checked-in provider, with one renderer owner and no background splash.
+    # Build the checked-in provider, with one renderer owner. The only splash is the optional
+    # GameCube intro (src/platform/gc_intro.c); vitaGL's own logo is compiled out.
     file(GLOB _strikers_vitagl_sources CONFIGURE_DEPENDS
         "${CMAKE_CURRENT_SOURCE_DIR}/extern/vitaGL/source/*.c"
         "${CMAKE_CURRENT_SOURCE_DIR}/extern/vitaGL/source/utils/*.c"
@@ -907,7 +908,7 @@ if(STRIKERS_VITA)
     add_library(strikers_vitagl STATIC ${_strikers_vitagl_sources})
     target_include_directories(strikers_platform BEFORE PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/extern/vitaGL/source")
     target_include_directories(strikers_vitagl PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/extern/vitaGL/source")
-    target_compile_definitions(strikers_vitagl PRIVATE SKIP_SPLASHSCREEN=1 HAVE_SCRATCH_MEMORY=1
+    target_compile_definitions(strikers_vitagl PRIVATE VGL_CUSTOM_SPLASHSCREEN_ONLY=1 HAVE_SCRATCH_MEMORY=1
         VGL_GIT_HASH="strikers-source-snapshot" HAVE_SHADER_CACHE=1
         READBACKS_SPEEDHACK=1 DRAW_SPEEDHACK=1 NO_DEBUG=1 SKIP_ERROR_HANDLING=1
         # Main-scene depth must survive the intermediate framebuffer copies
@@ -974,7 +975,19 @@ if(STRIKERS_VITA)
              assets/vita/sce_sys/pic0.png sce_sys/pic0.png
              assets/vita/sce_sys/livearea/contents/template.xml sce_sys/livearea/contents/template.xml
              assets/vita/sce_sys/livearea/contents/bg.png sce_sys/livearea/contents/bg.png
-             assets/vita/sce_sys/livearea/contents/startup.png sce_sys/livearea/contents/startup.png)
+             assets/vita/sce_sys/livearea/contents/startup.png sce_sys/livearea/contents/startup.png
+             assets/vita/gcintro/scene.bin gcintro/scene.bin
+             assets/vita/gcintro/texture_0.bin gcintro/texture_0.bin
+             assets/vita/gcintro/texture_1.bin gcintro/texture_1.bin
+             assets/vita/gcintro/texture_2.bin gcintro/texture_2.bin
+             assets/vita/gcintro/texture_3.bin gcintro/texture_3.bin
+             assets/vita/gcintro/texture_4.bin gcintro/texture_4.bin
+             assets/vita/gcintro/splash_v.gxp gcintro/splash_v.gxp
+             assets/vita/gcintro/splash_f.gxp gcintro/splash_f.gxp
+             assets/vita/gcintro/splash_texture_f.gxp gcintro/splash_texture_f.gxp
+             assets/vita/gcintro/splash_matcap_f.gxp gcintro/splash_matcap_f.gxp
+             assets/vita/gcintro/splash_env_f.gxp gcintro/splash_env_f.gxp
+             assets/vita/gcintro/gcintro_audio.pcm gcintro/gcintro_audio.pcm)
     add_custom_command(TARGET strikers_vita.vpk-vpk POST_BUILD
         COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tools/validate_vita_package.py"
             --vpk "${CMAKE_CURRENT_BINARY_DIR}/strikers_vita.vpk"
